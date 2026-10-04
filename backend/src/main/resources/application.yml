@@ -1,0 +1,101 @@
+# ---- Server ----
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: livingdocs-backend
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/livingdocs}
+    username: ${SPRING_DATASOURCE_USERNAME:livingdocs}
+    password: ${SPRING_DATASOURCE_PASSWORD:change_me}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    # Flyway owns the schema; Hibernate only validates against it.
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
+    database-platform: ${SPRING_DATABASEPLATFORM_DEFAULT:org.hibernate.dialect.PostgreSQLDialect}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+# ---- Actuator ----
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# ---- OpenAPI / Swagger ----
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+
+# ---- Application metadata ----
+info:
+  app:
+    name: LivingDocs Backend
+    description: AI-assisted documentation maintenance platform
+    version: 0.3.0
+
+# ---- Application security (JWT) ----
+app:
+  security:
+    jwt:
+      secret: ${APP_JWT_SECRET:change-me-please-this-is-a-development-only-secret-32b+}
+      expiration-minutes: ${APP_JWT_EXPIRATION_MINUTES:1440}
+  public-url: ${APP_PUBLIC_URL:http://localhost:8080}
+
+# ---- GitHub integration ----
+github:
+  oauth:
+    client-id:     ${GITHUB_OAUTH_CLIENT_ID:dev_github_client_id}
+    client-secret: ${GITHUB_OAUTH_CLIENT_SECRET:dev_github_client_secret}
+    redirect-uri:  ${GITHUB_OAUTH_REDIRECT_URI:http://localhost:8080/api/v1/github/oauth/callback}
+    # Scopes requested from the user during OAuth.
+    scopes: ${GITHUB_OAUTH_SCOPES:repo,read:user,read:org}
+  api:
+    base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+    # Per-request timeout in milliseconds.
+    timeout-ms: ${GITHUB_API_TIMEOUT_MS:15000}
+    # User-Agent header (GitHub requires it).
+    user-agent: ${GITHUB_API_USER_AGENT:livingdocs-backend}
+  webhook:
+    # Shared secret used to compute the X-Hub-Signature-256 header.
+    secret: ${GITHUB_WEBHOOK_SECRET:dev_webhook_secret}
+  # When true, backend uses a stubbed GitHub API client (for local dev
+  # without real GitHub credentials). The stub returns deterministic fake
+  # data so the rest of the pipeline can be exercised end-to-end.
+  sandbox: ${GITHUB_SANDBOX:true}
+
+# ---- AI service integration ----
+ai-service:
+  base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
+  api-prefix: ${AI_SERVICE_API_PREFIX:/api/v1}
+  enabled: ${AI_SERVICE_ENABLED:true}
+  connect-timeout-seconds: 5
+  read-timeout-seconds: 90
+  confidence-threshold: ${AI_SERVICE_CONFIDENCE_THRESHOLD:0.65}
+
+# ---- Logging ----
+logging:
+  level:
+    root: INFO
+    com.livingdocs: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
