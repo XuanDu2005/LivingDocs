@@ -1,0 +1,15 @@
+package com.livingdocs.modules.template.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+/**
+ * Body for updating an existing documentation template. The slug is immutable;
+ * a new version is created on every save so templates can be rolled back.
+ */
+public record UpdateDocTemplateRequest(
+        @NotBlank @Size(max = 120) String name,
+        @Size(max = 500) String description,
+        @NotBlank String bodyJson,
+        boolean isDefault
+) {}
