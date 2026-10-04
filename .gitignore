@@ -1,0 +1,51 @@
+# ---- OS / IDE ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Environment ----
+.env
+.env.local
+.env.*.local
+
+# ---- Node ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/npm-debug.log*
+frontend/yarn-error.log*
+
+# ---- Python ----
+ai-service/.venv/
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+ai-service/.pytest_cache/
+ai-service/.mypy_cache/
+ai-service/.ruff_cache/
+ai-service/*.egg-info/
+ai-service/dist/
+ai-service/build/
+
+# ---- Java / Maven ----
+backend/target/
+backend/.mvn/
+backend/mvnw
+backend/mvnw.cmd
+*.class
+*.jar
+!backend/.mvn/wrapper/maven-wrapper.jar
+
+# ---- Build artifacts ----
+**/dist/
+**/build/
+
+# ---- Docker ----
+**/Dockerfile.local

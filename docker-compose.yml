@@ -1,0 +1,105 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: livingdocs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-livingdocs}
+      POSTGRES_USER: ${POSTGRES_USER:-livingdocs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-livingdocs} -d ${POSTGRES_DB:-livingdocs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - livingdocs-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: livingdocs-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: ${BACKEND_PORT:-8080}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-livingdocs}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-livingdocs}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_DATABASEPLATFORM_DEFAULT: org.hibernate.dialect.PostgreSQLDialect
+      SPRING_FLYWAY_ENABLED: "true"
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-please-this-is-a-development-only-secret-32b+}
+      APP_JWT_EXPIRATION_MINUTES: ${APP_JWT_EXPIRATION_MINUTES:-1440}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-dev_github_client_id}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-dev_github_client_secret}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:8080/api/v1/github/oauth/callback}
+      GITHUB_OAUTH_SCOPES: ${GITHUB_OAUTH_SCOPES:-repo,read:user,read:org}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://api.github.com}
+      GITHUB_API_TIMEOUT_MS: ${GITHUB_API_TIMEOUT_MS:-15000}
+      GITHUB_API_USER_AGENT: ${GITHUB_API_USER_AGENT:-livingdocs-backend}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-dev_webhook_secret}
+      GITHUB_SANDBOX: ${GITHUB_SANDBOX:-true}
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
+      AI_SERVICE_API_PREFIX: ${AI_SERVICE_API_PREFIX:-/api/v1}
+      AI_SERVICE_ENABLED: ${AI_SERVICE_ENABLED:-true}
+      AI_SERVICE_CONFIDENCE_THRESHOLD: ${AI_SERVICE_CONFIDENCE_THRESHOLD:-0.65}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    networks:
+      - livingdocs-net
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: livingdocs-ai-service
+    restart: unless-stopped
+    environment:
+      AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8000}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    networks:
+      - livingdocs-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080/api/v1}
+    container_name: livingdocs-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080/api/v1}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    networks:
+      - livingdocs-net
+
+networks:
+  livingdocs-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

@@ -1,0 +1,5 @@
+# Infrastructure
+
+This directory is reserved for Infrastructure-as-Code (Kubernetes, Terraform, Helm charts, etc.) in future phases.
+
+It is intentionally empty for the foundation release. Adding infrastructure manifests here should be done as a dedicated concern and should not be mixed with application code.
