@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:livingdocs;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false
+
+app:
+  security:
+    jwt:
+      secret: test-secret-which-must-be-at-least-thirty-two-bytes-long
+      expiration-minutes: 60
+
+logging:
+  level:
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
