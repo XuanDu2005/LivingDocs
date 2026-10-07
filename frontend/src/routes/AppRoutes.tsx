@@ -8,6 +8,7 @@ import DashboardPage from '../pages/DashboardPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
 import DocumentsListPage from '../pages/DocumentsListPage';
 import DriftAlertsPage from '../pages/DriftAlertsPage';
+import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import GithubCallbackPage from '../pages/GithubCallbackPage';
 import HealthDashboardPage from '../pages/HealthDashboardPage';
 import HomePage from '../pages/HomePage';
@@ -15,10 +16,13 @@ import KnowledgeBasePage from '../pages/KnowledgeBasePage';
 import LoginPage from '../pages/LoginPage';
 import NewDocumentPage from '../pages/NewDocumentPage';
 import NotFoundPage from '../pages/NotFoundPage';
+import OAuthCallbackPage from '../pages/OAuthCallbackPage';
 import ProfilePage from '../pages/ProfilePage';
 import RegisterPage from '../pages/RegisterPage';
+import ResetPasswordPage from '../pages/ResetPasswordPage';
 import ReviewQueuePage from '../pages/ReviewQueuePage';
 import TemplatesPage from '../pages/TemplatesPage';
+import VerifyEmailPage from '../pages/VerifyEmailPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 
@@ -47,6 +51,38 @@ export function AppRoutes() {
           element={
             <GuestRoute>
               <RegisterPage />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/verify-email"
+          element={
+            <GuestRoute>
+              <VerifyEmailPage />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <GuestRoute>
+              <ForgotPasswordPage />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <GuestRoute>
+              <ResetPasswordPage />
+            </GuestRoute>
+          }
+        />
+        <Route
+          path="/auth/callback"
+          element={
+            <GuestRoute>
+              <OAuthCallbackPage />
             </GuestRoute>
           }
         />
