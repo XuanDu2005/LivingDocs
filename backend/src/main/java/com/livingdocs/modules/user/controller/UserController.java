@@ -1,6 +1,7 @@
 package com.livingdocs.modules.user.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.User;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -26,9 +28,12 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService,
+                          UserRoleAssignmentRepository roleAssignmentRepository) {
         this.userService = userService;
+        this.roleAssignmentRepository = roleAssignmentRepository;
     }
 
     @GetMapping("/me")
@@ -36,7 +41,8 @@ public class UserController {
     public ResponseEntity<UserResponse> me() {
         UUID id = CurrentUser.requireId();
         User user = userService.getById(id);
-        return ResponseEntity.ok(UserResponse.from(user));
+        List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
+        return ResponseEntity.ok(UserResponse.from(user, roleCodes));
     }
 
     @PutMapping("/me")
@@ -44,6 +50,7 @@ public class UserController {
     public ResponseEntity<UserResponse> updateMe(@Valid @RequestBody UpdateProfileRequest req) {
         UUID id = CurrentUser.requireId();
         User updated = userService.updateProfile(id, req);
-        return ResponseEntity.ok(UserResponse.from(updated));
+        List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
+        return ResponseEntity.ok(UserResponse.from(updated, roleCodes));
     }
 }

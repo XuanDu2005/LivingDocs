@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -43,16 +44,22 @@ public class JwtService {
     }
 
     /**
-     * Issue a fresh JWT for the given user.
+     * Issue a fresh JWT for the given user, embedding the active platform
+     * role codes as a {@code roles} claim so clients can render role-aware
+     * UI (admin menus, role badges, …) without an extra round-trip.
      */
-    public IssuedToken issue(UUID userId, String email) {
+    public IssuedToken issue(UUID userId, String email, List<String> roleCodes) {
         Instant now = Instant.now();
         Instant exp = now.plus(expirationMinutes, ChronoUnit.MINUTES);
-        String token = Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(userId.toString())
                 .claim(AppConstants.JWT_CLAIM_EMAIL, email)
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(exp))
+                .expiration(Date.from(exp));
+        if (roleCodes != null && !roleCodes.isEmpty()) {
+            builder.claim(AppConstants.JWT_CLAIM_ROLES, roleCodes);
+        }
+        String token = builder
                 .signWith(signingKey, Jwts.SIG.HS256)
                 .compact();
         return new IssuedToken(token, exp);

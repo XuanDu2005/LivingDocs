@@ -2,6 +2,7 @@ package com.livingdocs.modules.auth.service;
 
 import com.livingdocs.common.exception.EmailNotVerifiedException;
 import com.livingdocs.common.security.JwtService;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.auth.controller.AuthController.RegistrationPendingResponse;
 import com.livingdocs.modules.auth.dto.AuthResponse;
 import com.livingdocs.modules.user.dto.LoginRequest;
@@ -14,6 +15,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * Composes user registration/authentication with JWT issuance and the
  * email-verification handshake.
@@ -22,15 +25,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final UserService userService;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final JwtService jwtService;
     private final EmailVerificationService emailVerificationService;
     private final int verificationTtlMinutes;
 
     public AuthService(UserService userService,
+                       UserRoleAssignmentRepository roleAssignmentRepository,
                        JwtService jwtService,
                        EmailVerificationService emailVerificationService,
                        @Value("${app.auth.email-verification.ttl-minutes:15}") int verificationTtlMinutes) {
         this.userService = userService;
+        this.roleAssignmentRepository = roleAssignmentRepository;
         this.jwtService = jwtService;
         this.emailVerificationService = emailVerificationService;
         this.verificationTtlMinutes = verificationTtlMinutes;
@@ -69,11 +75,12 @@ public class AuthService {
     }
 
     private AuthResponse issue(User user) {
-        JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail());
+        List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(user.getId());
+        JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail(), roleCodes);
         return new AuthResponse(
                 issued.token(),
                 issued.expiresAt().atOffset(java.time.ZoneOffset.UTC),
-                UserResponse.from(user)
+                UserResponse.from(user, roleCodes)
         );
     }
 }

@@ -1,5 +1,7 @@
 package com.livingdocs.common.security;
 
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
+import com.livingdocs.modules.user.repository.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -15,6 +17,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.filter.CorsFilter;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
  * Spring Security configuration.
@@ -46,8 +50,10 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtService jwtService) {
-        return new JwtAuthenticationFilter(jwtService);
+    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtService jwtService,
+                                                           UserRepository userRepository,
+                                                           UserRoleAssignmentRepository roleAssignmentRepository) {
+        return new JwtAuthenticationFilter(jwtService, userRepository, roleAssignmentRepository);
     }
 
     @Bean
@@ -90,5 +96,19 @@ public class SecurityConfig {
                 .addFilterAfter(jwtFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class)
                 .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
         return http.build();
+    }
+
+    /**
+     * Register the {@link PlatformRoleInterceptor} so that controllers
+     * annotated with {@link RequirePlatformRole} are protected.
+     */
+    @Bean
+    public WebMvcConfigurer platformRoleMvcConfigurer(PlatformRoleInterceptor interceptor) {
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(interceptor);
+            }
+        };
     }
 }

@@ -4,6 +4,7 @@ import com.livingdocs.common.security.JwtService;
 import com.livingdocs.modules.auth.dto.AuthResponse;
 import com.livingdocs.modules.auth.service.AuthService;
 import com.livingdocs.modules.auth.service.EmailVerificationService;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.dto.LoginRequest;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.model.User;
@@ -36,11 +37,12 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
+        UserRoleAssignmentRepository roleAssignmentRepository = mock(UserRoleAssignmentRepository.class);
         PasswordEncoder encoder = new BCryptPasswordEncoder();
-        UserService userService = new UserService(userRepository, encoder);
+        UserService userService = new UserService(userRepository, roleAssignmentRepository, encoder);
         jwtService = new JwtService("test-secret-which-is-at-least-32-bytes-long-for-hmac-sha256", 60);
         emailVerificationService = mock(EmailVerificationService.class);
-        authService = new AuthService(userService, jwtService, emailVerificationService, 15);
+        authService = new AuthService(userService, roleAssignmentRepository, jwtService, emailVerificationService, 15);
     }
 
     @Test

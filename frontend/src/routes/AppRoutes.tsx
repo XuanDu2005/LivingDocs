@@ -3,6 +3,8 @@ import { Route, Routes as RRoutes } from 'react-router-dom';
 import { GuestRoute, ProtectedRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
+import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
+import AdminRolesPage from '../pages/AdminRolesPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
 import DashboardPage from '../pages/DashboardPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
@@ -187,8 +189,24 @@ export function AppRoutes() {
         <Route
           path="/admin/users"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminUsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/roles"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminRolesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/audit-retention"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAuditRetentionPage />
             </ProtectedRoute>
           }
         />

@@ -19,6 +19,18 @@ export interface AuthenticatedUser {
   enabled: boolean;
   emailVerified?: boolean;
   createdAt: string;
+  /**
+   * Active platform role codes (e.g. ADMIN, MANAGER, STAFF,
+   * TECHNICAL_LEAD, DEVELOPER). Empty array means the user has no
+   * platform role assignments yet.
+   *
+   * <p>Replaces the legacy single-value {@code role} field. The
+   * server-side token ({@code JWT_CLAIM_ROLES}) and {@code /users/me}
+   * response both carry the same set of codes so the sidebar and admin
+   * checks can be driven by {@code roles.includes('ADMIN')}.
+   */
+  roles?: string[];
+  /** @deprecated Use {@link roles} (array) instead. Kept for backward compat. */
   role?: 'MEMBER' | 'MANAGER' | 'ADMIN';
 }
 
@@ -77,6 +89,19 @@ export function describeError(err: unknown): string {
     return err.message;
   }
   return 'Unexpected error';
+}
+
+/**
+ * Returns true if the user holds the given platform role code. Supports
+ * the legacy single-value {@code role} field for users whose stored
+ * profile hasn't been refreshed yet, and an empty/missing role list is
+ * treated as "no privileges" (returns false).
+ */
+export function hasRole(user: AuthenticatedUser | null | undefined, code: string): boolean {
+  if (!user) return false;
+  if (Array.isArray(user.roles) && user.roles.includes(code)) return true;
+  if (user.role === code) return true;
+  return false;
 }
 
 export const authStorage = {

@@ -12,6 +12,9 @@ public final class AppConstants {
     /** Custom JWT claim carrying the user's email address. */
     public static final String JWT_CLAIM_EMAIL = "email";
 
+    /** Custom JWT claim carrying the user's active platform role codes. */
+    public static final String JWT_CLAIM_ROLES = "roles";
+
     /** Authentication scheme used in HTTP Authorization headers. */
     public static final String AUTH_HEADER = "Authorization";
     public static final String AUTH_SCHEME = "Bearer ";
