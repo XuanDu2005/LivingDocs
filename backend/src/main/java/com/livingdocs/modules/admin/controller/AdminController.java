@@ -59,6 +59,7 @@ public class AdminController {
                 u.getEmail(),
                 u.getDisplayName(),
                 u.isEnabled(),
+                u.isEmailVerified(),
                 u.getCreatedAt());
     }
 }

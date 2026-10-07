@@ -39,6 +39,12 @@ public class User {
     @Column(name = "enabled", nullable = false)
     private boolean enabled = true;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
+    @Column(name = "email_verified_at")
+    private OffsetDateTime emailVerifiedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -64,6 +70,18 @@ public class User {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isEmailVerified() { return emailVerified; }
+    public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+    public OffsetDateTime getEmailVerifiedAt() { return emailVerifiedAt; }
+    public void setEmailVerifiedAt(OffsetDateTime emailVerifiedAt) { this.emailVerifiedAt = emailVerifiedAt; }
+
+    /**
+     * Mark the email address as verified. Idempotent: calling it twice is safe.
+     */
+    public void markEmailVerified() {
+        this.emailVerified = true;
+        this.emailVerifiedAt = OffsetDateTime.now();
+    }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 
