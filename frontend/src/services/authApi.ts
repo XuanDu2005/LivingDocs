@@ -81,3 +81,8 @@ export async function confirmMergeOAuth(
   );
   return data;
 }
+
+export async function startLinkProvider(provider: 'google' | 'github'): Promise<{ url: string; state: string }> {
+  const { data } = await apiClient.post<{ url: string; state: string }>(`/auth/oauth/${provider}/link/start`);
+  return data;
+}
