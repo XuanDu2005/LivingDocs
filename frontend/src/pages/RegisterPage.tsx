@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
+
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -11,12 +12,14 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card';
+import { SocialAuthButtons } from '../components/auth/SocialAuthButtons';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 
 export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
 
   const [email, setEmail] = useState<string>('');
   const [displayName, setDisplayName] = useState<string>('');
@@ -29,13 +32,17 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
     if (password !== confirm) {
-      setError('Passwords do not match.');
+      setError('Mật khẩu xác nhận không khớp.');
       return;
     }
     setSubmitting(true);
     try {
-      await register({ email, password, displayName });
-      navigate('/dashboard', { replace: true });
+      const result = await register({ email, password, displayName });
+      const next = params.get('next');
+      const verifyUrl =
+        `/verify-email?email=${encodeURIComponent(result.email)}` +
+        (next ? `&next=${encodeURIComponent(next)}` : '');
+      navigate(verifyUrl, { replace: true });
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -50,15 +57,21 @@ export default function RegisterPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <UserPlus className="h-5 w-5" />
           </div>
-          <CardTitle>Create your account</CardTitle>
+          <CardTitle>Tạo tài khoản</CardTitle>
           <CardDescription>
-            Register to create workspaces and manage documentation drift.
+            Đăng ký để tạo workspace và quản lý tài liệu. Hoặc tiếp tục với Google/GitHub.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <SocialAuthButtons mode="register" />
+          <div className="my-4 flex items-center gap-3 text-xs uppercase text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            <span>hoặc</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="displayName">Display name</Label>
+              <Label htmlFor="displayName">Tên hiển thị</Label>
               <Input
                 id="displayName"
                 value={displayName}
@@ -79,7 +92,7 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Mật khẩu</Label>
               <Input
                 id="password"
                 type="password"
@@ -91,7 +104,7 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm">Confirm password</Label>
+              <Label htmlFor="confirm">Xác nhận mật khẩu</Label>
               <Input
                 id="confirm"
                 type="password"
@@ -108,13 +121,13 @@ export default function RegisterPage() {
               </div>
             )}
             <Button type="submit" disabled={submitting} className="w-full">
-              {submitting ? 'Creating account…' : 'Create account'}
+              {submitting ? 'Đang tạo tài khoản…' : 'Tạo tài khoản'}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Already have an account?{' '}
+            Đã có tài khoản?{' '}
             <Link to="/login" className="text-primary hover:underline">
-              Log in
+              Đăng nhập
             </Link>
             .
           </p>
