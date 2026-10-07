@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, ShieldCheck, ShieldOff, UserCog, Users,
 } from 'lucide-react';
@@ -18,12 +19,14 @@ import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
+import { roleName } from '../services/adminLabels';
 import { Role, UserWithRoles } from '../types/admin';
 import { format } from 'date-fns';
 
 export default function AdminUsersPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [users, setUsers] = useState<UserWithRoles[]>([]);
@@ -91,29 +94,28 @@ export default function AdminUsersPage() {
     );
   }
 
-  if (loading) return <LoadingState message="Loading users…" />;
+  if (loading) return <LoadingState message={t('adminUsers.loading')} />;
   if (error) return <ErrorState message={error} />;
 
   return (
     <div className="space-y-6">
       {!workspaceId && (
         <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/users"><ArrowLeft className="mr-1 h-4 w-4" /> Back</Link>
+          <Link to="/admin/users"><ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}</Link>
         </Button>
       )}
       {workspaceId && (
         <Button variant="ghost" size="sm" asChild>
           <Link to={`/workspaces/${workspaceId}`}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+            <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
           </Link>
         </Button>
       )}
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Admin · Users</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('adminUsers.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          Manage platform users and their platform roles. Roles are enforced by
-          the API — your own account cannot be disabled from here.
+          {t('adminUsers.subtitle')}
         </p>
       </div>
 
@@ -121,7 +123,7 @@ export default function AdminUsersPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4" /> Platform users
+            <Users className="h-4 w-4" /> {t('adminUsers.platformUsers')}
             <Badge variant="muted">{users.length}</Badge>
           </CardTitle>
         </CardHeader>
@@ -129,19 +131,19 @@ export default function AdminUsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Display name</TableHead>
-                <TableHead>Roles</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>{t('adminUsers.colEmail')}</TableHead>
+                <TableHead>{t('adminUsers.colDisplayName')}</TableHead>
+                <TableHead>{t('adminUsers.colRoles')}</TableHead>
+                <TableHead>{t('adminUsers.colStatus')}</TableHead>
+                <TableHead>{t('adminUsers.colCreated')}</TableHead>
+                <TableHead>{t('adminUsers.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                    No users yet.
+                    {t('adminUsers.noUsers')}
                   </TableCell>
                 </TableRow>
               )}
@@ -152,17 +154,17 @@ export default function AdminUsersPage() {
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {u.roles.length === 0 ? (
-                        <Badge variant="muted" className="text-[10px]">none</Badge>
+                        <Badge variant="muted" className="text-[10px]">{t('adminUsers.noRoles')}</Badge>
                       ) : (
                         u.roles.map((r) => (
-                          <Badge key={r} variant="muted" className="text-[10px]">{r}</Badge>
+                          <Badge key={r} variant="muted" className="text-[10px]">{roleName(r, r, t)}</Badge>
                         ))
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={u.enabled ? 'success' : 'destructive'}>
-                      {u.enabled ? 'Active' : 'Disabled'}
+                      {u.enabled ? t('adminUsers.active') : t('adminUsers.disabled')}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
@@ -183,12 +185,12 @@ export default function AdminUsersPage() {
                       >
                         <DialogTrigger asChild>
                           <Button size="sm" variant="outline" className="h-7 text-xs">
-                            <UserCog className="mr-1 h-3 w-3" /> Roles
+                            <UserCog className="mr-1 h-3 w-3" /> {t('adminUsers.rolesButton')}
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Edit user roles</DialogTitle>
+                            <DialogTitle>{t('adminUsers.editRoles')}</DialogTitle>
                             <DialogDescription>{u.email}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-2 py-2 max-h-80 overflow-y-auto">
@@ -220,17 +222,17 @@ export default function AdminUsersPage() {
                             ))}
                           </div>
                           <DialogFooter>
-                            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+                            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
                             <Button
                               onClick={() => void saveRoles(u.id)}
                               disabled={busy === u.id || editRoles.length === 0}
                             >
-                              Save roles
+                              {t('adminUsers.saveRoles')}
                             </Button>
                           </DialogFooter>
                           {editRoles.length === 0 && (
                             <p className="text-xs text-destructive">
-                              Cannot remove all roles — disable the account instead.
+                              {t('adminUsers.cannotRemoveAllRoles')}
                             </p>
                           )}
                         </DialogContent>
@@ -242,9 +244,11 @@ export default function AdminUsersPage() {
                         className="h-7 text-xs"
                         onClick={() => void toggleEnabled(u)}
                         disabled={busy === u.id || u.id === user?.id}
-                        title={u.id === user?.id ? 'You cannot disable your own account.' : ''}
+                        title={u.id === user?.id ? t('adminUsers.cannotDisableSelf') : ''}
                       >
-                        {u.enabled ? <><ShieldOff className="mr-1 h-3 w-3" /> Disable</> : <><ShieldCheck className="mr-1 h-3 w-3" /> Enable</>}
+                        {u.enabled
+                          ? <><ShieldOff className="mr-1 h-3 w-3" /> {t('adminUsers.disable')}</>
+                          : <><ShieldCheck className="mr-1 h-3 w-3" /> {t('adminUsers.enable')}</>}
                       </Button>
                     </div>
                   </TableCell>

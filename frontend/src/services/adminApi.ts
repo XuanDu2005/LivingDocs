@@ -1,5 +1,6 @@
 import apiClient from './api';
 import {
+  AdminWorkspace,
   AssignRolesPayload,
   AuditRetentionPolicy,
   Role,
@@ -51,5 +52,20 @@ export const adminApi = {
 
   deleteRetentionPolicy: async (entityType: string): Promise<void> => {
     await apiClient.delete(`/admin/audit-retention/${entityType}`);
+  },
+
+  // Cross-tenant workspace management
+  listAllWorkspaces: async (): Promise<AdminWorkspace[]> => {
+    const { data } = await apiClient.get<AdminWorkspace[]>('/admin/workspaces');
+    return data;
+  },
+
+  getAdminWorkspace: async (workspaceId: string): Promise<AdminWorkspace> => {
+    const { data } = await apiClient.get<AdminWorkspace>(`/admin/workspaces/${workspaceId}`);
+    return data;
+  },
+
+  deleteWorkspace: async (workspaceId: string): Promise<void> => {
+    await apiClient.delete(`/admin/workspaces/${workspaceId}`);
   },
 };

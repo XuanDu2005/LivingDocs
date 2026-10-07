@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Plus, Users as UsersIcon } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import { Button } from '../components/ui/button';
@@ -35,12 +36,12 @@ import { format } from 'date-fns';
 
 export default function WorkspacesPage() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<boolean>(false);
 
-  // Create form state
   const [name, setName] = useState<string>('');
   const [slug, setSlug] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -61,19 +62,11 @@ export default function WorkspacesPage() {
     }
   }
 
-  useEffect(() => {
-    void refresh();
-  }, []);
+  useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
     if (!slugTouched) {
-      setSlug(
-        name
-          .toLowerCase()
-          .trim()
-          .replace(/[^a-z0-9-]+/g, '-')
-          .replace(/^-+|-+$/g, ''),
-      );
+      setSlug(name.toLowerCase().trim().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, ''));
     }
   }, [name, slugTouched]);
 
@@ -83,10 +76,7 @@ export default function WorkspacesPage() {
     setCreateError(null);
     try {
       await createWorkspace({ name, slug, description: description || undefined });
-      setName('');
-      setSlug('');
-      setDescription('');
-      setSlugTouched(false);
+      setName(''); setSlug(''); setDescription(''); setSlugTouched(false);
       setOpen(false);
       await refresh();
     } catch (err) {
@@ -99,59 +89,38 @@ export default function WorkspacesPage() {
   return (
     <div>
       <PageTitle
-        title="Workspaces"
-        subtitle={`Hi ${user?.displayName ?? user?.email}. Group repositories, documents, and drift reports together.`}
+        title={t('workspaces.title')}
+        subtitle={t('workspaces.subtitle', { name: user?.displayName ?? user?.email ?? '' })}
         action={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-1 h-4 w-4" />
-                New workspace
+                {t('workspaces.newCta')}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create workspace</DialogTitle>
-                <DialogDescription>
-                  Workspaces own repositories, documents, and review workflows.
-                </DialogDescription>
+                <DialogTitle>{t('workspaces.createTitle')}</DialogTitle>
+                <DialogDescription>{t('workspaces.createDesc')}</DialogDescription>
               </DialogHeader>
               <form onSubmit={onCreate} className="space-y-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="ws-name">Name</Label>
-                  <Input
-                    id="ws-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    minLength={2}
-                    maxLength={120}
-                  />
+                  <Label htmlFor="ws-name">{t('workspaces.fieldName')}</Label>
+                  <Input id="ws-name" value={name} onChange={(e) => setName(e.target.value)}
+                    required minLength={2} maxLength={120} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ws-slug">Slug</Label>
-                  <Input
-                    id="ws-slug"
-                    value={slug}
-                    onChange={(e) => {
-                      setSlug(e.target.value);
-                      setSlugTouched(true);
-                    }}
-                    required
-                    minLength={2}
-                    maxLength={140}
-                    pattern="^[a-z0-9][a-z0-9-]*$"
-                  />
+                  <Label htmlFor="ws-slug">{t('workspaces.fieldSlug')}</Label>
+                  <Input id="ws-slug" value={slug}
+                    onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+                    required minLength={2} maxLength={140} pattern="^[a-z0-9][a-z0-9-]*$" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ws-desc">Description (optional)</Label>
-                  <Textarea
-                    id="ws-desc"
-                    value={description}
+                  <Label htmlFor="ws-desc">{t('workspaces.fieldDescription')}</Label>
+                  <Textarea id="ws-desc" value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    maxLength={500}
-                    rows={2}
-                  />
+                    maxLength={500} rows={2} />
                 </div>
                 {createError && (
                   <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
@@ -160,10 +129,10 @@ export default function WorkspacesPage() {
                 )}
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                   <Button type="submit" disabled={creating}>
-                    {creating ? 'Creating…' : 'Create'}
+                    {creating ? t('workspaces.creating') : t('common.create')}
                   </Button>
                 </DialogFooter>
               </form>
@@ -173,17 +142,17 @@ export default function WorkspacesPage() {
       />
 
       {error && <ErrorState message={error} />}
-      {loading && <LoadingState message="Loading workspaces…" />}
+      {loading && <LoadingState message={t('workspaces.loading')} />}
 
       {!loading && !error && workspaces.length === 0 && (
         <EmptyState
           icon={<UsersIcon className="h-8 w-8" />}
-          title="No workspaces yet"
-          description="Create your first workspace to start grouping repositories and documents."
+          title={t('workspaces.emptyTitle')}
+          description={t('workspaces.emptyDesc')}
           action={
             <Button onClick={() => setOpen(true)}>
               <Plus className="mr-1 h-4 w-4" />
-              New workspace
+              {t('workspaces.newCta')}
             </Button>
           }
         />
@@ -194,30 +163,23 @@ export default function WorkspacesPage() {
           <Card key={w.id} className="group transition-shadow hover:shadow-md">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <Badge variant="muted" className="font-mono text-[10px]">
-                  {w.slug}
-                </Badge>
+                <Badge variant="muted" className="font-mono text-[10px]">{w.slug}</Badge>
                 <span className="text-xs text-muted-foreground">
                   {format(new Date(w.createdAt), 'MMM d, yyyy')}
                 </span>
               </div>
               <CardTitle className="text-base">
-                <Link
-                  to={`/workspaces/${w.id}`}
-                  className="hover:text-primary"
-                >
+                <Link to={`/workspaces/${w.id}`} className="hover:text-primary">
                   {w.name}
                 </Link>
               </CardTitle>
               {w.description && (
-                <CardDescription className="line-clamp-2">
-                  {w.description}
-                </CardDescription>
+                <CardDescription className="line-clamp-2">{w.description}</CardDescription>
               )}
             </CardHeader>
             <CardContent>
               <Button variant="outline" size="sm" asChild>
-                <Link to={`/workspaces/${w.id}`}>Open workspace</Link>
+                <Link to={`/workspaces/${w.id}`}>{t('workspaces.openWorkspace')}</Link>
               </Button>
             </CardContent>
           </Card>

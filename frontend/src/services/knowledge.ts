@@ -10,12 +10,79 @@ export interface KnowledgeHit {
   metadata: Record<string, unknown>;
 }
 
+export type IndexJobStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type IndexJobKind = 'INDEX' | 'REINDEX_ALL';
+
+export interface IndexJob {
+  id: string;
+  workspaceId: string;
+  documentId: string | null;
+  status: IndexJobStatus;
+  kind: IndexJobKind;
+  totalTargets: number;
+  processedTargets: number;
+  chunksIndexed: number;
+  failedTargets: number;
+  errorMessage: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IndexJobPage {
+  items: IndexJob[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 export const knowledgeApi = {
+  /** Enqueue an indexing job for one document. Returns 202 + the job. */
   index(workspaceId: string, documentId: string) {
     return apiClient
-      .post<{ chunks_indexed: number; status: string }>(
+      .post<IndexJob>(
         `/workspaces/${workspaceId}/documents/${documentId}/knowledge/index`,
       )
+      .then((r) => r.data);
+  },
+  /** Enqueue a reindex-all job for an entire workspace. */
+  reindexAll(workspaceId: string) {
+    return apiClient
+      .post<IndexJob>(`/workspaces/${workspaceId}/knowledge/reindex`)
+      .then((r) => r.data);
+  },
+  /** Paginated job history (newest first). */
+  listJobs(workspaceId: string, page = 0, size = 20) {
+    return apiClient
+      .get<IndexJobPage>(
+        `/workspaces/${workspaceId}/indexing-jobs?page=${page}&size=${size}`,
+      )
+      .then((r) => r.data);
+  },
+  /** Most-recent 50 jobs across a workspace. */
+  recentJobs(workspaceId: string) {
+    return apiClient
+      .get<IndexJob[]>(`/workspaces/${workspaceId}/indexing-jobs/recent`)
+      .then((r) => r.data);
+  },
+  /** Fetch a single job for status polling. */
+  getJob(workspaceId: string, jobId: string) {
+    return apiClient
+      .get<IndexJob>(`/workspaces/${workspaceId}/indexing-jobs/${jobId}`)
+      .then((r) => r.data);
+  },
+  /** Cancel a pending or running job. */
+  cancelJob(jobId: string) {
+    return apiClient
+      .post<IndexJob>(`/indexing-jobs/${jobId}/cancel`)
       .then((r) => r.data);
   },
   remove(workspaceId: string, documentId: string) {

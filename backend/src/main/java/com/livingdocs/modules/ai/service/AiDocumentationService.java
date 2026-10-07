@@ -75,7 +75,7 @@ public class AiDocumentationService {
         workspaceService.requireMember(actorId, document.getWorkspaceId());
 
         AiDtos.GenerateResponse resp = aiClient.generate(
-                sourceFiles, template, null, null);
+                document.getWorkspaceId(), sourceFiles, template, null, null);
         if (resp == null) {
             log.warn("AI generation unavailable; aborting generateForDocument");
             return null;
@@ -106,7 +106,7 @@ public class AiDocumentationService {
         String currentBody = _currentBodyFor(documentId);
 
         AiDtos.DriftResponse resp = aiClient.detectDrift(
-                filesBefore, filesAfter, currentBody, document.getTitle());
+                workspaceId, filesBefore, filesAfter, currentBody, document.getTitle());
         if (resp == null || resp.findings() == null || resp.findings().isEmpty()) {
             return 0;
         }

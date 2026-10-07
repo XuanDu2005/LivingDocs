@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, FileText, Plus, Search } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import { Button } from '../components/ui/button';
@@ -34,17 +35,18 @@ const STATUS_VARIANT: Record<DocumentStatus, 'muted' | 'warning' | 'success' | '
   ARCHIVED: 'secondary',
 };
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
-  DRAFT: 'Draft',
-  IN_REVIEW: 'In review',
-  APPROVED: 'Approved',
-  PUBLISHED: 'Published',
-  REJECTED: 'Rejected',
-  ARCHIVED: 'Archived',
+const STATUS_LABEL_KEY: Record<DocumentStatus, string> = {
+  DRAFT: 'documents.statusDraft',
+  IN_REVIEW: 'documents.statusInReview',
+  APPROVED: 'documents.statusApproved',
+  PUBLISHED: 'documents.statusPublished',
+  REJECTED: 'documents.statusRejected',
+  ARCHIVED: 'documents.statusArchived',
 };
 
 export default function DocumentsListPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { t } = useTranslation();
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +58,7 @@ export default function DocumentsListPage() {
     if (!workspaceId) return;
     setLoading(true);
     setError(null);
-    documentsApi
-      .list(workspaceId)
-      .then(setDocs)
-      .catch((err) => setError(describeError(err)))
-      .finally(() => setLoading(false));
+    documentsApi.list(workspaceId).then(setDocs).catch((err) => setError(describeError(err))).finally(() => setLoading(false));
   }, [workspaceId]);
 
   const docTypes = useMemo(() => {
@@ -74,29 +72,27 @@ export default function DocumentsListPage() {
       if (docType !== 'all' && d.docType !== docType) return false;
       if (statusFilter !== 'all' && d.status !== statusFilter) return false;
       if (!q) return true;
-      return `${d.title} ${d.slug} ${d.docType} ${d.summary ?? ''}`
-        .toLowerCase()
-        .includes(q);
+      return `${d.title} ${d.slug} ${d.docType} ${d.summary ?? ''}`.toLowerCase().includes(q);
     });
   }, [docs, search, docType, statusFilter]);
 
-  if (!workspaceId) return <EmptyState title="Missing workspace id" />;
+  if (!workspaceId) return <EmptyState title={t('documents.missingWorkspaceId')} />;
 
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" asChild>
         <Link to={`/workspaces/${workspaceId}`}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+          <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
         </Link>
       </Button>
 
       <PageTitle
-        title="Documentation"
-        subtitle="All documents in this workspace."
+        title={t('documents.title')}
+        subtitle={t('documents.subtitle')}
         action={
           <Button asChild>
             <Link to={`/workspaces/${workspaceId}/documents/new`}>
-              <Plus className="mr-1 h-4 w-4" /> New document
+              <Plus className="mr-1 h-4 w-4" /> {t('documents.newCta')}
             </Link>
           </Button>
         }
@@ -106,7 +102,7 @@ export default function DocumentsListPage() {
         <div className="relative flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by title, slug, type…"
+            placeholder={t('documents.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -114,43 +110,41 @@ export default function DocumentsListPage() {
         </div>
         <Select value={docType} onValueChange={setDocType}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Type" />
+            <SelectValue placeholder={t('documents.type')} />
           </SelectTrigger>
           <SelectContent>
-            {docTypes.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t === 'all' ? 'All types' : t}
+            {docTypes.map((dt) => (
+              <SelectItem key={dt} value={dt}>
+                {dt === 'all' ? t('documents.allTypes') : dt}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t('documents.status')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            {(Object.keys(STATUS_LABEL) as DocumentStatus[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </SelectItem>
+            <SelectItem value="all">{t('documents.allStatuses')}</SelectItem>
+            {(Object.keys(STATUS_LABEL_KEY) as DocumentStatus[]).map((s) => (
+              <SelectItem key={s} value={s}>{t(STATUS_LABEL_KEY[s])}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
       {error && <ErrorState message={error} />}
-      {loading && <LoadingState message="Loading documents…" />}
+      {loading && <LoadingState message={t('documents.loading')} />}
 
       {!loading && !error && filtered.length === 0 && (
         <EmptyState
           icon={<FileText className="h-8 w-8" />}
-          title="No documents match"
-          description="Try clearing the filters or create a new document."
+          title={t('documents.emptyTitle')}
+          description={t('documents.emptyDesc')}
           action={
             <Button asChild>
               <Link to={`/workspaces/${workspaceId}/documents/new`}>
-                <Plus className="mr-1 h-4 w-4" /> New document
+                <Plus className="mr-1 h-4 w-4" /> {t('documents.newCta')}
               </Link>
             </Button>
           }
@@ -162,11 +156,11 @@ export default function DocumentsListPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Auto-update</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead>{t('documents.colTitle')}</TableHead>
+                <TableHead>{t('documents.colType')}</TableHead>
+                <TableHead>{t('documents.colStatus')}</TableHead>
+                <TableHead>{t('documents.colAutoUpdate')}</TableHead>
+                <TableHead>{t('documents.colUpdated')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -174,10 +168,7 @@ export default function DocumentsListPage() {
                 <TableRow key={d.id}>
                   <TableCell>
                     <div className="font-medium">
-                      <Link
-                        to={`/workspaces/${workspaceId}/documents/${d.id}`}
-                        className="hover:text-primary"
-                      >
+                      <Link to={`/workspaces/${workspaceId}/documents/${d.id}`} className="hover:text-primary">
                         {d.title}
                       </Link>
                     </div>
@@ -186,20 +177,12 @@ export default function DocumentsListPage() {
                       {d.summary ? ` · ${d.summary.slice(0, 80)}` : ''}
                     </div>
                   </TableCell>
+                  <TableCell><Badge variant="muted">{d.docType}</Badge></TableCell>
+                  <TableCell><Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL_KEY[d.status])}</Badge></TableCell>
                   <TableCell>
-                    <Badge variant="muted">{d.docType}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_VARIANT[d.status]}>
-                      {STATUS_LABEL[d.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {d.autoUpdateEnabled ? (
-                      <Badge variant="info">auto</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">manual</span>
-                    )}
+                    {d.autoUpdateEnabled
+                      ? <Badge variant="info">{t('documents.auto')}</Badge>
+                      : <span className="text-xs text-muted-foreground">{t('documents.manual')}</span>}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {format(new Date(d.updatedAt), 'MMM d, yyyy')}

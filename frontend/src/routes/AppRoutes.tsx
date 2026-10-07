@@ -3,9 +3,12 @@ import { Route, Routes as RRoutes } from 'react-router-dom';
 import { GuestRoute, ProtectedRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
+import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
+import AdminOverviewPage from '../pages/AdminOverviewPage';
 import AdminRolesPage from '../pages/AdminRolesPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
+import AiSettingsIndexPage from '../pages/AiSettingsIndexPage';
 import DashboardPage from '../pages/DashboardPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
 import DocumentsListPage from '../pages/DocumentsListPage';
@@ -25,8 +28,11 @@ import ResetPasswordPage from '../pages/ResetPasswordPage';
 import ReviewQueuePage from '../pages/ReviewQueuePage';
 import TemplatesPage from '../pages/TemplatesPage';
 import VerifyEmailPage from '../pages/VerifyEmailPage';
+import WorkspaceAiSettingsPage from '../pages/WorkspaceAiSettingsPage';
+import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
+import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 
 /**
  * Centralised route table. New pages should be added here and only here.
@@ -187,6 +193,55 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="/workspaces/:workspaceId/ai-settings"
+          element={
+            <ProtectedRoute>
+              <WorkspaceAiSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/audit-logs"
+          element={
+            <ProtectedRoute>
+              <WorkspaceAuditLogPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-settings"
+          element={
+            <ProtectedRoute>
+              <AiSettingsIndexPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/ai-settings"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAiSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/ai-settings/:workspaceId"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAiSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* Admin */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminOverviewPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/users"
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
@@ -207,6 +262,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminAuditRetentionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/workspaces"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminWorkspacesPage />
             </ProtectedRoute>
           }
         />

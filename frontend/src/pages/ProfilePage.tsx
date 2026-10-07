@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Check, LogOut, User } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -16,6 +17,7 @@ import { describeError } from '../services/auth';
 
 export default function ProfilePage() {
   const { user, refreshUser, logout } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState<string>('');
@@ -31,7 +33,7 @@ export default function ProfilePage() {
     }
   }, [user]);
 
-  if (!user) return <LoadingState message="Loading profile…" />;
+  if (!user) return <LoadingState message={t('profile.loading')} />;
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,7 +43,7 @@ export default function ProfilePage() {
     try {
       await updateCurrentUser({ displayName, email });
       await refreshUser();
-      setMessage('Profile updated successfully.');
+      setMessage(t('profile.updated'));
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -57,96 +59,73 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Your profile</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('profile.title')}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Update how you appear to teammates across the platform.
+          {t('profile.subtitle')}
         </p>
       </div>
 
-      {/* Profile form */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <User className="h-4 w-4" /> Profile information
+            <User className="h-4 w-4" /> {t('profile.info')}
           </CardTitle>
-          <CardDescription>Your display name and email address.</CardDescription>
+          <CardDescription>{t('profile.infoDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="profile-display">Display name</Label>
-              <Input
-                id="profile-display"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                required
-                maxLength={120}
-              />
+              <Label htmlFor="profile-display">{t('profile.displayName')}</Label>
+              <Input id="profile-display" type="text" value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)} required maxLength={120} />
             </div>
-
             <div className="space-y-1.5">
-              <Label htmlFor="profile-email">Email</Label>
-              <Input
-                id="profile-email"
-                type="email"
-                value={email}
+              <Label htmlFor="profile-email">{t('profile.email')}</Label>
+              <Input id="profile-email" type="email" value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled
-                className="opacity-60 cursor-not-allowed"
-              />
-              <p className="text-xs text-muted-foreground">Email cannot be changed here.</p>
+                disabled className="opacity-60 cursor-not-allowed" />
+              <p className="text-xs text-muted-foreground">{t('profile.emailCantChange')}</p>
             </div>
-
-            {/* User info */}
             <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">User ID</span>
+                <span className="text-muted-foreground">{t('profile.userId')}</span>
                 <code className="text-xs font-mono">{user.id}</code>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Created</span>
-                <span className="text-xs">
-                  {new Date(user.createdAt).toLocaleDateString()}
-                </span>
+                <span className="text-muted-foreground">{t('profile.created')}</span>
+                <span className="text-xs">{new Date(user.createdAt).toLocaleDateString()}</span>
               </div>
               {user.role && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Role</span>
+                  <span className="text-muted-foreground">{t('profile.role')}</span>
                   <Badge variant="info">{user.role}</Badge>
                 </div>
               )}
             </div>
-
             {message && (
               <div className="flex items-center gap-2 text-sm text-green-600">
                 <Check className="h-4 w-4" /> {message}
               </div>
             )}
             {error && <ErrorState message={error} />}
-
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Saving…' : 'Save changes'}
+              {submitting ? t('common.actions.saving') : t('profile.saveChanges')}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      {/* Linked OAuth accounts */}
       <LinkedAccountsCard />
 
-      {/* Sign out */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium">Sign out</div>
-              <div className="text-xs text-muted-foreground">
-                Sign out of your LivingDocs account on this device.
-              </div>
+              <div className="text-sm font-medium">{t('profile.signOut')}</div>
+              <div className="text-xs text-muted-foreground">{t('profile.signOutDesc')}</div>
             </div>
             <Button variant="destructive" onClick={handleSignOut}>
-              <LogOut className="mr-1 h-4 w-4" /> Sign out
+              <LogOut className="mr-1 h-4 w-4" /> {t('common.actions.logout')}
             </Button>
           </div>
         </CardContent>

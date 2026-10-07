@@ -45,3 +45,15 @@ export interface UpdateRetentionPolicyPayload {
 export interface AssignRolesPayload {
   roles: string[];
 }
+
+export interface AdminWorkspace {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  ownerId: string;
+  memberCount: number;
+  managerCount: number;
+  createdAt: string;
+  updatedAt: string;
+}

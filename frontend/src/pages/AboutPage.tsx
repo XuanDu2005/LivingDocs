@@ -1,33 +1,11 @@
+import { useTranslation } from 'react-i18next';
 import { Bot, Check, GitBranch, Server, X } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '../components/ui/card';
 
-const ROADMAP_ITEMS = [
-  {
-    title: 'GitHub integration — PR workflows, automated drift detection',
-    done: true,
-    description: 'Connect repositories, link documents, and trigger AI reviews on pull requests.',
-  },
-  {
-    title: 'AI-assisted documentation generation and update',
-    done: false,
-    description: 'Generate and update documentation from source code using AI models.',
-  },
-  {
-    title: 'Role-based access control — Member, Staff, Manager, Admin',
-    done: false,
-    description: 'Fine-grained permissions for who can view, edit, review, and publish documents.',
-  },
-  {
-    title: 'Notifications, activity feed, and Slack/email digests',
-    done: false,
-    description: 'Keep your team informed about drift alerts, review requests, and new versions.',
-  },
-];
-
-function RoadmapItem({ item }: { item: typeof ROADMAP_ITEMS[number] }) {
+function RoadmapItem({ item, t }: { item: { title: string; done: boolean; description: string }; t: (k: string) => string }) {
   return (
     <div className="flex items-start gap-3 rounded-md border p-4">
       <div className="mt-0.5 flex-shrink-0">
@@ -44,11 +22,9 @@ function RoadmapItem({ item }: { item: typeof ROADMAP_ITEMS[number] }) {
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{item.title}</span>
-          {item.done ? (
-            <Badge variant="success" className="text-xs">Done</Badge>
-          ) : (
-            <Badge variant="muted" className="text-xs">In progress</Badge>
-          )}
+          {item.done
+            ? <Badge variant="success" className="text-xs">{t('about.roadmapDone')}</Badge>
+            : <Badge variant="muted" className="text-xs">{t('about.roadmapInProgress')}</Badge>}
         </div>
         <p className="text-xs text-muted-foreground">{item.description}</p>
       </div>
@@ -57,27 +33,35 @@ function RoadmapItem({ item }: { item: typeof ROADMAP_ITEMS[number] }) {
 }
 
 export default function AboutPage() {
+  const { t } = useTranslation();
+
+  const ROADMAP = [
+    { titleKey: 'about.rm1Title', descriptionKey: 'about.rm1Desc', done: true },
+    { titleKey: 'about.rm2Title', descriptionKey: 'about.rm2Desc', done: false },
+    { titleKey: 'about.rm3Title', descriptionKey: 'about.rm3Desc', done: false },
+    { titleKey: 'about.rm4Title', descriptionKey: 'about.rm4Desc', done: false },
+  ];
+
+  const githubFeatures = ['github.repositorySync', 'github.prWebhooks', 'github.branchDiffs'];
+  const backendFeatures = ['github.docCrud', 'github.driftEngine', 'github.reviewWorkflow', 'github.templateMgmt', 'github.oauth'];
+  const aiFeatures = ['github.codeToMd', 'github.semanticDrift', 'github.entityExtraction', 'github.vectorSearch'];
+
   return (
     <div className="space-y-8">
-      {/* Hero */}
       <div className="text-center space-y-3 py-8">
-        <h1 className="text-4xl font-bold tracking-tight">
-          LivingDocs
-        </h1>
+        <h1 className="text-4xl font-bold tracking-tight">{t('common.appName')}</h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          LivingDocs keeps your documentation next to your code — automatically generated,
-          AI-assisted, and always in sync with your repository.
+          {t('about.hero')}
         </p>
         <div className="flex justify-center gap-2 pt-2">
-          <Badge variant="info" className="text-sm px-3 py-1">AI-powered</Badge>
-          <Badge variant="success" className="text-sm px-3 py-1">GitHub-native</Badge>
-          <Badge variant="default" className="text-sm px-3 py-1">Open source</Badge>
+          <Badge variant="info" className="text-sm px-3 py-1">{t('about.aiPowered')}</Badge>
+          <Badge variant="success" className="text-sm px-3 py-1">{t('about.githubNative')}</Badge>
+          <Badge variant="default" className="text-sm px-3 py-1">{t('about.openSource')}</Badge>
         </div>
       </div>
 
-      {/* Architecture diagram */}
       <div>
-        <h2 className="text-xl font-semibold mb-4 text-center">Architecture</h2>
+        <h2 className="text-xl font-semibold mb-4 text-center">{t('about.architecture')}</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="border-primary/30">
             <CardHeader>
@@ -86,15 +70,12 @@ export default function AboutPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Your source code lives here. LivingDocs listens to pushes and pull
-                requests to detect drift and trigger documentation updates.
-              </p>
+              <p className="text-sm text-muted-foreground">{t('about.githubDesc')}</p>
               <div className="space-y-1">
-                {['Repository sync', 'PR webhooks', 'Branch diffs'].map((f) => (
+                {githubFeatures.map((f) => (
                   <div key={f} className="flex items-center gap-1.5 text-xs">
                     <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    <span>{f}</span>
+                    <span>{t(f)}</span>
                   </div>
                 ))}
               </div>
@@ -104,19 +85,16 @@ export default function AboutPage() {
           <Card className="border-primary/30">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Server className="h-4 w-4 text-primary" /> LivingDocs Backend
+                <Server className="h-4 w-4 text-primary" /> {t('about.backendTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Spring Boot API manages documents, versions, templates, drift alerts,
-                and workspace membership. Persists everything to PostgreSQL.
-              </p>
+              <p className="text-sm text-muted-foreground">{t('about.backendDesc')}</p>
               <div className="space-y-1">
-                {['Document CRUD + versioning', 'Drift detection engine', 'Review & publish workflow', 'Template management', 'GitHub OAuth'].map((f) => (
+                {backendFeatures.map((f) => (
                   <div key={f} className="flex items-center gap-1.5 text-xs">
                     <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    <span>{f}</span>
+                    <span>{t(f)}</span>
                   </div>
                 ))}
               </div>
@@ -126,19 +104,16 @@ export default function AboutPage() {
           <Card className="border-primary/30">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Bot className="h-4 w-4 text-primary" /> AI Service
+                <Bot className="h-4 w-4 text-primary" /> {t('about.aiServiceTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                An independent Python service that generates markdown from code,
-                detects semantic drift, and links documents to source entities.
-              </p>
+              <p className="text-sm text-muted-foreground">{t('about.aiServiceDesc')}</p>
               <div className="space-y-1">
-                {['Code → Markdown generation', 'Semantic drift analysis', 'Entity extraction', 'Vector similarity search'].map((f) => (
+                {aiFeatures.map((f) => (
                   <div key={f} className="flex items-center gap-1.5 text-xs">
                     <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    <span>{f}</span>
+                    <span>{t(f)}</span>
                   </div>
                 ))}
               </div>
@@ -146,7 +121,6 @@ export default function AboutPage() {
           </Card>
         </div>
 
-        {/* Arrows between cards */}
         <div className="flex justify-center py-2">
           <svg width="400" height="40" className="hidden md:block" aria-hidden="true">
             <defs>
@@ -159,12 +133,15 @@ export default function AboutPage() {
         </div>
       </div>
 
-      {/* Roadmap */}
       <div>
-        <h2 className="text-xl font-semibold mb-4 text-center">Roadmap</h2>
+        <h2 className="text-xl font-semibold mb-4 text-center">{t('about.roadmap')}</h2>
         <div className="max-w-2xl mx-auto space-y-3">
-          {ROADMAP_ITEMS.map((item) => (
-            <RoadmapItem key={item.title} item={item} />
+          {ROADMAP.map((item) => (
+            <RoadmapItem
+              key={item.titleKey}
+              item={{ title: t(item.titleKey), done: item.done, description: t(item.descriptionKey) }}
+              t={t}
+            />
           ))}
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -19,6 +20,7 @@ import { describeError } from '../services/auth';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
@@ -30,13 +32,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (params.get('reset') === 'success') {
-      setInfo('Mật khẩu đã được đặt lại. Vui lòng đăng nhập với mật khẩu mới.');
+      setInfo(t('auth.passwordResetSuccess', { defaultValue: 'Password reset — please sign in with your new password.' }));
     }
     const prefillEmail = params.get('email');
-    if (prefillEmail) {
-      setEmail(prefillEmail);
-    }
-  }, [params]);
+    if (prefillEmail) setEmail(prefillEmail);
+  }, [params, t]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -61,21 +61,19 @@ export default function LoginPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <LogIn className="h-5 w-5" />
           </div>
-          <CardTitle>Chào mừng trở lại</CardTitle>
-          <CardDescription>
-            Đăng nhập bằng tài khoản LivingDocs hoặc tiếp tục với Google/GitHub.
-          </CardDescription>
+          <CardTitle>{t('auth.login.title')}</CardTitle>
+          <CardDescription>{t('auth.login.subtitle')}</CardDescription>
         </CardHeader>
         <CardContent>
           <SocialAuthButtons mode="login" />
           <div className="my-4 flex items-center gap-3 text-xs uppercase text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
-            <span>hoặc</span>
+            <span>{t('auth.divider', { defaultValue: 'or' })}</span>
             <span className="h-px flex-1 bg-border" />
           </div>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('auth.login.email')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -88,12 +86,12 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Mật khẩu</Label>
+                <Label htmlFor="password">{t('auth.login.password')}</Label>
                 <Link
                   to="/forgot-password"
                   className="text-xs text-muted-foreground hover:underline"
                 >
-                  Quên mật khẩu?
+                  {t('auth.forgot', { defaultValue: 'Forgot password?' })}
                 </Link>
               </div>
               <PasswordInput
@@ -116,13 +114,13 @@ export default function LoginPage() {
               </div>
             )}
             <Button type="submit" disabled={submitting} className="w-full">
-              {submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
+              {submitting ? t('auth.login.submitting') : t('auth.login.submit')}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Chưa có tài khoản?{' '}
+            {t('auth.login.noAccount')}{' '}
             <Link to="/register" className="text-primary hover:underline">
-              Tạo tài khoản
+              {t('auth.login.signupCta')}
             </Link>
             .
           </p>

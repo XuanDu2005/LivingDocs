@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Database, Loader2, Search } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -7,13 +8,16 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '../components/ui/table';
+import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
 import { ErrorState, EmptyState } from '../components/ui/states';
-import { knowledgeApi, KnowledgeHit } from '../services/knowledge';
+import { knowledgeApi, KnowledgeHit, IndexJob, IndexJobStatus } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi, Document } from '../services/documents';
 import { githubApi } from '../services/github';
@@ -28,6 +32,7 @@ interface RepoEntities {
 
 export default function KnowledgeBasePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { t } = useTranslation();
 
   const [query, setQuery] = useState<string>('');
   const [topK, setTopK] = useState<number>(8);
@@ -44,6 +49,7 @@ export default function KnowledgeBasePage() {
   const [showIndexDialog, setShowIndexDialog] = useState<boolean>(false);
   const [indexDocId, setIndexDocId] = useState<string>('');
   const [indexing, setIndexing] = useState<boolean>(false);
+  const [jobs, setJobs] = useState<IndexJob[]>([]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -55,7 +61,58 @@ export default function KnowledgeBasePage() {
       .listRepositories(workspaceId)
       .then(setRepos)
       .catch(() => {/* non-critical */});
+    void loadJobs();
   }, [workspaceId]);
+
+  async function loadJobs(focusId?: string) {
+    if (!workspaceId) return;
+    try {
+      const list = await knowledgeApi.recentJobs(workspaceId);
+      setJobs(list);
+      if (focusId) {
+        // Caller asked us to highlight a freshly-created job — we
+        // already have its id from the enqueue response so we don't
+        // need a separate fetch.
+      }
+    } catch {
+      /* non-critical */
+    }
+  }
+
+  // Poll while any job is PENDING or RUNNING so the user sees progress
+  // ticking without refreshing. The poll stops the moment the list settles
+  // into a terminal state.
+  useEffect(() => {
+    if (!workspaceId) return;
+    const active = jobs.some((j) => j.status === 'PENDING' || j.status === 'RUNNING');
+    if (!active) return;
+    const timer = window.setInterval(() => { void loadJobs(); }, 1500);
+    return () => window.clearInterval(timer);
+  }, [workspaceId, jobs]);
+
+  async function handleCancel(jobId: string) {
+    if (!window.confirm(t('knowledge.cancelConfirm'))) return;
+    try {
+      await knowledgeApi.cancelJob(jobId);
+      await loadJobs();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }
+
+  function jobStatusVariant(status: IndexJobStatus): 'muted' | 'info' | 'success' | 'destructive' | 'warning' {
+    switch (status) {
+      case 'PENDING': return 'muted';
+      case 'RUNNING': return 'info';
+      case 'COMPLETED': return 'success';
+      case 'FAILED': return 'destructive';
+      case 'CANCELLED': return 'warning';
+    }
+  }
+
+  function jobStatusKey(status: IndexJobStatus): string {
+    return `knowledge.status${status.charAt(0) + status.slice(1).toLowerCase()}`;
+  }
 
   async function runSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -73,41 +130,40 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  async function handleIndexOne() {
-    if (!workspaceId || !indexDocId) return;
-    setIndexing(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const r = await knowledgeApi.index(workspaceId, indexDocId);
-      setInfo(`Indexed ${r.chunks_indexed} chunks.`);
-      setShowIndexDialog(false);
-      setIndexDocId('');
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setIndexing(false);
-    }
-  }
-
   async function handleIndexAll() {
     if (!workspaceId || docs.length === 0) return;
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
-      let indexed = 0;
-      for (const d of docs) {
-        try {
-          const r = await knowledgeApi.index(workspaceId, d.id);
-          indexed += r.chunks_indexed;
-        } catch {
-          // skip failures
-        }
-      }
-      setInfo(`Indexed ${indexed} chunks across ${docs.length} documents.`);
+      const job = await knowledgeApi.reindexAll(workspaceId);
+      setInfo(t('knowledge.reindexEnqueued'));
+      await loadJobs(job.id);
+    } catch (err) {
+      setError(describeError(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleIndexOne() {
+    if (!workspaceId || !indexDocId) return;
+    setIndexing(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const job = await knowledgeApi.index(workspaceId, indexDocId);
+      setInfo(t('knowledge.indexEnqueued'));
+      setShowIndexDialog(false);
+      setIndexDocId('');
+      await loadJobs(job.id);
+    } catch (err) {
+      const msg = describeError(err);
+      setError(/already/i.test(msg)
+        ? t('knowledge.alreadyActive', { target: indexDocId })
+        : msg);
+    } finally {
+      setIndexing(false);
     }
   }
 
@@ -154,20 +210,20 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  if (!workspaceId) return <EmptyState title="Missing workspace id" />;
+  if (!workspaceId) return <EmptyState title={t('common.back')} />;
 
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" asChild>
         <Link to={`/workspaces/${workspaceId}`}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+          <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
         </Link>
       </Button>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Knowledge base</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('knowledge.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          Semantic search across indexed documents and code entities.
+          {t('knowledge.subtitle')}
         </p>
       </div>
 
@@ -175,7 +231,7 @@ export default function KnowledgeBasePage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Search className="h-4 w-4" /> Semantic search
+            <Search className="h-4 w-4" /> {t('knowledge.semanticSearch')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -187,12 +243,12 @@ export default function KnowledgeBasePage() {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask the knowledge base…"
+                placeholder={t('knowledge.queryPlaceholder')}
                 required
               />
             </div>
             <div className="w-24 space-y-1.5">
-              <Label htmlFor="kb-topk" className="text-xs">Top K</Label>
+              <Label htmlFor="kb-topk" className="text-xs">{t('knowledge.topK')}</Label>
               <Input
                 id="kb-topk"
                 type="number"
@@ -204,7 +260,7 @@ export default function KnowledgeBasePage() {
             </div>
             <Button type="submit" disabled={busy}>
               {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Search className="mr-1 h-4 w-4" />}
-              {busy ? 'Searching…' : 'Search'}
+              {busy ? t('knowledge.searching') : t('common.search')}
             </Button>
           </form>
           {info && (
@@ -232,7 +288,7 @@ export default function KnowledgeBasePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Top {hits.length} hits
+              {t('knowledge.topHits', { count: hits.length })}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -271,29 +327,29 @@ export default function KnowledgeBasePage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <Database className="h-4 w-4" /> Index documents
+              <Database className="h-4 w-4" /> {t('knowledge.indexDocuments')}
             </CardTitle>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => void handleIndexAll()} disabled={busy || docs.length === 0}>
-                <Database className="mr-1 h-4 w-4" /> Index all
+                <Database className="mr-1 h-4 w-4" /> {t('knowledge.indexAll')}
               </Button>
               <Dialog open={showIndexDialog} onOpenChange={setShowIndexDialog}>
                 <DialogTrigger asChild>
                   <Button size="sm" variant="outline" disabled={docs.length === 0}>
-                    <BookOpen className="mr-1 h-4 w-4" /> Index one
+                    <BookOpen className="mr-1 h-4 w-4" /> {t('knowledge.indexOne')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Index a document</DialogTitle>
+                    <DialogTitle>{t('knowledge.indexOneTitle')}</DialogTitle>
                     <DialogDescription>
-                      Select a document to index into the knowledge base.
+                      {t('knowledge.indexOneDesc')}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3 py-2">
                     <Select value={indexDocId} onValueChange={setIndexDocId}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select document…" />
+                        <SelectValue placeholder={t('knowledge.selectDocument')} />
                       </SelectTrigger>
                       <SelectContent>
                         {docs.map((d) => (
@@ -305,9 +361,9 @@ export default function KnowledgeBasePage() {
                     </Select>
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setShowIndexDialog(false)}>Cancel</Button>
+                    <Button variant="outline" onClick={() => setShowIndexDialog(false)}>{t('common.cancel')}</Button>
                     <Button onClick={() => void handleIndexOne()} disabled={!indexDocId || indexing}>
-                      {indexing ? 'Indexing…' : 'Index'}
+                      {indexing ? t('knowledge.indexing') : t('knowledge.indexOne')}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -338,21 +394,92 @@ export default function KnowledgeBasePage() {
                       setError(null);
                       setInfo(null);
                       try {
-                        const r = await knowledgeApi.index(workspaceId, d.id);
-                        setInfo(`Indexed ${r.chunks_indexed} chunks from "${d.title}".`);
+                        const job = await knowledgeApi.index(workspaceId, d.id);
+                        setInfo(t('knowledge.indexEnqueued'));
+                        await loadJobs(job.id);
                       } catch (err) {
-                        setError(describeError(err));
+                        const msg = describeError(err);
+                        setError(/already/i.test(msg)
+                          ? t('knowledge.alreadyActive', { target: d.title })
+                          : msg);
                       } finally {
                         setBusy(false);
                       }
                     })()}
                     disabled={busy}
                   >
-                    Index
+                    {t('knowledge.indexOne')}
                   </Button>
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Indexing jobs */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Database className="h-4 w-4" /> {t('knowledge.recentJobsTitle')}
+            <Badge variant="muted">{jobs.length}</Badge>
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={() => void loadJobs()}>
+            {t('knowledge.refresh')}
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {jobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground px-3 py-4">{t('knowledge.noJobs')}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('knowledge.colStatus')}</TableHead>
+                  <TableHead>{t('knowledge.colKind')}</TableHead>
+                  <TableHead>{t('knowledge.colProgress')}</TableHead>
+                  <TableHead>{t('knowledge.colChunks')}</TableHead>
+                  <TableHead>{t('knowledge.colActions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.map((j) => (
+                  <TableRow key={j.id}>
+                    <TableCell>
+                      <Badge variant={jobStatusVariant(j.status)}>
+                        {t(jobStatusKey(j.status))}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {t(`knowledge.kind${j.kind.charAt(0) + j.kind.slice(1).toLowerCase()}`)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {t('knowledge.progressOf', { processed: j.processedTargets, total: j.totalTargets })}
+                      {j.failedTargets > 0 && (
+                        <span className="ml-2 text-destructive">
+                          ({j.failedTargets} failed)
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">{j.chunksIndexed}</TableCell>
+                    <TableCell>
+                      {(j.status === 'PENDING' || j.status === 'RUNNING') && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs"
+                          onClick={() => void handleCancel(j.id)}>
+                          {t('knowledge.cancel')}
+                        </Button>
+                      )}
+                      {j.errorMessage && (
+                        <p className="mt-1 text-xs text-destructive max-w-xs truncate"
+                          title={j.errorMessage}>
+                          {j.errorMessage}
+                        </p>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

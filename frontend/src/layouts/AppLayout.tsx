@@ -18,12 +18,15 @@ import {
   AlertTriangle,
   GitBranch,
   Stethoscope,
+  ScrollText,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { hasRole } from '../services/auth';
 import { useTheme } from '../components/theme-provider';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -31,7 +34,7 @@ interface AppLayoutProps {
 }
 
 interface NavItem {
-  label: string;
+  labelKey: string;
   to: string;
   icon: typeof BookOpen;
   authOnly?: boolean;
@@ -39,38 +42,44 @@ interface NavItem {
 
 /** Items shown to every authenticated user. */
 const WORKSPACE_NAV_ITEMS: NavItem[] = [
-  { label: 'Home', to: '/', icon: BookOpen },
-  { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, authOnly: true },
-  { label: 'Workspaces', to: '/workspaces', icon: Users, authOnly: true },
-  { label: 'Documents', to: '/workspaces', icon: FileText, authOnly: true },
-  { label: 'Reviews', to: '/workspaces', icon: Shield, authOnly: true },
-  { label: 'Drift', to: '/workspaces', icon: AlertTriangle, authOnly: true },
-  { label: 'Knowledge', to: '/workspaces', icon: Library, authOnly: true },
-  { label: 'Health', to: '/workspaces', icon: Stethoscope, authOnly: true },
+  { labelKey: 'nav.home', to: '/', icon: BookOpen },
+  { labelKey: 'nav.dashboard', to: '/dashboard', icon: LayoutDashboard, authOnly: true },
+  { labelKey: 'nav.workspaces', to: '/workspaces', icon: Users, authOnly: true },
+  { labelKey: 'nav.documents', to: '/workspaces', icon: FileText, authOnly: true },
+  { labelKey: 'nav.reviews', to: '/workspaces', icon: Shield, authOnly: true },
+  { labelKey: 'nav.drift', to: '/workspaces', icon: AlertTriangle, authOnly: true },
+  { labelKey: 'nav.knowledge', to: '/workspaces', icon: Library, authOnly: true },
+  { labelKey: 'nav.aiSettings', to: '/ai-settings', icon: Sparkles, authOnly: true },
+  { labelKey: 'nav.health', to: '/workspaces', icon: Stethoscope, authOnly: true },
 ];
 
 /** Items shown only to ADMINs. Rendered in their own section. */
 const ADMIN_NAV_ITEMS: NavItem[] = [
-  { label: 'Users', to: '/admin/users', icon: Users },
-  { label: 'Roles', to: '/admin/roles', icon: ShieldCheck },
-  { label: 'Audit retention', to: '/admin/audit-retention', icon: ShieldAlert },
+  { labelKey: 'nav.overview', to: '/admin', icon: LayoutDashboard },
+  { labelKey: 'nav.users', to: '/admin/users', icon: Users },
+  { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
+  { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
+  { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
+  { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
 ];
 
 function buildWorkspaceItems(workspaceId?: string) {
   if (!workspaceId) return [];
   return [
-    { label: 'Documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
-    { label: 'Reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
-    { label: 'Drift alerts', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
-    { label: 'Templates', to: `/workspaces/${workspaceId}/templates`, icon: Sparkles },
-    { label: 'Knowledge base', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
-    { label: 'Health dashboard', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
+    { labelKey: 'nav.documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
+    { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
+    { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
+    { labelKey: 'workspace_templates_title', to: `/workspaces/${workspaceId}/templates`, icon: Sparkles },
+    { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
+    { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
+    { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
   ];
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { user, isAuthenticated, logout } = useAuth();
   const { resolved, setTheme } = useTheme();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -81,9 +90,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const isAdmin = isAuthenticated && hasRole(user, 'ADMIN');
 
-  // Regular users see the standard nav (Home/Dashboard/Workspaces/...).
-  // Admins only see the Administration section — the Workspace items are
-  // hidden because admin tooling lives in its own UI surface.
+  // Regular users see the standard nav. Admins only see admin tooling.
   const workspaceItems = isAdmin
     ? []
     : WORKSPACE_NAV_ITEMS.filter((item) => {
@@ -91,7 +98,6 @@ export function AppLayout({ children }: AppLayoutProps) {
         return true;
       });
   const adminItems = isAdmin ? ADMIN_NAV_ITEMS : [];
-  // Per-workspace items are also hidden for admins.
   const showWorkspaceItems = !isAdmin && isAuthenticated && Boolean(workspaceId);
 
   function onLogout() {
@@ -111,45 +117,50 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <BookOpen className="h-4 w-4" />
           </div>
-          <span className="text-base font-semibold tracking-tight">LivingDocs</span>
+          <span className="text-base font-semibold tracking-tight">{t('common.appName')}</span>
         </div>
         <nav className="flex-1 space-y-6 overflow-y-auto p-3">
-          {/* Workspace / authenticated section — hidden for ADMINs */}
           {workspaceItems.length > 0 && (
             <div>
               <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Workspace
+                {t('nav.sectionWorkspace')}
               </div>
               <div className="space-y-0.5">
                 {workspaceItems.map((item) => (
-                  <SidebarLink key={item.label} to={item.to} icon={item.icon} label={item.label} />
+                  <SidebarLink
+                    key={item.labelKey}
+                    to={item.to}
+                    icon={item.icon}
+                    label={translateNavLabel(item.labelKey, t)}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Administration section — only for ADMINs */}
           {adminItems.length > 0 && (
             <div>
               <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Administration
+                {t('nav.sectionAdministration')}
               </div>
               <div className="space-y-0.5">
                 {adminItems.map((item) => (
-                  <SidebarLink key={item.label} to={item.to} icon={item.icon} label={item.label} />
+                  <SidebarLink
+                    key={item.labelKey}
+                    to={item.to}
+                    icon={item.icon}
+                    label={translateNavLabel(item.labelKey, t)}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Per-workspace section — only when inside a workspace URL,
-              and only for non-admin users (admins operate at the platform
-              level). */}
           {showWorkspaceItems && workspaceId && (
             <div>
               <div className="mb-1 flex items-center justify-between px-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  This workspace
+                  {t('nav.sectionThisWorkspace')}
                 </span>
                 <Badge variant="muted" className="text-[10px]">
                   <GitBranch className="mr-1 h-3 w-3" />
@@ -162,7 +173,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     key={item.to}
                     to={item.to}
                     icon={item.icon}
-                    label={item.label}
+                    label={translateNavLabel(item.labelKey, t)}
                   />
                 ))}
               </div>
@@ -182,7 +193,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                       <Badge key={r} variant="muted" className="text-[10px]">{r}</Badge>
                     ))
                   ) : (
-                    <span className="text-[10px]">No platform role</span>
+                    <span className="text-[10px]">{t('common.loading')}</span>
                   )}
                 </div>
               </div>
@@ -192,32 +203,29 @@ export function AppLayout({ children }: AppLayoutProps) {
                   size="sm"
                   className="flex-1 justify-start"
                   onClick={toggleTheme}
-                  aria-label="Toggle theme"
+                  aria-label={t('common.theme.toggle')}
                 >
-                  {resolved === 'dark' ? (
-                    <Sun className="h-4 w-4" />
-                  ) : (
-                    <Moon className="h-4 w-4" />
-                  )}
-                  {resolved === 'dark' ? 'Light' : 'Dark'}
+                  {resolved === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  {resolved === 'dark' ? t('common.theme.light') : t('common.theme.dark')}
                 </Button>
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/profile">
                     <Settings className="h-4 w-4" />
                   </Link>
                 </Button>
-                <Button variant="ghost" size="sm" onClick={onLogout}>
+                <Button variant="ghost" size="sm" onClick={onLogout} aria-label={t('common.actions.logout')}>
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
+              <LanguageSwitcher />
             </div>
           ) : (
             <div className="space-y-2">
               <Button asChild className="w-full" size="sm">
-                <Link to="/login">Log in</Link>
+                <Link to="/login">{t('common.actions.login')}</Link>
               </Button>
               <Button asChild variant="outline" className="w-full" size="sm">
-                <Link to="/register">Sign up</Link>
+                <Link to="/register">{t('common.actions.signup')}</Link>
               </Button>
               <Button
                 variant="ghost"
@@ -225,13 +233,10 @@ export function AppLayout({ children }: AppLayoutProps) {
                 className="w-full justify-start"
                 onClick={toggleTheme}
               >
-                {resolved === 'dark' ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-                {resolved === 'dark' ? 'Light' : 'Dark'} mode
+                {resolved === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {resolved === 'dark' ? t('common.theme.light') : t('common.theme.dark')} {t('common.theme.toggle')}
               </Button>
+              <LanguageSwitcher />
             </div>
           )}
         </div>
@@ -242,9 +247,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <header className="flex h-14 items-center justify-between border-b bg-card/30 px-4 md:px-6">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">
-              Living documentation that lives with your code
-            </span>
+            <span className="text-sm text-muted-foreground">{t('common.tagline')}</span>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -252,14 +255,14 @@ export function AppLayout({ children }: AppLayoutProps) {
               size="icon"
               className="md:hidden"
               onClick={toggleTheme}
-              aria-label="Toggle theme"
+              aria-label={t('common.theme.toggle')}
             >
               {resolved === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
             {!isAuthenticated && (
               <div className="flex gap-2 md:hidden">
                 <Button asChild size="sm" variant="ghost">
-                  <Link to="/login">Log in</Link>
+                  <Link to="/login">{t('common.actions.login')}</Link>
                 </Button>
               </div>
             )}
@@ -285,7 +288,7 @@ function SidebarLink({
   return (
     <NavLink
       to={to}
-      end={to === '/'}
+      end={to === '/' || to === '/admin'}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
@@ -299,4 +302,15 @@ function SidebarLink({
       {label}
     </NavLink>
   );
+}
+
+/**
+ * Inline labels for nav items that intentionally use the templates key
+ * rather than the generic {@code nav.*} namespace, because the string
+ * differs from the top-level "Templates" entry. Kept in this file to
+ * keep the nav structure readable.
+ */
+function translateNavLabel(key: string, t: (k: string) => string): string {
+  if (key === 'workspace_templates_title') return t('templates.title');
+  return t(key);
 }

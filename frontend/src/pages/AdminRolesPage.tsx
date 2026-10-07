@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import {
@@ -10,17 +11,17 @@ import {
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
+import { roleDescription, roleName } from '../services/adminLabels';
 import { Role } from '../types/admin';
 import { format } from 'date-fns';
 
 export default function AdminRolesPage() {
+  const { t } = useTranslation();
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void load();
-  }, []);
+  useEffect(() => { void load(); }, []);
 
   async function load() {
     setLoading(true);
@@ -35,24 +36,22 @@ export default function AdminRolesPage() {
     }
   }
 
-  if (loading) return <LoadingState message="Loading roles…" />;
+  if (loading) return <LoadingState message={t('adminRoles.loading')} />;
   if (error) return <ErrorState message={error} />;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Admin · Roles</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('adminRoles.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          Catalogue of platform roles. Role codes are immutable identifiers used
-          by the API and audit log; names and descriptions are editable to keep
-          the UI accurate as the organization evolves.
+          {t('adminRoles.subtitle')}
         </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" /> Role catalogue
+            <ShieldCheck className="h-4 w-4" /> {t('adminRoles.catalogue')}
             <Badge variant="muted">{roles.length}</Badge>
           </CardTitle>
         </CardHeader>
@@ -60,29 +59,25 @@ export default function AdminRolesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Order</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead>{t('adminRoles.colCode')}</TableHead>
+                <TableHead>{t('adminRoles.colName')}</TableHead>
+                <TableHead>{t('adminRoles.colDescription')}</TableHead>
+                <TableHead>{t('adminRoles.colType')}</TableHead>
+                <TableHead>{t('adminRoles.colOrder')}</TableHead>
+                <TableHead>{t('adminRoles.colUpdated')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {roles.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>
-                    <Badge variant="muted" className="font-mono text-[11px]">
-                      {r.code}
-                    </Badge>
+                    <Badge variant="muted" className="font-mono text-[11px]">{r.code}</Badge>
                   </TableCell>
-                  <TableCell className="font-medium">{r.name}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-md">
-                    {r.description ?? '—'}
-                  </TableCell>
+                  <TableCell className="font-medium">{roleName(r.code, r.name, t)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-md">{roleDescription(r.code, r.description, t)}</TableCell>
                   <TableCell>
                     <Badge variant={r.system ? 'success' : 'muted'} className="text-[10px]">
-                      {r.system ? 'system' : 'custom'}
+                      {r.system ? t('adminRoles.system') : t('adminRoles.custom')}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">{r.displayOrder}</TableCell>
@@ -98,26 +93,20 @@ export default function AdminRolesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">How role enforcement works</CardTitle>
+          <CardTitle className="text-base">{t('adminRoles.howItWorks')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
-            Each authenticated request resolves the user's active role codes from
-            the <span className="font-mono">user_roles</span> table and grants
-            them as Spring Security authorities (prefixed with{' '}
-            <span className="font-mono">ROLE_</span>).
+            {t('adminRoles.howItWorksP1')}{' '}
+            <span className="font-mono">user_roles</span> {t('adminRoles.howItWorksP1Mid')}{' '}
+            <span className="font-mono">ROLE_</span>.
           </p>
           <p>
-            Platform endpoints are annotated with{' '}
-            <span className="font-mono">@RequirePlatformRole</span>; the
-            interceptor rejects the request unless the principal owns at least
-            one of the listed role codes.
+            {t('adminRoles.howItWorksP2')}{' '}
+            <span className="font-mono">@RequirePlatformRole</span>.
           </p>
           <p>
-            The five seeded roles — DEVELOPER, STAFF, TECHNICAL_LEAD, MANAGER,
-            ADMIN — are <span className="font-medium">immutable identifiers</span>.
-            Adding new platform roles requires a new Flyway migration so JWTs
-            and audit payloads remain compatible.
+            {t('adminRoles.howItWorksP3')}
           </p>
         </CardContent>
       </Card>

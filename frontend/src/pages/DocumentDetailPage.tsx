@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Bot, Check, Eye, History, Link2, Plus, RotateCcw, Shield, Upload } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -44,12 +45,28 @@ const ROLE_VARIANT: Record<ActorRole, 'muted' | 'warning' | 'success' | 'info' |
   SYSTEM: 'muted',
 };
 
-function StatusBadge({ status }: { status: VersionStatus }) {
-  return <Badge variant={STATUS_VARIANT[status]}>{status}</Badge>;
+const VERSION_STATUS_KEY: Record<VersionStatus, string> = {
+  PENDING: 'documentDetail.statusPending',
+  IN_REVIEW: 'documentDetail.statusInReview',
+  APPROVED: 'documentDetail.statusApproved',
+  PUBLISHED: 'documentDetail.statusPublished',
+  REJECTED: 'documentDetail.statusRejected',
+  SUPERSEDED: 'documentDetail.statusSuperseded',
+};
+
+const ROLE_LABEL_KEY: Record<ActorRole, string> = {
+  AI: 'documentDetail.roleAI',
+  STAFF: 'documentDetail.roleStaff',
+  MANAGER: 'documentDetail.roleManager',
+  SYSTEM: 'documentDetail.roleSystem',
+};
+
+function StatusBadge({ status, t }: { status: VersionStatus; t: (k: string) => string }) {
+  return <Badge variant={STATUS_VARIANT[status]}>{t(VERSION_STATUS_KEY[status])}</Badge>;
 }
 
-function RoleBadge({ role }: { role: ActorRole }) {
-  return <Badge variant={ROLE_VARIANT[role]}>{role}</Badge>;
+function RoleBadge({ role, t }: { role: ActorRole; t: (k: string) => string }) {
+  return <Badge variant={ROLE_VARIANT[role]}>{t(ROLE_LABEL_KEY[role])}</Badge>;
 }
 
 function DiffViewer({ diff }: { diff: string }) {
@@ -65,6 +82,7 @@ function DiffViewer({ diff }: { diff: string }) {
 }
 
 export default function DocumentDetailPage() {
+  const { t } = useTranslation();
   const { workspaceId, documentId } = useParams<{ workspaceId: string; documentId: string }>();
 
   const [doc, setDoc] = useState<Document | null>(null);
@@ -291,10 +309,10 @@ export default function DocumentDetailPage() {
     }
   }
 
-  if (!workspaceId || !documentId) return <EmptyState title="Missing identifiers" />;
-  if (loading) return <LoadingState message="Loading document…" />;
+  if (!workspaceId || !documentId) return <EmptyState title={t('documentDetail.missingIds')} />;
+  if (loading) return <LoadingState message={t('documentDetail.loading')} />;
   if (error) return <ErrorState message={error} />;
-  if (!doc) return <EmptyState title="Document not found" />;
+  if (!doc) return <EmptyState title={t('documentDetail.notFound')} />;
 
   return (
     <div className="space-y-4">
@@ -318,7 +336,7 @@ export default function DocumentDetailPage() {
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
-            <Bot className="mr-1 h-4 w-4" /> {generating ? 'Generating…' : 'Generate with AI'}
+            <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
@@ -340,7 +358,7 @@ export default function DocumentDetailPage() {
                     id="new-summary"
                     value={newSummary}
                     onChange={(e) => setNewSummary(e.target.value)}
-                    placeholder="What changed?"
+                    placeholder={t('documentDetail.changeSummaryPlaceholder')}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -358,7 +376,7 @@ export default function DocumentDetailPage() {
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowNewVersion(false)}>Cancel</Button>
                 <Button onClick={() => void handleCreateVersion()} disabled={creatingVersion || !newBody.trim()}>
-                  {creatingVersion ? 'Creating…' : 'Create version'}
+                  {creatingVersion ? t('documentDetail.creating') : t('documentDetail.createVersion')}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -404,11 +422,11 @@ export default function DocumentDetailPage() {
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-semibold">v{v.versionNumber}</span>
                         <div className="flex gap-1">
-                          <StatusBadge status={v.status} />
+                          <StatusBadge status={v.status} t={t} />
                         </div>
                       </div>
                       <div className="flex gap-1 mb-1">
-                        <RoleBadge role={v.actorRole} />
+                        <RoleBadge role={v.actorRole} t={t} />
                       </div>
                       <div className="text-muted-foreground">
                         {format(new Date(v.createdAt), 'MMM d, HH:mm')}
@@ -448,7 +466,7 @@ export default function DocumentDetailPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">
-                    {selectedVersion ? `v${selectedVersion.versionNumber} body` : 'Document body'}
+                    {selectedVersion ? `v${selectedVersion.versionNumber} body` : t('documentDetail.documentBody')}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     {saving && <span className="text-xs text-muted-foreground animate-pulse">Saving…</span>}
@@ -465,7 +483,7 @@ export default function DocumentDetailPage() {
                   onChange={(e) => setEditBody(e.target.value)}
                   rows={20}
                   className="font-mono text-sm resize-y"
-                  placeholder="Write markdown here…"
+                  placeholder={t('documentDetail.writeMarkdownPlaceholder')}
                 />
                 {saveError && <ErrorState message={saveError} />}
               </CardContent>
@@ -498,7 +516,7 @@ export default function DocumentDetailPage() {
             </CardHeader>
             <CardContent>
               {timeline.length === 0 ? (
-                <EmptyState title="No versions yet" description="Create a new version to get started." />
+                <EmptyState title={t('documentDetail.noVersions')} description={t('documentDetail.noVersionsDesc')} />
               ) : (
                 <Table>
                   <TableHeader>
@@ -517,8 +535,8 @@ export default function DocumentDetailPage() {
                     {timeline.map((v) => (
                       <TableRow key={v.id}>
                         <TableCell className="font-medium">v{v.versionNumber}</TableCell>
-                        <TableCell><StatusBadge status={v.status} /></TableCell>
-                        <TableCell><RoleBadge role={v.actorRole} /></TableCell>
+                        <TableCell><StatusBadge status={v.status} t={t} /></TableCell>
+                        <TableCell><RoleBadge role={v.actorRole} t={t} /></TableCell>
                         <TableCell className="text-sm max-w-[200px] truncate">{v.changeSummary ?? '—'}</TableCell>
                         <TableCell>
                           {v.confidenceScore !== null
@@ -591,7 +609,7 @@ export default function DocumentDetailPage() {
                       ) : (
                         <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select entity…" />
+                            <SelectValue placeholder={t('documentDetail.selectEntity')} />
                           </SelectTrigger>
                           <SelectContent>
                             {codeEntities.map((e) => (
@@ -606,7 +624,7 @@ export default function DocumentDetailPage() {
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setShowLinkEntity(false)}>Cancel</Button>
                       <Button onClick={() => void handleLinkEntity()} disabled={!selectedEntityId || linkingEntity}>
-                        {linkingEntity ? 'Linking…' : 'Link entity'}
+                        {linkingEntity ? t('documentDetail.linking') : t('documentDetail.linkEntity')}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -616,8 +634,8 @@ export default function DocumentDetailPage() {
             <CardContent>
               {links.length === 0 ? (
                 <EmptyState
-                  title="No links yet"
-                  description="Link code entities to track references between documents and source code."
+                  title={t('documentDetail.noLinks')}
+                  description={t('documentDetail.noLinksDesc')}
                 />
               ) : (
                 <Table>
@@ -657,7 +675,7 @@ export default function DocumentDetailPage() {
             </CardHeader>
             <CardContent>
               {driftAlerts.length === 0 ? (
-                <EmptyState title="No open drift" description="No drift alerts detected for this document." />
+                <EmptyState title={t('documentDetail.noOpenDrift')} description={t('documentDetail.noOpenDriftDesc')} />
               ) : (
                 <Table>
                   <TableHeader>
@@ -707,10 +725,10 @@ export default function DocumentDetailPage() {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="FIXED">Fixed</SelectItem>
-                                    <SelectItem value="ACCEPTED">Accepted</SelectItem>
-                                    <SelectItem value="DISMISSED">Dismissed</SelectItem>
-                                    <SelectItem value="OPEN">Keep open</SelectItem>
+                                    <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
+                                    <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted')}</SelectItem>
+                                    <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
+                                    <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>
