@@ -1,6 +1,6 @@
 package com.livingdocs.common.email;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,15 +13,23 @@ import java.util.Properties;
  * Wires up the {@link JavaMailSender} from {@link EmailProperties.Smtp} and
  * registers the {@link EmailProperties} prefix.
  *
- * <p>The {@link JavaMailSender} bean is only created when SMTP is configured;
- * otherwise callers fall back to the {@link LoggingEmailService}.
+ * <p>The {@link JavaMailSender} bean is only created when SMTP is actually
+ * configured (host non-blank); otherwise Spring Boot's default
+ * {@link JavaMailSender} (pointing at localhost:587) is never created and
+ * callers fall back to the {@link LoggingEmailService}.
+ *
+ * <p>We use {@link ConditionalOnExpression} instead of
+ * {@link org.springframework.boot.autoconfigure.condition.ConditionalOnProperty}
+ * so an empty {@code SMTP_HOST} does not count as configured.
  */
 @Configuration
 @EnableConfigurationProperties(EmailProperties.class)
 public class EmailAutoConfiguration {
 
     @Bean
-    @ConditionalOnProperty(prefix = "app.mail.smtp", name = "host")
+    @ConditionalOnExpression(
+            "!'${app.mail.smtp.host:}'.isEmpty() AND !'${app.mail.smtp.host:}'.isBlank()"
+    )
     public JavaMailSender javaMailSender(EmailProperties properties) {
         EmailProperties.Smtp smtp = properties.getSmtp();
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
