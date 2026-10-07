@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card';
+import { PasswordInput } from '../components/ui/password-input';
 import { SocialAuthButtons } from '../components/auth/SocialAuthButtons';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
@@ -30,6 +31,10 @@ export default function LoginPage() {
   useEffect(() => {
     if (params.get('reset') === 'success') {
       setInfo('Mật khẩu đã được đặt lại. Vui lòng đăng nhập với mật khẩu mới.');
+    }
+    const prefillEmail = params.get('email');
+    if (prefillEmail) {
+      setEmail(prefillEmail);
     }
   }, [params]);
 
@@ -91,9 +96,8 @@ export default function LoginPage() {
                   Quên mật khẩu?
                 </Link>
               </div>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required

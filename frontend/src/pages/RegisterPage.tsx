@@ -12,9 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/ui/card';
+import { PasswordInput } from '../components/ui/password-input';
 import { SocialAuthButtons } from '../components/auth/SocialAuthButtons';
 import { useAuth } from '../contexts/AuthContext';
-import { describeError } from '../services/auth';
+import { describeError, asApiError } from '../services/auth';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -27,10 +28,12 @@ export default function RegisterPage() {
   const [confirm, setConfirm] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailTaken, setEmailTaken] = useState<boolean>(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setEmailTaken(false);
     if (password !== confirm) {
       setError('Mật khẩu xác nhận không khớp.');
       return;
@@ -44,7 +47,15 @@ export default function RegisterPage() {
         (next ? `&next=${encodeURIComponent(next)}` : '');
       navigate(verifyUrl, { replace: true });
     } catch (err) {
-      setError(describeError(err));
+      const apiErr = asApiError(err);
+      if (apiErr.status === 409) {
+        setEmailTaken(true);
+        setError(
+          'Email này đã được đăng ký. Bạn có thể đăng nhập hoặc đặt lại mật khẩu.',
+        );
+      } else {
+        setError(describeError(err));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -86,38 +97,55 @@ export default function RegisterPage() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (emailTaken) {
+                    setEmailTaken(false);
+                    setError(null);
+                  }
+                }}
                 required
                 autoComplete="email"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Mật khẩu</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm">Xác nhận mật khẩu</Label>
-              <Input
-                id="confirm"
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </div>
+            <PasswordInput
+              id="password"
+              label="Mật khẩu"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              showStrength
+            />
+            <PasswordInput
+              id="confirm"
+              label="Xác nhận mật khẩu"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
             {error && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
+              <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                <p>{error}</p>
+                {emailTaken && (
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    <Link
+                      to={`/login?email=${encodeURIComponent(email)}`}
+                      className="font-medium underline underline-offset-2 hover:no-underline"
+                    >
+                      Đăng nhập →
+                    </Link>
+                    <Link
+                      to="/forgot-password"
+                      className="font-medium underline underline-offset-2 hover:no-underline"
+                    >
+                      Quên mật khẩu
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
             <Button type="submit" disabled={submitting} className="w-full">
