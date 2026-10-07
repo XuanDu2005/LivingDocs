@@ -17,6 +17,7 @@ export interface AuthenticatedUser {
   email: string;
   displayName: string;
   enabled: boolean;
+  emailVerified?: boolean;
   createdAt: string;
   role?: 'MEMBER' | 'MANAGER' | 'ADMIN';
 }
