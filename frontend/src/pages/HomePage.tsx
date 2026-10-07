@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowRight,
   BookOpen,
@@ -14,31 +15,16 @@ import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { useAuth } from '../contexts/AuthContext';
 
-const features = [
-  {
-    icon: Sparkles,
-    title: 'AI-assisted drafts',
-    body: 'Generate first-pass docs from pull requests, link them to code entities, and iterate with inline reviews.',
-  },
-  {
-    icon: GitBranch,
-    title: 'Lives with your code',
-    body: 'Drift detection flags when reality moves away from the docs. CI can block merges until docs catch up.',
-  },
-  {
-    icon: Shield,
-    title: 'Review before publish',
-    body: 'Reviewers approve each version. AI-authored drafts always go through a human-in-the-loop checkpoint.',
-  },
-  {
-    icon: Stethoscope,
-    title: 'Health at a glance',
-    body: 'Freshness, coverage, drift and confidence scores roll up into one dashboard per workspace.',
-  },
-];
-
 export default function HomePage() {
   const { isAuthenticated } = useAuth();
+  const { t } = useTranslation();
+
+  const features: { icon: typeof Sparkles; titleKey: string; bodyKey: string }[] = [
+    { icon: Sparkles, titleKey: 'home.feature2Title', bodyKey: 'home.feature2Body' },
+    { icon: GitBranch, titleKey: 'home.feature1Title', bodyKey: 'home.feature1Body' },
+    { icon: Shield, titleKey: 'home.reviewTitle', bodyKey: 'home.reviewBody' },
+    { icon: Stethoscope, titleKey: 'home.healthTitle', bodyKey: 'home.healthBody' },
+  ];
 
   return (
     <div className="space-y-16 py-8">
@@ -46,34 +32,36 @@ export default function HomePage() {
         <div className="space-y-6">
           <Badge variant="muted" className="w-fit">
             <Activity className="mr-1 h-3 w-3" />
-            v0.2 — Foundation
+            v0.2 — {t('home.foundationsLabel', { defaultValue: 'Foundation' })}
           </Badge>
           <h1 className="text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-            Living documentation
+            {t('home.headline1', { defaultValue: 'Living documentation' })}
             <span className="block bg-gradient-to-r from-primary to-info bg-clip-text text-transparent">
-              that evolves with your code
+              {t('home.headline2', { defaultValue: 'that evolves with your code' })}
             </span>
           </h1>
           <p className="max-w-prose text-lg text-muted-foreground">
-            LivingDocs keeps the docs next to the pull request. Generate drafts from
-            code, route them through human review, surface drift before it ships.
+            {t('home.lead', {
+              defaultValue: 'LivingDocs keeps the docs next to the pull request. Generate drafts from code, route them through human review, surface drift before it ships.',
+            })}
           </p>
           <div className="flex flex-wrap gap-3">
             {isAuthenticated ? (
               <Button asChild size="lg">
                 <Link to="/dashboard">
-                  Go to dashboard <ArrowRight className="ml-1 h-4 w-4" />
+                  {t('home.openDashboard', { defaultValue: 'Go to dashboard' })}{' '}
+                  <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
             ) : (
               <>
                 <Button asChild size="lg">
                   <Link to="/register">
-                    Get started <ArrowRight className="ml-1 h-4 w-4" />
+                    {t('home.cta')} <ArrowRight className="ml-1 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="outline">
-                  <Link to="/login">Log in</Link>
+                  <Link to="/login">{t('common.actions.login')}</Link>
                 </Button>
               </>
             )}
@@ -128,20 +116,22 @@ export default function HomePage() {
 
       <section>
         <div className="mb-8 text-center">
-          <h2 className="text-2xl font-semibold tracking-tight">What you get</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {t('home.whatYouGet', { defaultValue: 'What you get' })}
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            The four jobs LivingDocs is built for, in one tool.
+            {t('home.whatYouGetSubtitle', { defaultValue: 'The four jobs LivingDocs is built for, in one tool.' })}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {features.map((f) => (
-            <Card key={f.title} className="bg-card/50">
+            <Card key={f.titleKey} className="bg-card/50">
               <CardHeader>
                 <f.icon className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base">{f.title}</CardTitle>
+                <CardTitle className="text-base">{t(f.titleKey)}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">{f.body}</p>
+                <p className="text-sm text-muted-foreground">{t(f.bodyKey)}</p>
               </CardContent>
             </Card>
           ))}
@@ -150,19 +140,24 @@ export default function HomePage() {
 
       <section className="rounded-2xl border bg-card/30 p-8 text-center">
         <BookOpen className="mx-auto mb-3 h-8 w-8 text-primary" />
-        <h2 className="text-xl font-semibold">Ready to give your docs a pulse?</h2>
+        <h2 className="text-xl font-semibold">
+          {t('home.readyTitle', { defaultValue: 'Ready to give your docs a pulse?' })}
+        </h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Spin up a workspace, connect a GitHub repo, and let the AI service draft your
-          first document in under two minutes.
+          {t('home.readyBody', {
+            defaultValue: 'Spin up a workspace, connect a GitHub repo, and let the AI service draft your first document in under two minutes.',
+          })}
         </p>
         <div className="mt-4 flex justify-center gap-2">
           <Button asChild>
             <Link to={isAuthenticated ? '/workspaces' : '/register'}>
-              {isAuthenticated ? 'Open workspaces' : 'Create your account'}
+              {isAuthenticated
+                ? t('home.openWorkspaces', { defaultValue: 'Open workspaces' })
+                : t('home.cta')}
             </Link>
           </Button>
           <Button asChild variant="ghost">
-            <Link to="/about">How it works</Link>
+            <Link to="/about">{t('home.howItWorks', { defaultValue: 'How it works' })}</Link>
           </Button>
         </div>
       </section>

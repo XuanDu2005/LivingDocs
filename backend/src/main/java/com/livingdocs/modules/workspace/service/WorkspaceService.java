@@ -78,6 +78,11 @@ public class WorkspaceService {
         return ws;
     }
 
+    @Transactional(readOnly = true)
+    public java.util.List<Workspace> listAll() {
+        return workspaceRepository.findAll();
+    }
+
     @Transactional
     public void delete(UUID actorId, UUID workspaceId) {
         Workspace ws = getById(workspaceId);

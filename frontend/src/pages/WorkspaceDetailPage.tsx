@@ -6,6 +6,7 @@ import {
   Check,
   FileText,
   Library,
+  ScrollText,
   Shield,
   Sparkles,
   Stethoscope,
@@ -57,7 +58,9 @@ const toolLinks = (workspaceId: string) => [
   { to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle, label: 'Drift alerts' },
   { to: `/workspaces/${workspaceId}/reviews`, icon: Shield, label: 'Review queue' },
   { to: `/workspaces/${workspaceId}/knowledge`, icon: Library, label: 'Knowledge base' },
+  { to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles, label: 'AI settings' },
   { to: `/workspaces/${workspaceId}/health`, icon: Stethoscope, label: 'Health dashboard' },
+  { to: `/workspaces/${workspaceId}/audit-logs`, icon: ScrollText, label: 'Audit log' },
 ];
 
 export default function WorkspaceDetailPage() {

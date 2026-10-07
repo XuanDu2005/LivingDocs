@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Activity,
   AlertTriangle,
@@ -27,15 +28,16 @@ import { fetchBackendHealth, HealthStatus } from '../services/health';
 import { format } from 'date-fns';
 
 interface Stat {
-  label: string;
+  labelKey: string;
   value: string;
-  hint: string;
+  hintKey: string;
   icon: typeof Activity;
   to: string;
 }
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -65,30 +67,30 @@ export default function DashboardPage() {
 
   const stats: Stat[] = [
     {
-      label: 'Workspaces',
+      labelKey: 'dashboard.statWorkspaces',
       value: String(workspaces.length),
-      hint: 'You own or belong to these',
+      hintKey: 'dashboard.statWorkspacesHint',
       icon: Activity,
       to: '/workspaces',
     },
     {
-      label: 'Documents',
+      labelKey: 'dashboard.statDocuments',
       value: '—',
-      hint: 'Aggregate across workspaces',
+      hintKey: 'dashboard.statDocumentsHint',
       icon: FileText,
       to: firstWs ? `/workspaces/${firstWs.id}/documents` : '/workspaces',
     },
     {
-      label: 'Pending reviews',
+      labelKey: 'dashboard.statReviews',
       value: '—',
-      hint: 'Versions waiting on a decision',
+      hintKey: 'dashboard.statReviewsHint',
       icon: Shield,
       to: firstWs ? `/workspaces/${firstWs.id}/reviews` : '/workspaces',
     },
     {
-      label: 'Drift alerts',
+      labelKey: 'dashboard.statDrift',
       value: '—',
-      hint: 'Docs that may have fallen out of date',
+      hintKey: 'dashboard.statDriftHint',
       icon: AlertTriangle,
       to: firstWs ? `/workspaces/${firstWs.id}/drift` : '/workspaces',
     },
@@ -97,28 +99,28 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageTitle
-        title={`Welcome, ${user?.displayName ?? 'friend'}`}
-        subtitle="A snapshot of your docs health and what's waiting on you."
+        title={t('dashboard.welcome', { name: user?.displayName ?? t('dashboard.friend') })}
+        subtitle={t('dashboard.subtitle')}
       />
 
       {error && <ErrorState message={error} />}
-      {loading && <LoadingState message="Loading dashboard…" />}
+      {loading && <LoadingState message={t('common.loading')} />}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
-          <Card key={s.label}>
+          <Card key={s.labelKey}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardDescription>{s.label}</CardDescription>
+                <CardDescription>{t(s.labelKey)}</CardDescription>
                 <s.icon className="h-4 w-4 text-muted-foreground" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-semibold tracking-tight">{s.value}</div>
-              <p className="mt-1 text-xs text-muted-foreground">{s.hint}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t(s.hintKey)}</p>
               <Button variant="link" size="sm" className="mt-1 h-auto p-0" asChild>
                 <Link to={s.to}>
-                  Open <TrendingUp className="ml-1 h-3 w-3" />
+                  {t('common.open')} <TrendingUp className="ml-1 h-3 w-3" />
                 </Link>
               </Button>
             </CardContent>
@@ -129,13 +131,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Your workspaces</CardTitle>
-            <CardDescription>Quick access to documentation surfaces.</CardDescription>
+            <CardTitle className="text-base">{t('dashboard.yourWorkspaces')}</CardTitle>
+            <CardDescription>{t('dashboard.yourWorkspacesDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             {workspaces.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                You don't belong to a workspace yet. Create one to get started.
+                {t('dashboard.noWorkspaces')}
               </p>
             ) : (
               <div className="space-y-2">
@@ -147,7 +149,7 @@ export default function DashboardPage() {
                     <div>
                       <div className="text-sm font-medium">{w.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {w.slug} · created {format(new Date(w.createdAt), 'MMM d, yyyy')}
+                        {w.slug} · {t('dashboard.createdOn', { date: format(new Date(w.createdAt), 'MMM d, yyyy') })}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -162,7 +164,7 @@ export default function DashboardPage() {
                         </Link>
                       </Button>
                       <Button size="sm" variant="outline" asChild>
-                        <Link to={`/workspaces/${w.id}`}>Open</Link>
+                        <Link to={`/workspaces/${w.id}`}>{t('common.open')}</Link>
                       </Button>
                     </div>
                   </div>
@@ -174,15 +176,15 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Service health</CardTitle>
-            <CardDescription>Backend + AI service status.</CardDescription>
+            <CardTitle className="text-base">{t('dashboard.serviceHealth')}</CardTitle>
+            <CardDescription>{t('dashboard.serviceHealthDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <HealthRow label="Backend" status={health?.status} />
-            <HealthRow label="AI service" status="see dashboard" />
+            <HealthRow label={t('dashboard.backend')} status={health?.status} />
+            <HealthRow label={t('dashboard.aiService')} status="see dashboard" />
             <Button variant="outline" className="w-full" asChild>
               <Link to={firstWs ? `/workspaces/${firstWs.id}/health` : '/workspaces'}>
-                <Stethoscope className="mr-1 h-4 w-4" /> Open health dashboard
+                <Stethoscope className="mr-1 h-4 w-4" /> {t('dashboard.openHealthDashboard')}
               </Link>
             </Button>
           </CardContent>
@@ -191,32 +193,21 @@ export default function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Getting started</CardTitle>
+          <CardTitle className="text-base">{t('dashboard.gettingStarted')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="space-y-2 text-sm text-muted-foreground">
             <li className="flex gap-2">
-              <Badge variant="muted" className="h-6 w-6 justify-center">
-                1
-              </Badge>
-              <span>
-                Connect a GitHub repository in a workspace to enable code entity parsing.
-              </span>
+              <Badge variant="muted" className="h-6 w-6 justify-center">1</Badge>
+              <span>{t('dashboard.step1')}</span>
             </li>
             <li className="flex gap-2">
-              <Badge variant="muted" className="h-6 w-6 justify-center">
-                2
-              </Badge>
-              <span>
-                Generate the first draft from a pull request using{' '}
-                <Sparkles className="inline h-3 w-3" /> AI assist.
-              </span>
+              <Badge variant="muted" className="h-6 w-6 justify-center">2</Badge>
+              <span>{t('dashboard.step2')} <Sparkles className="inline h-3 w-3" /> {t('dashboard.aiAssist')}</span>
             </li>
             <li className="flex gap-2">
-              <Badge variant="muted" className="h-6 w-6 justify-center">
-                3
-              </Badge>
-              <span>Route through review and watch drift alerts surface in real time.</span>
+              <Badge variant="muted" className="h-6 w-6 justify-center">3</Badge>
+              <span>{t('dashboard.step3')}</span>
             </li>
           </ol>
         </CardContent>

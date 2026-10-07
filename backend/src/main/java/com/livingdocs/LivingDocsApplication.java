@@ -4,6 +4,7 @@ import com.livingdocs.common.oauth.OAuthProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 /**
  * Application entry point for the LivingDocs backend.
@@ -15,6 +16,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * module under {@code com.livingdocs.modules}.
  */
 @SpringBootApplication
+@EnableAsync
 @EnableConfigurationProperties(OAuthProperties.class)
 public class LivingDocsApplication {
 

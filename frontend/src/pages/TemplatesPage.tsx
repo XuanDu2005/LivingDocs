@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Code2, Eye, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -10,23 +11,37 @@ import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '../components/ui/card';
 import {
+  Tabs, TabsList, TabsTrigger,
+} from '../components/ui/tabs';
+import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '../components/ui/select';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { templatesApi, DocTemplate, DocTemplateListResponse } from '../services/templates';
+import { templateSchemaApi } from '../services/templateSchema';
 import { describeError } from '../services/auth';
+import { VisualTemplateBuilder } from '../components/VisualTemplateBuilder';
+import {
+  TemplateBody,
+  TemplateSchemaResponse,
+  bodyToJson,
+  jsonToBody,
+  EMPTY_BODY,
+  DocTypeInfo,
+} from '../types/templateBody';
 import { format } from 'date-fns';
 
-const defaultBodyJson = JSON.stringify(
-  { sections: [{ heading: 'Overview', placeholder: 'One paragraph summary.' }] },
-  null,
-  2,
-);
+type EditMode = 'visual' | 'json' | 'preview';
 
 export default function TemplatesPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { t } = useTranslation();
 
   const [list, setList] = useState<DocTemplateListResponse | null>(null);
+  const [schema, setSchema] = useState<TemplateSchemaResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,18 +51,25 @@ export default function TemplatesPage() {
   const [slug, setSlug] = useState<string>('');
   const [docType, setDocType] = useState<string>('MODULE_GUIDE');
   const [description, setDescription] = useState<string>('');
-  const [bodyJson, setBodyJson] = useState<string>(defaultBodyJson);
+  const [body, setBody] = useState<TemplateBody>(EMPTY_BODY);
+  const [bodyJsonText, setBodyJsonText] = useState<string>('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
   const [isDefault, setIsDefault] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [showForm, setShowForm] = useState<boolean>(false);
+  const [editMode, setEditMode] = useState<EditMode>('visual');
 
   const load = async () => {
     if (!workspaceId) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await templatesApi.list(workspaceId);
+      const [res, sch] = await Promise.all([
+        templatesApi.list(workspaceId),
+        templateSchemaApi.get().catch(() => null),
+      ]);
       setList(res);
+      if (sch) setSchema(sch);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -59,14 +81,50 @@ export default function TemplatesPage() {
     void load();
   }, [workspaceId]);
 
+  // Re-derive JSON when the body changes through the visual builder.
+  useEffect(() => {
+    setBodyJsonText(bodyToJson(body));
+    setJsonError(null);
+  }, [body]);
+
+  // Re-parse the body when the JSON text changes through the JSON editor.
+  useEffect(() => {
+    if (editMode !== 'json') return;
+    try {
+      setBody(jsonToBody(bodyJsonText));
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(describeError(e));
+    }
+  }, [bodyJsonText, editMode]);
+
+  function applyBodyFromTemplate(t: DocTemplate) {
+    try {
+      const parsed = jsonToBody(t.bodyJson);
+      setBody(parsed);
+      setBodyJsonText(t.bodyJson);
+    } catch {
+      setBody(EMPTY_BODY);
+      setBodyJsonText(t.bodyJson);
+    }
+  }
+
   function openCreate() {
     setEditingTemplate(null);
     setName('');
     setSlug('');
     setDocType('MODULE_GUIDE');
     setDescription('');
-    setBodyJson(defaultBodyJson);
     setIsDefault(false);
+    const seed = schema?.sample ?? EMPTY_BODY;
+    setBody({
+      version: 1,
+      titleHint: seed.titleHint ?? '',
+      sections: seed.sections.map((s) => ({ ...s, placeholders: s.placeholders.map((p) => ({ ...p })) })),
+      variables: seed.variables?.map((v) => ({ ...v })) ?? [],
+    });
+    setBodyJsonText(bodyToJson(body));
+    setEditMode('visual');
     setShowForm(true);
   }
 
@@ -76,32 +134,35 @@ export default function TemplatesPage() {
     setSlug('');
     setDocType(t.docType);
     setDescription(t.description ?? '');
-    setBodyJson(t.bodyJson);
     setIsDefault(t.isDefault);
+    applyBodyFromTemplate(t);
+    setEditMode('visual');
     setShowForm(true);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!workspaceId) return;
+    if (jsonError) {
+      setError(`JSON error: ${jsonError}`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
+      const payload = {
+        name,
+        description: description || undefined,
+        bodyJson: bodyToJson(body),
+        isDefault,
+      };
       if (editingTemplate) {
-        await templatesApi.update(workspaceId, editingTemplate.id, {
-          name,
-          description: description || undefined,
-          bodyJson,
-          isDefault,
-        });
+        await templatesApi.update(workspaceId, editingTemplate.id, payload);
       } else {
         await templatesApi.create(workspaceId, {
-          name,
+          ...payload,
           slug,
-          description: description || undefined,
           docType,
-          bodyJson,
-          isDefault,
         });
       }
       setShowForm(false);
@@ -130,19 +191,19 @@ export default function TemplatesPage() {
     <div className="space-y-6">
       <Button variant="ghost" size="sm" asChild>
         <Link to={`/workspaces/${workspaceId}`}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+          <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
         </Link>
       </Button>
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Templates</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t('templates.title')}</h1>
           <p className="text-sm text-muted-foreground">
-            Workspace and global documentation templates.
+            {t('templates.subtitle')}
           </p>
         </div>
         <Button onClick={() => openCreate()}>
-          <Plus className="mr-1 h-4 w-4" /> New template
+          <Plus className="mr-1 h-4 w-4" /> {t('templates.newCta')}
         </Button>
       </div>
 
@@ -151,74 +212,115 @@ export default function TemplatesPage() {
 
       {/* Create / Edit dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingTemplate ? 'Edit template' : 'New template'}
+              {editingTemplate ? t('templates.dialogEdit') : t('templates.dialogNew')}
             </DialogTitle>
             <DialogDescription>
-              {editingTemplate
-                ? 'Update the workspace template. The docType cannot be changed.'
-                : 'Create a new workspace template for this workspace.'}
+              {editingTemplate ? t('templates.dialogEditDesc') : t('templates.dialogNewDesc')}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="tmpl-name">Name <span className="text-destructive">*</span></Label>
-              <Input
-                id="tmpl-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                placeholder="My template"
-              />
-            </div>
-
-            {!editingTemplate && (
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="tmpl-slug">Slug <span className="text-destructive">*</span></Label>
+                <Label htmlFor="tmpl-name">{t('templates.fieldName')} <span className="text-destructive">*</span></Label>
                 <Input
-                  id="tmpl-slug"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  id="tmpl-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   required
-                  placeholder="my-template"
+                  placeholder={t('templates.fieldName')}
                 />
               </div>
-            )}
+              {!editingTemplate ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="tmpl-slug">{t('templates.fieldSlug')} <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="tmpl-slug"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                    required
+                    placeholder="my-template"
+                  />
+                </div>
+              ) : <div />}
+            </div>
 
-            {!editingTemplate && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {!editingTemplate && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="tmpl-type">{t('templates.fieldDocType')}</Label>
+                  <Select value={docType} onValueChange={setDocType}>
+                    <SelectTrigger id="tmpl-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(schema?.docTypes ?? [{ value: docType, label: docType, description: '' }]).map((tt: DocTypeInfo) => (
+                        <SelectItem key={tt.value} value={tt.value} title={tt.description}>
+                          {tt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-1.5">
-                <Label htmlFor="tmpl-type">Document type</Label>
+                <Label htmlFor="tmpl-desc">{t('templates.fieldDescription')}</Label>
                 <Input
-                  id="tmpl-type"
-                  value={docType}
-                  onChange={(e) => setDocType(e.target.value)}
-                  placeholder="MODULE_GUIDE"
+                  id="tmpl-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('templates.fieldDescription')}
                 />
               </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="tmpl-desc">Description</Label>
-              <Input
-                id="tmpl-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description…"
-              />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="tmpl-body">Body (JSON)</Label>
-              <Textarea
-                id="tmpl-body"
-                value={bodyJson}
-                onChange={(e) => setBodyJson(e.target.value)}
-                rows={8}
-                className="font-mono text-xs"
-                required
-              />
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">Body</Label>
+                <Tabs value={editMode} onValueChange={(v) => setEditMode(v as EditMode)}>
+                  <TabsList>
+                    <TabsTrigger value="visual">
+                      <Sparkles className="mr-1 h-3 w-3" /> {t('templates.tabVisual')}
+                    </TabsTrigger>
+                    <TabsTrigger value="json">
+                      <Code2 className="mr-1 h-3 w-3" /> {t('templates.tabJson')}
+                    </TabsTrigger>
+                    <TabsTrigger value="preview">
+                      <Eye className="mr-1 h-3 w-3" /> {t('templates.tabPreview')}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+
+              {editMode === 'visual' && (
+                <VisualTemplateBuilder body={body} onChange={setBody} />
+              )}
+
+              {editMode === 'json' && (
+                <div className="space-y-1.5">
+                  <Textarea
+                    value={bodyJsonText}
+                    onChange={(e) => setBodyJsonText(e.target.value)}
+                    rows={20}
+                    className="font-mono text-xs"
+                  />
+                  {jsonError && (
+                    <p className="text-xs text-destructive">
+                      {t('templates.jsonError', { message: jsonError })}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {editMode === 'preview' && (
+                <div className="rounded-md border bg-muted/30 p-4">
+                  <pre className="whitespace-pre-wrap text-xs font-mono leading-relaxed">
+                    {renderPreview(body)}
+                  </pre>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -230,14 +332,15 @@ export default function TemplatesPage() {
                 className="h-4 w-4 rounded border-input accent-primary"
               />
               <Label htmlFor="tmpl-default" className="text-sm font-normal cursor-pointer">
-                Use as default for new documents of this type
+                {t('templates.fieldIsDefault')}
               </Label>
             </div>
 
             <DialogFooter>
-              <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-              <Button type="submit" disabled={busy}>
-                {busy ? 'Saving…' : editingTemplate ? 'Save changes' : 'Create template'}
+              <DialogClose asChild><Button type="button" variant="outline">{t('common.cancel')}</Button></DialogClose>
+              <Button type="submit" disabled={busy || Boolean(jsonError)}>
+                {busy ? t('common.actions.saving') :
+                  editingTemplate ? t('common.update') : t('common.create')}
               </Button>
             </DialogFooter>
           </form>
@@ -359,4 +462,21 @@ export default function TemplatesPage() {
       )}
     </div>
   );
+}
+
+function renderPreview(body: TemplateBody): string {
+  const out: string[] = [];
+  if (body.titleHint) out.push(`# ${body.titleHint}\n`);
+  for (const sec of body.sections) {
+    const level = sec.level || 2;
+    out.push(`${'#'.repeat(Math.max(1, Math.min(6, level)))} ${sec.heading}\n`);
+    for (const ph of sec.placeholders) {
+      const req = ph.required ? ' (required)' : '';
+      const w = ph.maxWords ? ` ≤ ${ph.maxWords}w` : '';
+      const bind = ph.binding ? ` [${ph.binding}]` : '';
+      out.push(`- [${ph.key}]${bind}${req}${w} — ${ph.prompt}`);
+    }
+    out.push('');
+  }
+  return out.join('\n');
 }

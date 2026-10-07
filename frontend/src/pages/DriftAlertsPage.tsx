@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -15,37 +16,45 @@ import { describeError } from '../services/auth';
 import { format } from 'date-fns';
 
 const SEVERITY_BADGE: Record<DriftSeverity, 'destructive' | 'warning' | 'info' | 'muted'> = {
-  CRITICAL: 'destructive',
-  HIGH: 'warning',
-  MEDIUM: 'info',
-  LOW: 'muted',
+  CRITICAL: 'destructive', HIGH: 'warning', MEDIUM: 'info', LOW: 'muted',
 };
 
 const KIND_BADGE: Record<DriftKind, 'default' | 'secondary' | 'muted'> = {
-  REFERENTIAL: 'default',
-  SIGNATURE: 'secondary',
-  SEMANTIC: 'muted',
+  REFERENTIAL: 'default', SIGNATURE: 'secondary', SEMANTIC: 'muted',
 };
 
 const RESOLUTION_BADGE: Record<DriftResolution, 'info' | 'success' | 'warning' | 'muted' | 'destructive'> = {
-  OPEN: 'warning',
-  ACCEPTED: 'success',
-  DISMISSED: 'muted',
-  FIXED: 'info',
+  OPEN: 'warning', ACCEPTED: 'success', DISMISSED: 'muted', FIXED: 'info',
+};
+
+const SEVERITY_KEY: Record<DriftSeverity, string> = {
+  CRITICAL: 'drift.severityCritical',
+  HIGH: 'drift.severityHigh',
+  MEDIUM: 'drift.severityMedium',
+  LOW: 'drift.severityLow',
+};
+
+const KIND_KEY: Record<DriftKind, string> = {
+  REFERENTIAL: 'drift.kindReferential',
+  SIGNATURE: 'drift.kindSignature',
+  SEMANTIC: 'drift.kindSemantic',
+};
+
+const RESOLUTION_KEY: Record<DriftResolution, string> = {
+  OPEN: 'drift.resolutionOpen',
+  ACCEPTED: 'drift.resolutionAccepted',
+  DISMISSED: 'drift.resolutionDismissed',
+  FIXED: 'drift.resolutionFixed',
 };
 
 interface AlertWithRepo extends DriftAlert {
   repositoryName?: string;
 }
 
-function EvidenceRow({ evidenceJson }: { evidenceJson: string }) {
+function EvidenceRow({ evidenceJson, t }: { evidenceJson: string; t: (k: string) => string }) {
   const [open, setOpen] = useState(false);
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(evidenceJson);
-  } catch {
-    parsed = evidenceJson;
-  }
+  try { parsed = JSON.parse(evidenceJson); } catch { parsed = evidenceJson; }
   return (
     <div className="mt-2 rounded border bg-muted/50 p-2">
       <button
@@ -54,7 +63,7 @@ function EvidenceRow({ evidenceJson }: { evidenceJson: string }) {
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        {open ? 'Hide' : 'Show'} evidence
+        {open ? t('drift.hideEvidence') : t('drift.showEvidence')}
       </button>
       {open && (
         <pre className="mt-2 overflow-auto rounded bg-background p-2 text-xs font-mono max-h-48">
@@ -67,6 +76,7 @@ function EvidenceRow({ evidenceJson }: { evidenceJson: string }) {
 
 export default function DriftAlertsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { t } = useTranslation();
 
   const [alerts, setAlerts] = useState<AlertWithRepo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -88,7 +98,6 @@ export default function DriftAlertsPage() {
       if (statusFilter !== 'ALL') params.status = statusFilter as DriftResolution;
       if (kindFilter !== 'ALL') params.kind = kindFilter as DriftKind;
       if (severityFilter !== 'ALL') params.severity = severityFilter as DriftSeverity;
-
       const list = await driftApi.list(workspaceId, params);
       setAlerts(list as AlertWithRepo[]);
     } catch (err) {
@@ -98,9 +107,7 @@ export default function DriftAlertsPage() {
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, [workspaceId, severityFilter, kindFilter, statusFilter]);
+  useEffect(() => { void load(); }, [workspaceId, severityFilter, kindFilter, statusFilter]);
 
   async function handleResolve() {
     if (!workspaceId || !resolveAlertId) return;
@@ -113,7 +120,7 @@ export default function DriftAlertsPage() {
     }
   }
 
-  if (!workspaceId) return <EmptyState title="Missing workspace id" />;
+  if (!workspaceId) return <EmptyState title={t('common.back')} />;
 
   const criticalCount = alerts.filter((a) => a.severity === 'CRITICAL').length;
   const highCount = alerts.filter((a) => a.severity === 'HIGH').length;
@@ -124,92 +131,84 @@ export default function DriftAlertsPage() {
     <div className="space-y-4">
       <Button variant="ghost" size="sm" asChild>
         <Link to={`/workspaces/${workspaceId}`}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+          <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
         </Link>
       </Button>
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Drift alerts</h1>
-          <p className="text-sm text-muted-foreground">Documentation drift detected from source code changes.</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('drift.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('drift.subtitle')}</p>
         </div>
       </div>
 
-      {/* Severity summary cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card className="border-destructive/50">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-destructive">{criticalCount}</div>
-            <div className="text-xs text-muted-foreground">Critical</div>
+            <div className="text-xs text-muted-foreground">{t('drift.severityCritical')}</div>
           </CardContent>
         </Card>
         <Card className="border-orange-500/50">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-orange-500">{highCount}</div>
-            <div className="text-xs text-muted-foreground">High</div>
+            <div className="text-xs text-muted-foreground">{t('drift.severityHigh')}</div>
           </CardContent>
         </Card>
         <Card className="border-blue-500/50">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-blue-500">{mediumCount}</div>
-            <div className="text-xs text-muted-foreground">Medium</div>
+            <div className="text-xs text-muted-foreground">{t('drift.severityMedium')}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
             <div className="text-2xl font-bold text-muted-foreground">{lowCount}</div>
-            <div className="text-xs text-muted-foreground">Low</div>
+            <div className="text-xs text-muted-foreground">{t('drift.severityLow')}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
+          <SelectTrigger className="w-36"><SelectValue placeholder={t('documents.status')} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All statuses</SelectItem>
-            <SelectItem value="OPEN">Open</SelectItem>
-            <SelectItem value="ACCEPTED">Accepted</SelectItem>
-            <SelectItem value="DISMISSED">Dismissed</SelectItem>
-            <SelectItem value="FIXED">Fixed</SelectItem>
+            <SelectItem value="ALL">{t('drift.allStatuses')}</SelectItem>
+            <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
+            <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted')}</SelectItem>
+            <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
+            <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={severityFilter} onValueChange={setSeverityFilter}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Severity" />
-          </SelectTrigger>
+          <SelectTrigger className="w-36"><SelectValue placeholder={t('drift.severity')} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All severities</SelectItem>
-            <SelectItem value="CRITICAL">Critical</SelectItem>
-            <SelectItem value="HIGH">High</SelectItem>
-            <SelectItem value="MEDIUM">Medium</SelectItem>
-            <SelectItem value="LOW">Low</SelectItem>
+            <SelectItem value="ALL">{t('drift.allSeverities')}</SelectItem>
+            <SelectItem value="CRITICAL">{t('drift.severityCritical')}</SelectItem>
+            <SelectItem value="HIGH">{t('drift.severityHigh')}</SelectItem>
+            <SelectItem value="MEDIUM">{t('drift.severityMedium')}</SelectItem>
+            <SelectItem value="LOW">{t('drift.severityLow')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={kindFilter} onValueChange={setKindFilter}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Kind" />
-          </SelectTrigger>
+          <SelectTrigger className="w-36"><SelectValue placeholder={t('drift.kind')} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="ALL">All kinds</SelectItem>
-            <SelectItem value="REFERENTIAL">Referential</SelectItem>
-            <SelectItem value="SIGNATURE">Signature</SelectItem>
-            <SelectItem value="SEMANTIC">Semantic</SelectItem>
+            <SelectItem value="ALL">{t('drift.allKinds')}</SelectItem>
+            <SelectItem value="REFERENTIAL">{t('drift.kindReferential')}</SelectItem>
+            <SelectItem value="SIGNATURE">{t('drift.kindSignature')}</SelectItem>
+            <SelectItem value="SEMANTIC">{t('drift.kindSemantic')}</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
       {error && <ErrorState message={error} />}
-      {loading && <LoadingState message="Loading drift alerts…" />}
+      {loading && <LoadingState message={t('drift.loading')} />}
 
       {!loading && !error && alerts.length === 0 && (
         <EmptyState
           icon={<AlertTriangle className="h-8 w-8" />}
-          title="No drift alerts"
-          description="No drift alerts match the current filters."
+          title={t('drift.emptyTitle')}
+          description={t('drift.emptyDesc')}
         />
       )}
 
@@ -219,73 +218,66 @@ export default function DriftAlertsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Detected</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('drift.colSeverity')}</TableHead>
+                  <TableHead>{t('drift.colKind')}</TableHead>
+                  <TableHead>{t('drift.colTitle')}</TableHead>
+                  <TableHead>{t('drift.colDetected')}</TableHead>
+                  <TableHead>{t('drift.colStatus')}</TableHead>
+                  <TableHead>{t('drift.colActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {alerts.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell>
-                      <Badge variant={SEVERITY_BADGE[a.severity]}>{a.severity}</Badge>
+                      <Badge variant={SEVERITY_BADGE[a.severity]}>{t(SEVERITY_KEY[a.severity])}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={KIND_BADGE[a.driftKind]}>{a.driftKind}</Badge>
+                      <Badge variant={KIND_BADGE[a.driftKind]}>{t(KIND_KEY[a.driftKind])}</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="max-w-[200px]">
                         <div className="truncate font-medium text-sm">{a.title}</div>
                         {a.aiSuggestion && (
                           <div className="mt-1 text-xs text-muted-foreground truncate">
-                            Hint: {a.aiSuggestion.slice(0, 80)}
+                            {t('drift.aiHint')}: {a.aiSuggestion.slice(0, 80)}
                           </div>
                         )}
-                        {a.evidenceJson && <EvidenceRow evidenceJson={a.evidenceJson} />}
+                        {a.evidenceJson && <EvidenceRow evidenceJson={a.evidenceJson} t={t} />}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                       {format(new Date(a.detectedAt), 'MMM d, yyyy HH:mm')}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={RESOLUTION_BADGE[a.resolutionStatus]}>
-                        {a.resolutionStatus}
-                      </Badge>
+                      <Badge variant={RESOLUTION_BADGE[a.resolutionStatus]}>{t(RESOLUTION_KEY[a.resolutionStatus])}</Badge>
                     </TableCell>
                     <TableCell>
                       <Dialog open={resolveAlertId === a.id} onOpenChange={(o) => { if (!o) setResolveAlertId(null); }}>
                         <DialogTrigger asChild>
                           <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(a.id); setResolveResolution('FIXED'); }}>
-                            <Check className="mr-1 h-3 w-3" /> Resolve
+                            <Check className="mr-1 h-3 w-3" /> {t('drift.resolve')}
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Resolve drift alert</DialogTitle>
+                            <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
                             <DialogDescription>{a.title}</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-3 py-2">
-                            <Select
-                              value={resolveResolution}
-                              onValueChange={(v) => setResolveResolution(v as DriftResolution)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
+                            <Select value={resolveResolution} onValueChange={(v) => setResolveResolution(v as DriftResolution)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="FIXED">Fixed</SelectItem>
-                                <SelectItem value="ACCEPTED">Accepted (risk acknowledged)</SelectItem>
-                                <SelectItem value="DISMISSED">Dismissed</SelectItem>
-                                <SelectItem value="OPEN">Keep open</SelectItem>
+                                <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
+                                <SelectItem value="ACCEPTED">{t('drift.resolutionAcceptedFull')}</SelectItem>
+                                <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
+                                <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                           <DialogFooter>
-                            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-                            <Button onClick={() => void handleResolve()}>Confirm resolution</Button>
+                            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
+                            <Button onClick={() => void handleResolve()}>{t('drift.confirmResolution')}</Button>
                           </DialogFooter>
                         </DialogContent>
                       </Dialog>

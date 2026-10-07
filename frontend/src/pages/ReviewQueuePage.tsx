@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CheckCircle, Clock, Shield, XCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -28,6 +29,13 @@ const DECISION_VARIANT: Record<ReviewDecision, 'success' | 'destructive' | 'warn
   COMMENT: 'info',
 };
 
+const DECISION_KEY: Record<ReviewDecision, string> = {
+  APPROVED: 'reviews.approved',
+  REJECTED: 'reviews.rejected',
+  REQUEST_CHANGES: 'reviews.requestChanges',
+  COMMENT: 'reviews.comment',
+};
+
 interface ReviewWithDoc extends DocumentReview {
   documentId: string;
   documentTitle?: string;
@@ -36,7 +44,7 @@ interface ReviewWithDoc extends DocumentReview {
 
 export default function ReviewQueuePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
-
+  const { t } = useTranslation();
   const [reviews, setReviews] = useState<ReviewWithDoc[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +55,9 @@ export default function ReviewQueuePage() {
     setError(null);
     try {
       const myReviews = await reviewsApi.myReviews();
-
-      // Enrich with document titles
       const docs = await documentsApi.list(workspaceId);
-
       const enriched: ReviewWithDoc[] = [];
       for (const r of myReviews) {
-        // We need documentId — try to find from timeline
         for (const doc of docs) {
           const tl = await documentsApi.timeline(doc.id).catch(() => []);
           if (tl.some((v) => v.id === r.documentVersionId)) {
@@ -75,11 +79,9 @@ export default function ReviewQueuePage() {
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, [workspaceId]);
+  useEffect(() => { void load(); }, [workspaceId]);
 
-  if (!workspaceId) return <EmptyState title="Missing workspace id" />;
+  if (!workspaceId) return <EmptyState title={t('common.back')} />;
 
   const pending = reviews.filter((r) => r.decision === 'APPROVED' || r.decision === 'REQUEST_CHANGES');
   const all = reviews;
@@ -88,62 +90,50 @@ export default function ReviewQueuePage() {
     <div className="space-y-4">
       <Button variant="ghost" size="sm" asChild>
         <Link to={`/workspaces/${workspaceId}`}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to workspace
+          <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
         </Link>
       </Button>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Review queue</h1>
-        <p className="text-sm text-muted-foreground">
-          Document versions pending your review.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('reviews.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('reviews.subtitle')}</p>
       </div>
 
       {error && <ErrorState message={error} />}
-      {loading && <LoadingState message="Loading reviews…" />}
+      {loading && <LoadingState message={t('reviews.loading')} />}
 
       {!loading && !error && (
         <Tabs defaultValue="pending">
           <TabsList>
             <TabsTrigger value="pending">
-              Pending on me
+              {t('reviews.pendingOnMe')}
               {pending.length > 0 && (
                 <Badge variant="warning" className="ml-2">{pending.length}</Badge>
               )}
             </TabsTrigger>
             <TabsTrigger value="all">
-              All
+              {t('reviews.all')}
               <Badge variant="muted" className="ml-2">{all.length}</Badge>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending">
             {pending.length === 0 ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <EmptyState
-                    title="Nothing pending"
-                    description="No reviews assigned to you right now."
-                  />
-                </CardContent>
-              </Card>
+              <Card><CardContent className="pt-6">
+                <EmptyState title={t('reviews.nothingPending')} description={t('reviews.nothingPendingDesc')} />
+              </CardContent></Card>
             ) : (
-              <ReviewTable reviews={pending} workspaceId={workspaceId} />
+              <ReviewTable reviews={pending} workspaceId={workspaceId} t={t} />
             )}
           </TabsContent>
 
           <TabsContent value="all">
             {all.length === 0 ? (
-              <Card>
-                <CardContent className="pt-6">
-                  <EmptyState
-                    title="No reviews yet"
-                    description="Reviews will appear here once documents are submitted for review."
-                  />
-                </CardContent>
-              </Card>
+              <Card><CardContent className="pt-6">
+                <EmptyState title={t('reviews.noReviews')} description={t('reviews.noReviewsDesc')} />
+              </CardContent></Card>
             ) : (
-              <ReviewTable reviews={all} workspaceId={workspaceId} />
+              <ReviewTable reviews={all} workspaceId={workspaceId} t={t} />
             )}
           </TabsContent>
         </Tabs>
@@ -152,19 +142,19 @@ export default function ReviewQueuePage() {
   );
 }
 
-function ReviewTable({ reviews, workspaceId }: { reviews: ReviewWithDoc[]; workspaceId: string }) {
+function ReviewTable({ reviews, workspaceId, t }: { reviews: ReviewWithDoc[]; workspaceId: string; t: (k: string) => string }) {
   return (
     <Card>
       <CardContent className="p-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Decision</TableHead>
-              <TableHead>Document</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Reviewer role</TableHead>
-              <TableHead>Comment</TableHead>
-              <TableHead>Decided</TableHead>
+              <TableHead>{t('reviews.colDecision')}</TableHead>
+              <TableHead>{t('reviews.colDocument')}</TableHead>
+              <TableHead>{t('reviews.colVersion')}</TableHead>
+              <TableHead>{t('reviews.colReviewerRole')}</TableHead>
+              <TableHead>{t('reviews.colComment')}</TableHead>
+              <TableHead>{t('reviews.colDecided')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -173,39 +163,20 @@ function ReviewTable({ reviews, workspaceId }: { reviews: ReviewWithDoc[]; works
                 <TableCell>
                   <div className="flex items-center gap-1.5">
                     {DECISION_ICON[r.decision]}
-                    <Badge variant={DECISION_VARIANT[r.decision]}>{r.decision}</Badge>
+                    <Badge variant={DECISION_VARIANT[r.decision]}>{t(DECISION_KEY[r.decision])}</Badge>
                   </div>
                 </TableCell>
                 <TableCell>
-                  {r.documentTitle ? (
-                    <Link
-                      to={`/workspaces/${workspaceId}/documents/${r.documentId}`}
-                      className="font-medium hover:text-primary"
-                    >
-                      {r.documentTitle}
-                    </Link>
-                  ) : (
-                    <code className="text-xs">{r.documentId}</code>
-                  )}
+                  <Link to={`/workspaces/${workspaceId}/documents/${r.documentId}`} className="hover:text-primary">
+                    {r.documentTitle ?? '—'}
+                  </Link>
                 </TableCell>
+                <TableCell>{r.versionNumber != null ? `v${r.versionNumber}` : '—'}</TableCell>
                 <TableCell>
-                  {r.versionNumber !== undefined ? (
-                    <Badge variant="muted">v{r.versionNumber}</Badge>
-                  ) : (
-                    '—'
-                  )}
+                  <Badge variant="muted">{r.reviewerRole}</Badge>
                 </TableCell>
-                <TableCell>
-                  <Badge variant="info">{r.reviewerRole}</Badge>
-                </TableCell>
-                <TableCell className="max-w-[200px] text-sm">
-                  {r.comment ? (
-                    <span className="truncate block">{r.comment}</span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                <TableCell className="text-xs">{r.comment ?? '—'}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
                   {format(new Date(r.decidedAt), 'MMM d, yyyy HH:mm')}
                 </TableCell>
               </TableRow>
