@@ -9,6 +9,7 @@ import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '../components/ui/card';
 import { LoadingState, ErrorState } from '../components/ui/states';
+import { LinkedAccountsCard } from '../components/auth/LinkedAccountsCard';
 import { useAuth } from '../contexts/AuthContext';
 import { updateCurrentUser } from '../services/users';
 import { describeError } from '../services/auth';
@@ -131,18 +132,8 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Password change (stub) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Change password</CardTitle>
-          <CardDescription>Password change is coming soon.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground italic">
-            Password change functionality is coming in a future release.
-          </p>
-        </CardContent>
-      </Card>
+      {/* Linked OAuth accounts */}
+      <LinkedAccountsCard />
 
       {/* Sign out */}
       <Card>
