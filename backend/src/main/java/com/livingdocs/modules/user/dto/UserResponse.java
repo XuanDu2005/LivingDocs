@@ -13,6 +13,7 @@ public record UserResponse(
         String email,
         String displayName,
         boolean enabled,
+        boolean emailVerified,
         OffsetDateTime createdAt
 ) {
     public static UserResponse from(User user) {
@@ -21,6 +22,7 @@ public record UserResponse(
                 user.getEmail(),
                 user.getDisplayName(),
                 user.isEnabled(),
+                user.isEmailVerified(),
                 user.getCreatedAt()
         );
     }

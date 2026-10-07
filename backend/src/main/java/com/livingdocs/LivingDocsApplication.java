@@ -1,7 +1,9 @@
 package com.livingdocs;
 
+import com.livingdocs.common.oauth.OAuthProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * Application entry point for the LivingDocs backend.
@@ -13,6 +15,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * module under {@code com.livingdocs.modules}.
  */
 @SpringBootApplication
+@EnableConfigurationProperties(OAuthProperties.class)
 public class LivingDocsApplication {
 
     public static void main(String[] args) {

@@ -12,8 +12,10 @@ import { authStorage, AuthenticatedUser, describeError } from '../services/auth'
 import {
   login as loginRequest,
   register as registerRequest,
+  verifyEmail as verifyEmailRequest,
   LoginPayload,
   RegisterPayload,
+  VerifyEmailPayload,
 } from '../services/authApi';
 import { fetchCurrentUser } from '../services/users';
 
@@ -22,7 +24,8 @@ interface AuthContextValue {
   initializing: boolean;
   isAuthenticated: boolean;
   login: (payload: LoginPayload) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<{ requiresEmailVerification: boolean; email: string }>;
+  verifyEmail: (payload: VerifyEmailPayload) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -99,7 +102,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const register = useCallback(
     async (payload: RegisterPayload) => {
-      const result = await registerRequest(payload);
+      // /register no longer returns a token. The caller has to verify the
+      // email first; we surface the result so the UI can navigate to the
+      // verify-email page with the address in the query string.
+      return registerRequest(payload);
+    },
+    [],
+  );
+
+  const verifyEmail = useCallback(
+    async (payload: VerifyEmailPayload) => {
+      const result = await verifyEmailRequest(payload);
       persist(result.token, result.user);
     },
     [persist],
@@ -118,10 +131,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: user !== null,
       login,
       register,
+      verifyEmail,
       logout,
       refreshUser,
     }),
-    [user, initializing, login, register, logout, refreshUser],
+    [user, initializing, login, register, verifyEmail, logout, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

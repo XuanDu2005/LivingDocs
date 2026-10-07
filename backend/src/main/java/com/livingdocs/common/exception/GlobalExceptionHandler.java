@@ -13,6 +13,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.livingdocs.common.exception.OAuthExchangeException;
+
 import java.util.List;
 
 /**
@@ -25,6 +27,29 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(InvalidCodeException.class)
+    public ResponseEntity<ApiError> handleInvalidCode(InvalidCodeException ex, HttpServletRequest req) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), req);
+    }
+
+    @ExceptionHandler(EmailNotVerifiedException.class)
+    public ResponseEntity<ApiError> handleEmailNotVerified(EmailNotVerifiedException ex, HttpServletRequest req) {
+        ApiError body = ApiError.builder()
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error("EMAIL_NOT_VERIFIED")
+                .message("Email is not verified")
+                .path(req.getRequestURI())
+                .metadata(java.util.Map.of("email", ex.getEmail()))
+                .build();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+    }
+
+    @ExceptionHandler(OAuthExchangeException.class)
+    public ResponseEntity<ApiError> handleOAuthExchange(OAuthExchangeException ex, HttpServletRequest req) {
+        log.warn("OAuth exchange failure on {}: {}", req.getRequestURI(), ex.getMessage());
+        return build(HttpStatus.BAD_GATEWAY, ex.getMessage(), req);
+    }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ApiError> handleNotFound(NotFoundException ex, HttpServletRequest req) {
