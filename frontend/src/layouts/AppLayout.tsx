@@ -9,6 +9,8 @@ import {
   Moon,
   Settings,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Sun,
   Users,
@@ -18,6 +20,7 @@ import {
   Stethoscope,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { hasRole } from '../services/auth';
 import { useTheme } from '../components/theme-provider';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -32,10 +35,10 @@ interface NavItem {
   to: string;
   icon: typeof BookOpen;
   authOnly?: boolean;
-  adminOnly?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
+/** Items shown to every authenticated user. */
+const WORKSPACE_NAV_ITEMS: NavItem[] = [
   { label: 'Home', to: '/', icon: BookOpen },
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, authOnly: true },
   { label: 'Workspaces', to: '/workspaces', icon: Users, authOnly: true },
@@ -44,7 +47,13 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Drift', to: '/workspaces', icon: AlertTriangle, authOnly: true },
   { label: 'Knowledge', to: '/workspaces', icon: Library, authOnly: true },
   { label: 'Health', to: '/workspaces', icon: Stethoscope, authOnly: true },
-  { label: 'Admin', to: '/admin/users', icon: Settings, adminOnly: true },
+];
+
+/** Items shown only to ADMINs. Rendered in their own section. */
+const ADMIN_NAV_ITEMS: NavItem[] = [
+  { label: 'Users', to: '/admin/users', icon: Users },
+  { label: 'Roles', to: '/admin/roles', icon: ShieldCheck },
+  { label: 'Audit retention', to: '/admin/audit-retention', icon: ShieldAlert },
 ];
 
 function buildWorkspaceItems(workspaceId?: string) {
@@ -70,11 +79,20 @@ export function AppLayout({ children }: AppLayoutProps) {
   const workspaceId = wsMatch?.[1];
   const wsItems = buildWorkspaceItems(workspaceId);
 
-  const topItems = NAV_ITEMS.filter((item) => {
-    if (item.authOnly && !isAuthenticated) return false;
-    if (item.adminOnly && user?.role !== 'ADMIN') return false;
-    return true;
-  });
+  const isAdmin = isAuthenticated && hasRole(user, 'ADMIN');
+
+  // Regular users see the standard nav (Home/Dashboard/Workspaces/...).
+  // Admins only see the Administration section — the Workspace items are
+  // hidden because admin tooling lives in its own UI surface.
+  const workspaceItems = isAdmin
+    ? []
+    : WORKSPACE_NAV_ITEMS.filter((item) => {
+        if (item.authOnly && !isAuthenticated) return false;
+        return true;
+      });
+  const adminItems = isAdmin ? ADMIN_NAV_ITEMS : [];
+  // Per-workspace items are also hidden for admins.
+  const showWorkspaceItems = !isAdmin && isAuthenticated && Boolean(workspaceId);
 
   function onLogout() {
     logout();
@@ -96,17 +114,38 @@ export function AppLayout({ children }: AppLayoutProps) {
           <span className="text-base font-semibold tracking-tight">LivingDocs</span>
         </div>
         <nav className="flex-1 space-y-6 overflow-y-auto p-3">
-          <div>
-            <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Workspace
+          {/* Workspace / authenticated section — hidden for ADMINs */}
+          {workspaceItems.length > 0 && (
+            <div>
+              <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Workspace
+              </div>
+              <div className="space-y-0.5">
+                {workspaceItems.map((item) => (
+                  <SidebarLink key={item.label} to={item.to} icon={item.icon} label={item.label} />
+                ))}
+              </div>
             </div>
-            <div className="space-y-0.5">
-              {topItems.map((item) => (
-                <SidebarLink key={item.label} to={item.to} icon={item.icon} label={item.label} />
-              ))}
+          )}
+
+          {/* Administration section — only for ADMINs */}
+          {adminItems.length > 0 && (
+            <div>
+              <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Administration
+              </div>
+              <div className="space-y-0.5">
+                {adminItems.map((item) => (
+                  <SidebarLink key={item.label} to={item.to} icon={item.icon} label={item.label} />
+                ))}
+              </div>
             </div>
-          </div>
-          {isAuthenticated && workspaceId && (
+          )}
+
+          {/* Per-workspace section — only when inside a workspace URL,
+              and only for non-admin users (admins operate at the platform
+              level). */}
+          {showWorkspaceItems && workspaceId && (
             <div>
               <div className="mb-1 flex items-center justify-between px-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -137,10 +176,14 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <div className="truncate text-sm font-medium">
                   {user.displayName || user.email}
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="muted" className="text-[10px]">
-                    {user.role}
-                  </Badge>
+                <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                  {(user.roles && user.roles.length > 0) ? (
+                    user.roles.map((r) => (
+                      <Badge key={r} variant="muted" className="text-[10px]">{r}</Badge>
+                    ))
+                  ) : (
+                    <span className="text-[10px]">No platform role</span>
+                  )}
                 </div>
               </div>
               <div className="flex gap-1">

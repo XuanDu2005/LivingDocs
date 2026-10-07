@@ -3,6 +3,7 @@ package com.livingdocs.modules.user;
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.exception.UnauthorizedException;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.model.User;
@@ -36,8 +37,9 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
+        UserRoleAssignmentRepository roleAssignmentRepository = mock(UserRoleAssignmentRepository.class);
         encoder = new BCryptPasswordEncoder();
-        service = new UserService(userRepository, encoder);
+        service = new UserService(userRepository, roleAssignmentRepository, encoder);
     }
 
     @Test

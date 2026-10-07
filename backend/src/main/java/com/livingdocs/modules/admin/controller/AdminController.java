@@ -1,6 +1,8 @@
 package com.livingdocs.modules.admin.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePlatformRole;
+import com.livingdocs.modules.admin.dto.SetUserEnabledRequest;
 import com.livingdocs.modules.admin.dto.UpdateUserRoleRequest;
 import com.livingdocs.modules.admin.service.AdminService;
 import com.livingdocs.modules.user.dto.UserResponse;
@@ -22,14 +24,13 @@ import java.util.UUID;
 /**
  * Administrative endpoints (user / role / workspace configuration).
  *
- * <p>Authorization for these routes is intentionally permissive at the
- * Spring Security layer — the {@link AdminService} verifies that the
- * caller has the privileges required for the specific operation. In a
- * production deployment, restrict access via OAuth2 scopes or a
- * dedicated role check in {@code SecurityConfig}.
+ * <p>Authorization is enforced by the {@link RequirePlatformRole}
+ * annotation: only callers holding the {@code ADMIN} platform role can
+ * reach these endpoints.
  */
 @RestController
 @RequestMapping("/api/v1")
+@RequirePlatformRole({"ADMIN"})
 @Tag(name = "Admin", description = "Administrative operations")
 public class AdminController {
 
@@ -42,24 +43,28 @@ public class AdminController {
     @GetMapping("/admin/users")
     @Operation(summary = "List every user in the system")
     public List<UserResponse> listUsers() {
-        return adminService.listUsers().stream().map(this::toResponse).toList();
+        return adminService.listUsers().stream()
+                .map(u -> UserResponse.from(u, List.of()))
+                .toList();
     }
 
+    /**
+     * Legacy endpoint kept for backward compatibility. Returns a 409 so
+     * callers migrate to {@code PUT /api/v1/admin/users/{userId}/roles}.
+     */
     @PutMapping("/admin/users/{userId}/role")
-    @Operation(summary = "Update a user's platform role")
+    @Operation(summary = "Deprecated: use PUT /admin/users/{userId}/roles instead")
     public Map<String, Object> updateRole(@PathVariable UUID userId,
                                           @Valid @RequestBody UpdateUserRoleRequest req) {
         User u = adminService.updateRole(CurrentUser.requireId(), userId, req.role());
         return Map.of("id", u.getId().toString(), "role", req.role());
     }
 
-    private UserResponse toResponse(User u) {
-        return new UserResponse(
-                u.getId(),
-                u.getEmail(),
-                u.getDisplayName(),
-                u.isEnabled(),
-                u.isEmailVerified(),
-                u.getCreatedAt());
+    @PutMapping("/admin/users/{userId}/enabled")
+    @Operation(summary = "Enable or disable a platform user")
+    public UserResponse setEnabled(@PathVariable UUID userId,
+                                   @Valid @RequestBody SetUserEnabledRequest req) {
+        User u = adminService.setEnabled(CurrentUser.requireId(), userId, req.enabled());
+        return UserResponse.from(u, List.of());
     }
 }

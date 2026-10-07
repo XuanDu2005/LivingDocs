@@ -4,6 +4,7 @@ import com.livingdocs.common.oauth.OAuthAdapterFactory;
 import com.livingdocs.common.oauth.OAuthProperties;
 import com.livingdocs.common.oauth.OAuthUserInfo;
 import com.livingdocs.common.security.JwtService;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.auth.model.OAuthState;
 import com.livingdocs.modules.auth.service.OAuthService;
 import com.livingdocs.modules.auth.service.OAuthStateService;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -48,6 +50,7 @@ public class OAuthController {
     private final OAuthAdapterFactory adapterFactory;
     private final OAuthProperties properties;
     private final JwtService jwtService;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final String publicUrl;
 
     public OAuthController(OAuthStateService stateService,
@@ -55,12 +58,14 @@ public class OAuthController {
                            OAuthAdapterFactory adapterFactory,
                            OAuthProperties properties,
                            JwtService jwtService,
+                           UserRoleAssignmentRepository roleAssignmentRepository,
                            @Value("${app.public-url:http://localhost:8080}") String publicUrl) {
         this.stateService = stateService;
         this.oauthService = oauthService;
         this.adapterFactory = adapterFactory;
         this.properties = properties;
         this.jwtService = jwtService;
+        this.roleAssignmentRepository = roleAssignmentRepository;
         this.publicUrl = publicUrl;
     }
 
@@ -129,7 +134,8 @@ public class OAuthController {
         try {
             OAuthUserInfo info = oauthService.exchangeAndFetch(p, code);
             User user = oauthService.resolveUser(info);
-            JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail());
+            List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(user.getId());
+            JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail(), roleCodes);
             return redirectWithToken(state.getRedirectAfter(), issued.token(), p.wireValue(),
                     String.valueOf(issued.expiresAt().getEpochSecond()));
         } catch (Exception e) {

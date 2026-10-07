@@ -2,6 +2,8 @@ package com.livingdocs.common.security;
 
 import com.livingdocs.common.AppConstants;
 import com.livingdocs.common.exception.UnauthorizedException;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
+import com.livingdocs.modules.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,6 +17,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,10 +36,16 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final SecurityContextHolderStrategy securityContextHolderStrategy = SecurityContextHolder.getContextHolderStrategy();
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService,
+                                   UserRepository userRepository,
+                                   UserRoleAssignmentRepository roleAssignmentRepository) {
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
+        this.roleAssignmentRepository = roleAssignmentRepository;
     }
 
     @Override
@@ -51,7 +61,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     UUID userId = UUID.fromString(claims.getSubject());
                     String email = claims.get(AppConstants.JWT_CLAIM_EMAIL, String.class);
 
-                    AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", true);
+                    boolean enabled = userRepository.findById(userId)
+                            .map(u -> u.isEnabled())
+                            .orElse(true);
+                    // Prefer roles embedded in the JWT (cheap); fall back to
+                    // a DB lookup when the claim is missing (e.g. tokens
+                    // issued before this code shipped).
+                    List<String> roleCodes = extractRoleCodes(claims);
+                    if (roleCodes.isEmpty()) {
+                        roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
+                    }
+
+                    AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", enabled, roleCodes);
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                             principal, null, principal.getAuthorities());
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -65,5 +86,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         chain.doFilter(request, response);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> extractRoleCodes(Claims claims) {
+        Object raw = claims.get(AppConstants.JWT_CLAIM_ROLES);
+        if (raw instanceof List<?> list) {
+            return list.stream()
+                    .filter(o -> o instanceof String)
+                    .map(Object::toString)
+                    .toList();
+        }
+        return Collections.emptyList();
     }
 }

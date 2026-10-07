@@ -4,6 +4,7 @@ import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.exception.UnauthorizedException;
 import com.livingdocs.common.security.AuthenticatedUser;
+import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.model.User;
@@ -15,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -28,10 +30,14 @@ import java.util.UUID;
 public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserService(UserRepository userRepository,
+                       UserRoleAssignmentRepository roleAssignmentRepository,
+                       PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.roleAssignmentRepository = roleAssignmentRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -99,8 +105,11 @@ public class UserService implements UserDetailsService {
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         return userRepository.findByEmailIgnoreCase(email.toLowerCase(Locale.ROOT))
-                .map(u -> (UserDetails) new AuthenticatedUser(
-                        u.getId(), u.getEmail(), u.getPasswordHash(), u.isEnabled()))
+                .map(u -> {
+                    List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(u.getId());
+                    return (UserDetails) new AuthenticatedUser(
+                            u.getId(), u.getEmail(), u.getPasswordHash(), u.isEnabled(), roleCodes);
+                })
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
     }
 }
