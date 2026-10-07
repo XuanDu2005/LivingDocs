@@ -61,6 +61,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(reg -> reg
                         // Open endpoints
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/verify-email",
+                                                          "/api/v1/auth/resend-verification",
+                                                          "/api/v1/auth/forgot-password",
+                                                          "/api/v1/auth/reset-password").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/*/start",
+                                                       "/api/v1/auth/oauth/*/callback",
+                                                       "/api/v1/auth/oauth/*/sandbox-start").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
                         .requestMatchers(
                                 "/actuator/health",
