@@ -24,7 +24,10 @@
       "login": "Log in",
       "signup": "Sign up",
       "saving": "Saving…",
-      "deleting": "Deleting…"
+      "deleting": "Deleting…",
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit"
     }
   },
   "nav": {
@@ -45,6 +48,7 @@
     "auditRetention": "Audit retention",
     "adminWorkspaces": "All workspaces",
     "adminNotifications": "Notifications",
+    "integrations": "Integrations",
     "overview": "Overview"
   },
   "auth": {
@@ -689,5 +693,43 @@
     "actionAiDesc": "Pick a workspace and adjust AI provider / model.",
     "actionAuditTitle": "Audit retention",
     "actionAuditDesc": "Configure how long audit rows are kept."
+  },
+  "integrations": {
+    "title": "Integrations",
+    "subtitle": "Connect LivingDocs to GitHub, GitLab, Jira, and Slack. Inbound webhooks are verified with provider-specific signatures; outbound events are mirrored to Slack channels.",
+    "backToAdmin": "Back to admin",
+    "workspaceTitle": "Workspace integrations",
+    "workspaceSubtitle": "External accounts that are scoped to this workspace.",
+    "loading": "Loading…",
+    "provider": "Provider",
+    "displayName": "Display name",
+    "externalAccount": "External account / identifier",
+    "baseUrl": "Base URL (self-hosted only)",
+    "scopes": "Scopes (comma separated)",
+    "accessToken": "Access token / API key",
+    "tokenReplace": "Replace access token",
+    "tokenKeep": "Leave blank to keep the current token",
+    "refreshToken": "Refresh token (optional)",
+    "webhookSecret": "Webhook signing secret",
+    "webhookSecretReplace": "Replace webhook signing secret",
+    "defaultChannel": "Default channel (Slack)",
+    "token": "Token",
+    "webhook": "Webhook secret",
+    "configured": "configured",
+    "notConfigured": "not configured",
+    "test": "Test connection",
+    "revoke": "Revoke",
+    "addConnection": "Add connection",
+    "addTitle": "Connect {{provider}}",
+    "editTitle": "Edit connection",
+    "confirmRevoke": "Revoke this connection? Existing tokens will be retained but no new traffic will be sent or received.",
+    "noConnectionsTitle": "No connections yet",
+    "noConnectionsDesc": "Link an external {{provider}} account to start receiving events.",
+    "recentTitle": "Recent webhook activity",
+    "recentDesc": "Latest inbound deliveries across every active connection.",
+    "eventsEmptyTitle": "No webhook deliveries yet",
+    "eventsEmptyDesc": "Once a connected service delivers an event it will appear here.",
+    "linkPrompt": "Connect an account (admin setup required)",
+    "lastUsed": "Last used {{when}}"
   }
 }

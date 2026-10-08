@@ -24,7 +24,10 @@
       "login": "Đăng nhập",
       "signup": "Đăng ký",
       "saving": "Đang lưu…",
-      "deleting": "Đang xoá…"
+      "deleting": "Đang xoá…",
+      "save": "Lưu",
+      "cancel": "Huỷ",
+      "edit": "Sửa"
     }
   },
   "nav": {
@@ -45,6 +48,7 @@
     "auditRetention": "Lưu giữ nhật ký",
     "adminWorkspaces": "Tất cả workspace",
     "adminNotifications": "Thông báo",
+    "integrations": "Tích hợp",
     "overview": "Tổng quan"
   },
   "auth": {
@@ -686,6 +690,44 @@
     "actionAiDesc": "Chọn workspace và chỉnh provider/mô hình.",
     "actionAuditTitle": "Lưu giữ nhật ký",
     "actionAuditDesc": "Cấu hình thời gian giữ bản ghi kiểm toán."
+  },
+  "integrations": {
+    "title": "Tích hợp",
+    "subtitle": "Kết nối LivingDocs với GitHub, GitLab, Jira và Slack. Webhook đến được xác minh bằng chữ ký riêng của từng dịch vụ; sự kiện đi được đẩy sang kênh Slack.",
+    "backToAdmin": "Quay lại trang quản trị",
+    "workspaceTitle": "Tích hợp theo workspace",
+    "workspaceSubtitle": "Các tài khoản bên ngoài đã gắn với workspace này.",
+    "loading": "Đang tải…",
+    "provider": "Dịch vụ",
+    "displayName": "Tên hiển thị",
+    "externalAccount": "Tài khoản / định danh bên ngoài",
+    "baseUrl": "Base URL (chỉ dùng cho self-hosted)",
+    "scopes": "Scopes (phân cách bằng dấu phẩy)",
+    "accessToken": "Access token / API key",
+    "tokenReplace": "Thay access token",
+    "tokenKeep": "Để trống để giữ token hiện tại",
+    "refreshToken": "Refresh token (tuỳ chọn)",
+    "webhookSecret": "Webhook signing secret",
+    "webhookSecretReplace": "Thay webhook signing secret",
+    "defaultChannel": "Kênh mặc định (Slack)",
+    "token": "Token",
+    "webhook": "Webhook secret",
+    "configured": "đã cấu hình",
+    "notConfigured": "chưa cấu hình",
+    "test": "Kiểm tra kết nối",
+    "revoke": "Thu hồi",
+    "addConnection": "Thêm kết nối",
+    "addTitle": "Kết nối {{provider}}",
+    "editTitle": "Sửa kết nối",
+    "confirmRevoke": "Thu hồi kết nối này? Token sẽ được giữ lại để tra cứu nhưng không còn gửi / nhận sự kiện.",
+    "noConnectionsTitle": "Chưa có kết nối",
+    "noConnectionsDesc": "Liên kết một tài khoản {{provider}} để bắt đầu nhận sự kiện.",
+    "recentTitle": "Hoạt động webhook gần đây",
+    "recentDesc": "Các delivery gần nhất từ mọi kết nối đang hoạt động.",
+    "eventsEmptyTitle": "Chưa có webhook nào",
+    "eventsEmptyDesc": "Khi dịch vụ đã kết nối gửi sự kiện, nó sẽ xuất hiện ở đây.",
+    "linkPrompt": "Liên kết tài khoản (yêu cầu admin thiết lập)",
+    "lastUsed": "Dùng lần cuối {{when}}"
   },
   "auth": {
     "confirmPassword": "Xác nhận mật khẩu",
