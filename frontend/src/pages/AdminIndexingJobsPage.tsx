@@ -21,6 +21,14 @@ import { format } from 'date-fns';
 type JobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 type JobKind = 'INDEX' | 'REINDEX_ALL';
 
+const STATUS_KEY: Record<JobStatus, string> = {
+  PENDING: 'adminIndexingJobs.statusPending',
+  RUNNING: 'adminIndexingJobs.statusRunning',
+  COMPLETED: 'adminIndexingJobs.statusCompleted',
+  FAILED: 'adminIndexingJobs.statusFailed',
+  CANCELLED: 'adminIndexingJobs.statusCancelled',
+};
+
 interface IndexJob {
   id: string;
   workspaceId: string;
@@ -89,7 +97,7 @@ export default function AdminIndexingJobsPage() {
   }, [jobs]);
 
   async function cancel(jobId: string) {
-    if (!confirm('Cancel this indexing job?')) return;
+    if (!confirm(t('adminIndexingJobs.confirmCancel'))) return;
     setBusy(jobId);
     try {
       await apiClient.post(`/indexing-jobs/${jobId}/cancel`);
@@ -134,37 +142,37 @@ export default function AdminIndexingJobsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Database className="h-5 w-5" /> Indexing Jobs
+            <Database className="h-5 w-5" /> {t('adminIndexingJobs.title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Monitor and manage knowledge-base indexing jobs across all workspaces.
+            {t('adminIndexingJobs.subtitle')}
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void load()}>
-          <RefreshCw className="mr-1 h-3 w-3" /> Refresh
+          <RefreshCw className="mr-1 h-3 w-3" /> {t('adminIndexingJobs.refresh')}
         </Button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <div className="rounded-md border p-3">
-          <div className="text-xs text-muted-foreground">Total</div>
+          <div className="text-xs text-muted-foreground">{t('adminIndexingJobs.summaryTotal')}</div>
           <div className="text-xl font-bold">{counts.total}</div>
         </div>
         <div className="rounded-md border p-3">
-          <div className="text-xs text-muted-foreground">Pending</div>
+          <div className="text-xs text-muted-foreground">{t('adminIndexingJobs.summaryPending')}</div>
           <div className="text-xl font-bold">{counts.pending}</div>
         </div>
         <div className="rounded-md border p-3">
-          <div className="text-xs text-muted-foreground">Running</div>
+          <div className="text-xs text-muted-foreground">{t('adminIndexingJobs.summaryRunning')}</div>
           <div className="text-xl font-bold text-blue-500">{counts.running}</div>
         </div>
         <div className="rounded-md border p-3">
-          <div className="text-xs text-muted-foreground">Completed</div>
+          <div className="text-xs text-muted-foreground">{t('adminIndexingJobs.summaryCompleted')}</div>
           <div className="text-xl font-bold text-green-500">{counts.completed}</div>
         </div>
         <div className="rounded-md border p-3">
-          <div className="text-xs text-muted-foreground">Failed</div>
+          <div className="text-xs text-muted-foreground">{t('adminIndexingJobs.summaryFailed')}</div>
           <div className={`text-xl font-bold ${counts.failed > 0 ? 'text-destructive' : ''}`}>
             {counts.failed}
           </div>
@@ -173,38 +181,38 @@ export default function AdminIndexingJobsPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">All jobs</CardTitle>
+          <CardTitle className="text-base">{t('adminIndexingJobs.allJobs')}</CardTitle>
           <Select value={filter} onValueChange={(v) => setFilter(v as 'ALL' | JobStatus)}>
             <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">All</SelectItem>
-              <SelectItem value="PENDING">Pending</SelectItem>
-              <SelectItem value="RUNNING">Running</SelectItem>
-              <SelectItem value="COMPLETED">Completed</SelectItem>
-              <SelectItem value="FAILED">Failed</SelectItem>
-              <SelectItem value="CANCELLED">Cancelled</SelectItem>
+              <SelectItem value="ALL">{t('adminIndexingJobs.filterAll')}</SelectItem>
+              <SelectItem value="PENDING">{t('adminIndexingJobs.filterPending')}</SelectItem>
+              <SelectItem value="RUNNING">{t('adminIndexingJobs.filterRunning')}</SelectItem>
+              <SelectItem value="COMPLETED">{t('adminIndexingJobs.filterCompleted')}</SelectItem>
+              <SelectItem value="FAILED">{t('adminIndexingJobs.filterFailed')}</SelectItem>
+              <SelectItem value="CANCELLED">{t('adminIndexingJobs.filterCancelled')}</SelectItem>
             </SelectContent>
           </Select>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <LoadingState message="Loading jobs..." />
+            <LoadingState message={t('adminIndexingJobs.loading')} />
           ) : error ? (
             <ErrorState message={error} />
           ) : filtered.length === 0 ? (
-            <EmptyState title="No jobs" description="No indexing jobs match the current filter." />
+            <EmptyState title={t('adminIndexingJobs.emptyTitle')} description={t('adminIndexingJobs.emptyDesc')} />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Workspace</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colStatus')}</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colKind')}</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colWorkspace')}</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colProgress')}</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colCreated')}</TableHead>
+                  <TableHead>{t('adminIndexingJobs.colActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -219,7 +227,7 @@ export default function AdminIndexingJobsPage() {
                           {job.status === 'RUNNING' && (
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                           )}
-                          {job.status}
+                          {t(STATUS_KEY[job.status])}
                         </Badge>
                       </TableCell>
                       <TableCell>

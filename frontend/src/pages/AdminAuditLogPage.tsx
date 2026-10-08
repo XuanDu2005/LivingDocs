@@ -89,25 +89,25 @@ export default function AdminAuditLogPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <FileText className="h-5 w-5" /> Platform Audit Log
+            <FileText className="h-5 w-5" /> {t('adminAuditLog.title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Cross-workspace audit log. All administrative and user actions are recorded here.
+            {t('adminAuditLog.subtitle')}
           </p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={exportCsv}>
-            <Download className="mr-1 h-3 w-3" /> CSV
+            <Download className="mr-1 h-3 w-3" /> {t('adminAuditLog.exportCsv')}
           </Button>
           <Button size="sm" variant="outline" onClick={exportJson}>
-            <Download className="mr-1 h-3 w-3" /> JSON
+            <Download className="mr-1 h-3 w-3" /> {t('adminAuditLog.exportJson')}
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Filter</CardTitle>
+          <CardTitle className="text-base">{t('adminAuditLog.filter')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
@@ -117,13 +117,13 @@ export default function AdminAuditLogPage() {
                 <Input
                   value={actionFilter}
                   onChange={(e) => setActionFilter(e.target.value)}
-                  placeholder="Filter by action (e.g. 'audit_retention')"
+                  placeholder={t('adminAuditLog.filterPlaceholder')}
                   className="pl-8"
                 />
               </div>
             </div>
             <Button onClick={() => void load()}>
-              <RefreshCw className="mr-1 h-3 w-3" /> Apply
+              <RefreshCw className="mr-1 h-3 w-3" /> {t('adminAuditLog.apply')}
             </Button>
           </div>
         </CardContent>
@@ -132,21 +132,21 @@ export default function AdminAuditLogPage() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <LoadingState message="Loading audit logs..." />
+            <LoadingState message={t('adminAuditLog.loading')} />
           ) : error ? (
             <ErrorState message={error} />
           ) : logs.length === 0 ? (
-            <EmptyState title="No audit logs" description="No entries match the current filter." />
+            <EmptyState title={t('adminAuditLog.emptyTitle')} description={t('adminAuditLog.emptyDesc')} />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Resource</TableHead>
-                  <TableHead>Workspace</TableHead>
+                  <TableHead>{t('adminAuditLog.colWhen')}</TableHead>
+                  <TableHead>{t('adminAuditLog.colActor')}</TableHead>
+                  <TableHead>{t('adminAuditLog.colRole')}</TableHead>
+                  <TableHead>{t('adminAuditLog.colAction')}</TableHead>
+                  <TableHead>{t('adminAuditLog.colResource')}</TableHead>
+                  <TableHead>{t('adminAuditLog.colWorkspace')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
