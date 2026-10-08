@@ -34,6 +34,7 @@ import WorkspaceAiSettingsPage from '../pages/WorkspaceAiSettingsPage';
 import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspaceIntegrationsPage from '../pages/WorkspaceIntegrationsPage';
+import WorkspaceLanguagesPage from '../pages/WorkspaceLanguagesPage';
 import WorkspaceNotificationPoliciesPage from '../pages/WorkspaceNotificationPoliciesPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
@@ -315,6 +316,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <WorkspaceNotificationPoliciesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/languages"
+          element={
+            <ProtectedRoute>
+              <WorkspaceLanguagesPage />
             </ProtectedRoute>
           }
         />
