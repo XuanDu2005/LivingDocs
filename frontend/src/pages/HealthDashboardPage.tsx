@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, FileText, ShieldAlert, TrendingUp } from 'lucide-react';
+import {
+  ArrowLeft, FileText, ShieldAlert, TrendingUp, Server, Database, Cpu,
+  MemoryStick, CheckCircle2, XCircle, AlertCircle, Activity,
+} from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell,
@@ -20,6 +23,36 @@ import { driftApi, DriftAlert, DriftSeverity } from '../services/drift';
 import { githubApi } from '../services/github';
 import { describeError } from '../services/auth';
 import { format } from 'date-fns';
+import apiClient from '../services/api';
+
+interface SystemHealth {
+  overall: 'UP' | 'DOWN' | 'DEGRADED';
+  checkedAt: string;
+  database: {
+    status: 'UP' | 'DOWN';
+    latencyMs: number;
+    error: string | null;
+  };
+  aiService: {
+    status: 'UP' | 'DOWN' | 'DISABLED';
+    latencyMs: number;
+    endpoint: string;
+    error: string | null;
+  };
+  jobQueue: {
+    pending: number;
+    running: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+  };
+  systemMetrics: {
+    usedMemoryMb: number;
+    maxMemoryMb: number;
+    threadCount: number;
+    uptimeSeconds: number;
+  };
+}
 
 const SEVERITY_COLORS: Record<DriftSeverity, string> = {
   CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#22c55e',
@@ -48,6 +81,8 @@ export default function HealthDashboardPage() {
   const [docs, setDocs] = useState<{ id: string; title: string; slug: string; status: DocumentStatus; updatedAt: string }[]>([]);
   const [drifts, setDrifts] = useState<DriftAlert[]>([]);
   const [repos, setRepos] = useState<{ id: string; fullName: string }[]>([]);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +107,21 @@ export default function HealthDashboardPage() {
       }
     })();
   }, [workspaceId]);
+
+  useEffect(() => {
+    (async () => {
+      setHealthLoading(true);
+      try {
+        const { data } = await apiClient.get<SystemHealth>('/system-health');
+        setSystemHealth(data);
+      } catch (err) {
+        // Silently fail - system health is optional
+        console.warn('Failed to fetch system health', err);
+      } finally {
+        setHealthLoading(false);
+      }
+    })();
+  }, []);
 
   if (!workspaceId) return <EmptyState title={t('common.back')} />;
   if (loading) return <LoadingState message={t('health.loading')} />;
@@ -138,6 +188,119 @@ export default function HealthDashboardPage() {
         <h1 className="text-2xl font-bold tracking-tight">{t('health.title')}</h1>
         <p className="text-sm text-muted-foreground">{t('health.subtitle')}</p>
       </div>
+
+      {/* System Health Section */}
+      {systemHealth && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Server className="h-4 w-4" />
+              {t('health.systemHealth', { defaultValue: 'System Health' })}
+              <Badge variant={
+                systemHealth.overall === 'UP' ? 'success' :
+                systemHealth.overall === 'DEGRADED' ? 'warning' : 'destructive'
+              } className="text-[10px]">
+                {systemHealth.overall}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {/* Database */}
+              <div className="rounded-md border p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Database className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-medium">Database</span>
+                  {systemHealth.database.status === 'UP' ? (
+                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <XCircle className="h-3 w-3 text-destructive" />
+                  )}
+                </div>
+                <div className="text-lg font-bold">{systemHealth.database.latencyMs}ms</div>
+                <div className="text-xs text-muted-foreground">{systemHealth.database.status}</div>
+              </div>
+
+              {/* AI Service */}
+              <div className="rounded-md border p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-medium">AI Service</span>
+                  {systemHealth.aiService.status === 'UP' ? (
+                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  ) : systemHealth.aiService.status === 'DISABLED' ? (
+                    <AlertCircle className="h-3 w-3 text-muted-foreground" />
+                  ) : (
+                    <XCircle className="h-3 w-3 text-destructive" />
+                  )}
+                </div>
+                <div className="text-lg font-bold">
+                  {systemHealth.aiService.status === 'DISABLED' ? '—' : `${systemHealth.aiService.latencyMs}ms`}
+                </div>
+                <div className="text-xs text-muted-foreground">{systemHealth.aiService.status}</div>
+              </div>
+
+              {/* Memory */}
+              <div className="rounded-md border p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-medium">Memory</span>
+                </div>
+                <div className="text-lg font-bold">
+                  {Math.round((systemHealth.systemMetrics.usedMemoryMb / systemHealth.systemMetrics.maxMemoryMb) * 100)}%
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {systemHealth.systemMetrics.usedMemoryMb}/{systemHealth.systemMetrics.maxMemoryMb} MB
+                </div>
+              </div>
+
+              {/* Threads */}
+              <div className="rounded-md border p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-medium">Threads</span>
+                </div>
+                <div className="text-lg font-bold">{systemHealth.systemMetrics.threadCount}</div>
+                <div className="text-xs text-muted-foreground">uptime: {Math.round(systemHealth.systemMetrics.uptimeSeconds / 60)}m</div>
+              </div>
+            </div>
+
+            {/* Job Queue */}
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="rounded-md border p-2 text-center">
+                <div className="text-xs text-muted-foreground">Pending</div>
+                <div className="text-lg font-bold">{systemHealth.jobQueue.pending}</div>
+              </div>
+              <div className="rounded-md border p-2 text-center">
+                <div className="text-xs text-muted-foreground">Running</div>
+                <div className="text-lg font-bold text-blue-500">{systemHealth.jobQueue.running}</div>
+              </div>
+              <div className="rounded-md border p-2 text-center">
+                <div className="text-xs text-muted-foreground">Completed</div>
+                <div className="text-lg font-bold text-green-500">{systemHealth.jobQueue.completed}</div>
+              </div>
+              <div className="rounded-md border p-2 text-center">
+                <div className="text-xs text-muted-foreground">Failed</div>
+                <div className={`text-lg font-bold ${systemHealth.jobQueue.failed > 0 ? 'text-destructive' : ''}`}>
+                  {systemHealth.jobQueue.failed}
+                </div>
+              </div>
+              <div className="rounded-md border p-2 text-center">
+                <div className="text-xs text-muted-foreground">Cancelled</div>
+                <div className="text-lg font-bold text-muted-foreground">{systemHealth.jobQueue.cancelled}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {healthLoading && !systemHealth && (
+        <Card>
+          <CardContent className="pt-4 text-sm text-muted-foreground">
+            {t('health.loadingSystemHealth', { defaultValue: 'Loading system health...' })}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card>
