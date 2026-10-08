@@ -5,6 +5,7 @@ export type AiProvider = 'SANDBOX' | 'OPENAI' | 'ANTHROPIC' | 'OLLAMA' | 'CUSTOM
 export interface AiSettings {
   provider: AiProvider;
   model: string;
+  embeddingModel?: string | null;
   baseUrl?: string | null;
   temperature?: number | null;
   maxTokens?: number | null;
@@ -15,6 +16,7 @@ export interface AiSettings {
 export interface UpdateAiSettingsPayload {
   provider?: AiProvider;
   model?: string;
+  embeddingModel?: string | null;
   baseUrl?: string | null;
   temperature?: number;
   maxTokens?: number;
@@ -22,6 +24,10 @@ export interface UpdateAiSettingsPayload {
   apiKey?: string;
   /** Set true to remove the currently-stored key. */
   clearApiKey?: boolean;
+}
+
+export interface ConfidenceThreshold {
+  value: number;
 }
 
 // Sensible defaults per provider; the backend still validates.

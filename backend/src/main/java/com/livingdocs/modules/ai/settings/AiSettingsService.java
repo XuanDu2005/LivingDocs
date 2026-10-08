@@ -68,6 +68,7 @@ public class AiSettingsService {
         AiSettings current = fromJson(root.path(EXTRA_KEY));
         AiProvider provider = req.provider() != null ? req.provider() : current.provider();
         String model = req.model() != null ? req.model() : current.model();
+        String embeddingModel = req.hasEmbeddingModel() ? req.embeddingModel() : current.embeddingModel();
         String baseUrl = req.baseUrl() != null ? req.baseUrl() : current.baseUrl();
         Double temperature = req.temperature() != null ? req.temperature() : current.temperature();
         Integer maxTokens = req.maxTokens() != null ? req.maxTokens() : current.maxTokens();
@@ -84,7 +85,7 @@ public class AiSettingsService {
         }
 
         AiSettings updated = new AiSettings(
-                provider, model, baseUrl, temperature, maxTokens, hasKey,
+                provider, model, embeddingModel, baseUrl, temperature, maxTokens, hasKey,
                 hasKey ? mask(storedCipher) : null);
 
         JsonNode aiNode = toJson(updated, storedCipher);
@@ -162,6 +163,8 @@ public class AiSettingsService {
         }
         AiProvider provider = parseProvider(n.path("provider").asText(null));
         String model = n.path("model").asText("gpt-4o-mini");
+        String embeddingModel = n.path("embeddingModel").isMissingNode() || n.path("embeddingModel").isNull()
+                ? null : n.path("embeddingModel").asText();
         String baseUrl = n.path("baseUrl").isMissingNode() || n.path("baseUrl").isNull()
                 ? null : n.path("baseUrl").asText();
         Double temperature = n.path("temperature").isMissingNode() || n.path("temperature").isNull()
@@ -170,7 +173,7 @@ public class AiSettingsService {
                 ? 2048 : n.path("maxTokens").asInt();
         String cipherText = readString(n, "api_key_cipher");
         boolean hasKey = cipherText != null && !cipherText.isBlank();
-        return new AiSettings(provider, model, baseUrl, temperature, maxTokens, hasKey,
+        return new AiSettings(provider, model, embeddingModel, baseUrl, temperature, maxTokens, hasKey,
                 hasKey ? mask(cipherText) : null);
     }
 
@@ -178,6 +181,7 @@ public class AiSettingsService {
         com.fasterxml.jackson.databind.node.ObjectNode obj = objectMapper.createObjectNode();
         obj.put("provider", s.provider().name());
         obj.put("model", s.model());
+        if (s.embeddingModel() != null) obj.put("embeddingModel", s.embeddingModel());
         if (s.baseUrl() != null) obj.put("baseUrl", s.baseUrl());
         if (s.temperature() != null) obj.put("temperature", s.temperature());
         if (s.maxTokens() != null) obj.put("maxTokens", s.maxTokens());

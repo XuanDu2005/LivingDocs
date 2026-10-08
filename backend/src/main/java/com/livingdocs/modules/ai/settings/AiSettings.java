@@ -13,6 +13,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public record AiSettings(
         AiProvider provider,
         String model,
+        String embeddingModel,
         String baseUrl,
         Double temperature,
         Integer maxTokens,
@@ -26,6 +27,7 @@ public record AiSettings(
         return new AiSettings(
                 AiProvider.SANDBOX,
                 "gpt-4o-mini",
+                null,
                 null,
                 0.2,
                 2048,

@@ -25,9 +25,11 @@ import java.util.UUID;
 public class AiSettingsController {
 
     private final AiSettingsService service;
+    private final ConfidenceThresholdService thresholdService;
 
-    public AiSettingsController(AiSettingsService service) {
+    public AiSettingsController(AiSettingsService service, ConfidenceThresholdService thresholdService) {
         this.service = service;
+        this.thresholdService = thresholdService;
     }
 
     @GetMapping
@@ -56,5 +58,19 @@ public class AiSettingsController {
                 "provider", s.provider().name(),
                 "model", s.model(),
                 "hasApiKey", s.hasApiKey());
+    }
+
+    @GetMapping("/threshold")
+    @Operation(summary = "Get the workspace's AI confidence threshold (0.0 - 1.0)")
+    public Map<String, Object> getThreshold(@PathVariable UUID workspaceId) {
+        return Map.of("value", thresholdService.get(workspaceId));
+    }
+
+    @PutMapping("/threshold")
+    @Operation(summary = "Update the AI confidence threshold (MANAGER+ only)")
+    public Map<String, Object> updateThreshold(@PathVariable UUID workspaceId,
+                                                @Valid @RequestBody ConfidenceThresholdRequest req) {
+        float value = thresholdService.update(CurrentUser.requireId(), workspaceId, req.value());
+        return Map.of("value", value);
     }
 }

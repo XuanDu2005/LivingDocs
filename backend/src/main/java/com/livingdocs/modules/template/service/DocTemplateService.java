@@ -124,8 +124,10 @@ public class DocTemplateService {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO doc_templates (" +
                         "id, workspace_id, name, slug, description, doc_type, " +
-                        "version, body, is_default, created_by) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)",
+                        "version, body, output_format, " +
+                        "auto_generate_on_commit, auto_generate_on_pr, auto_generate_on_merge, " +
+                        "is_default, created_by) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)",
                 ps -> {
                     ps.setObject(1, id);
                     if (targetWorkspace != null) {
@@ -139,8 +141,12 @@ public class DocTemplateService {
                     ps.setString(6, req.docType());
                     ps.setInt(7, 1);
                     ps.setString(8, normalisedBody);
-                    ps.setBoolean(9, req.isDefault());
-                    ps.setObject(10, actorId);
+                    ps.setString(9, req.outputFormatOrDefault().name());
+                    ps.setBoolean(10, req.autoGenerateOnCommitOrDefault());
+                    ps.setBoolean(11, req.autoGenerateOnPrOrDefault());
+                    ps.setBoolean(12, req.autoGenerateOnMergeOrDefault());
+                    ps.setBoolean(13, req.isDefault());
+                    ps.setObject(14, actorId);
                 });
         em.clear();
         DocTemplate saved = templateRepository.findById(id)
@@ -178,8 +184,10 @@ public class DocTemplateService {
         UUID newId = UUID.randomUUID();
         jdbc.update("INSERT INTO doc_templates (" +
                         "id, workspace_id, name, slug, description, doc_type, " +
-                        "version, body, is_default, created_by) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)",
+                        "version, body, output_format, " +
+                        "auto_generate_on_commit, auto_generate_on_pr, auto_generate_on_merge, " +
+                        "is_default, created_by) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)",
                 ps -> {
                     ps.setObject(1, newId);
                     if (current.getWorkspaceId() != null) {
@@ -193,8 +201,13 @@ public class DocTemplateService {
                     ps.setString(6, current.getDocType());
                     ps.setInt(7, nextVersion);
                     ps.setString(8, normalisedBody);
-                    ps.setBoolean(9, req.isDefault());
-                    ps.setObject(10, actorId);
+                    ps.setString(9, req.outputFormat() == null
+                            ? current.getOutputFormat().name() : req.outputFormat().name());
+                    ps.setBoolean(10, req.autoGenerateOnCommitOrDefault(current.isAutoGenerateOnCommit()));
+                    ps.setBoolean(11, req.autoGenerateOnPrOrDefault(current.isAutoGenerateOnPr()));
+                    ps.setBoolean(12, req.autoGenerateOnMergeOrDefault(current.isAutoGenerateOnMerge()));
+                    ps.setBoolean(13, req.isDefault());
+                    ps.setObject(14, actorId);
                 });
         em.clear();
         DocTemplate saved = templateRepository.findById(newId)

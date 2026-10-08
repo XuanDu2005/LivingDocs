@@ -61,7 +61,12 @@ public class DocTemplateController {
         CreateDocTemplateRequest scoped = new CreateDocTemplateRequest(
                 workspaceId,
                 req.name(), req.slug(), req.description(), req.docType(),
-                req.bodyJson(), req.isDefault()
+                req.bodyJson(),
+                req.outputFormat(),
+                req.autoGenerateOnCommit(),
+                req.autoGenerateOnPr(),
+                req.autoGenerateOnMerge(),
+                req.isDefault()
         );
         DocTemplateResponse out = templateService.create(CurrentUser.requireId(), scoped);
         return ResponseEntity.status(HttpStatus.CREATED).body(out);

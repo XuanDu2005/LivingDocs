@@ -21,6 +21,7 @@ import {
   ScrollText,
   Megaphone,
   PlugZap,
+  BellRing,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -63,6 +64,7 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
   { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
   { labelKey: 'nav.adminNotifications', to: '/admin/notifications', icon: Megaphone },
+  { labelKey: 'nav.adminNotificationPolicies', to: '/admin/notification-policies', icon: BellRing },
   { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
   { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
   { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
@@ -77,8 +79,9 @@ function buildWorkspaceItems(workspaceId?: string) {
     { labelKey: 'workspace_templates_title', to: `/workspaces/${workspaceId}/templates`, icon: Sparkles },
     { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
     { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
-    { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
-    { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
+  { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
+  { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
+  { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
   ];
 }
 

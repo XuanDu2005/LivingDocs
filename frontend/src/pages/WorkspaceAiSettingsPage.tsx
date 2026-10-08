@@ -38,11 +38,17 @@ export default function WorkspaceAiSettingsPage() {
   // Editable form state
   const [provider, setProvider] = useState<AiProvider>('SANDBOX');
   const [model, setModel] = useState<string>('gpt-4o-mini');
+  const [embeddingModel, setEmbeddingModel] = useState<string>('');
   const [baseUrl, setBaseUrl] = useState<string>('');
   const [temperature, setTemperature] = useState<number>(0.2);
   const [maxTokens, setMaxTokens] = useState<number>(2048);
   const [apiKey, setApiKey] = useState<string>('');
   const [apiKeyDirty, setApiKeyDirty] = useState<boolean>(false);
+
+  // Threshold (separate concern, separate card)
+  const [threshold, setThreshold] = useState<number>(0.70);
+  const [thresholdSaving, setThresholdSaving] = useState<boolean>(false);
+  const [thresholdInfo, setThresholdInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -55,8 +61,12 @@ export default function WorkspaceAiSettingsPage() {
     setError(null);
     setInfo(null);
     try {
-      const s = await aiSettingsApi.get(workspaceId);
+      const [s, thr] = await Promise.all([
+        aiSettingsApi.get(workspaceId),
+        aiSettingsApi.getThreshold(workspaceId).catch(() => null),
+      ]);
       apply(s);
+      if (thr) setThreshold(thr.value);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -68,11 +78,28 @@ export default function WorkspaceAiSettingsPage() {
     setCurrent(s);
     setProvider(s.provider);
     setModel(s.model);
+    setEmbeddingModel(s.embeddingModel ?? '');
     setBaseUrl(s.baseUrl ?? '');
     setTemperature(s.temperature ?? 0.2);
     setMaxTokens(s.maxTokens ?? 2048);
     setApiKey('');
     setApiKeyDirty(false);
+  }
+
+  async function saveThreshold() {
+    if (!workspaceId) return;
+    setThresholdSaving(true);
+    setError(null);
+    setThresholdInfo(null);
+    try {
+      const r = await aiSettingsApi.updateThreshold(workspaceId, threshold);
+      setThreshold(r.value);
+      setThresholdInfo(t('aiSettings.saveThresholdOk'));
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setThresholdSaving(false);
+    }
   }
 
   function pickProvider(next: AiProvider) {
@@ -97,6 +124,7 @@ export default function WorkspaceAiSettingsPage() {
       const payload: UpdateAiSettingsPayload = {
         provider,
         model: model.trim(),
+        embeddingModel: embeddingModel.trim() || null,
         baseUrl: baseUrl.trim() || null,
         temperature,
         maxTokens,
@@ -214,6 +242,22 @@ export default function WorkspaceAiSettingsPage() {
                 placeholder="e.g. gpt-4o-mini"
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-embeddingModel">{t('aiSettings.embeddingModel')}</Label>
+              <Input
+                id="ai-embeddingModel"
+                value={embeddingModel}
+                onChange={(e) => setEmbeddingModel(e.target.value)}
+                placeholder={
+                  provider === 'OPENAI' ? 'text-embedding-3-small'
+                  : provider === 'OLLAMA' ? 'nomic-embed-text'
+                  : 'e.g. text-embedding-3-small'
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('aiSettings.embeddingModelDesc')}
+              </p>
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -318,6 +362,57 @@ export default function WorkspaceAiSettingsPage() {
               <Trash2 className="mr-1 h-3 w-3" /> {t('aiSettings.removeKey')}
             </Button>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t('aiSettings.thresholdTitle')}</CardTitle>
+          <CardDescription>
+            {t('aiSettings.thresholdDesc')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-4">
+            <div className="flex-1 space-y-1.5">
+              <Label htmlFor="ai-threshold">
+                {t('aiSettings.thresholdLabel')} ({threshold.toFixed(2)})
+              </Label>
+              <input
+                id="ai-threshold"
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+                className="w-full"
+                aria-label="AI confidence threshold"
+              />
+            </div>
+            <div className="w-24 space-y-1.5">
+              <Label htmlFor="ai-threshold-num">{t('aiSettings.thresholdValue')}</Label>
+              <Input
+                id="ai-threshold-num"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={threshold}
+                onChange={(e) => setThreshold(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('aiSettings.thresholdHelp')}</p>
+          {thresholdInfo && (
+            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-700">
+              {thresholdInfo}
+            </div>
+          )}
+          <Button variant="outline" onClick={() => void saveThreshold()} disabled={thresholdSaving}>
+            {thresholdSaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+            {t('aiSettings.saveThreshold')}
+          </Button>
         </CardContent>
       </Card>
 

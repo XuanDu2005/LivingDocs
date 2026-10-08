@@ -35,6 +35,9 @@ import {
 import { format } from 'date-fns';
 
 type EditMode = 'visual' | 'json' | 'preview';
+type OutputFormat = 'MARKDOWN' | 'HTML' | 'PDF';
+
+const OUTPUT_FORMATS: OutputFormat[] = ['MARKDOWN', 'HTML', 'PDF'];
 
 export default function TemplatesPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -55,6 +58,10 @@ export default function TemplatesPage() {
   const [bodyJsonText, setBodyJsonText] = useState<string>('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [isDefault, setIsDefault] = useState<boolean>(false);
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('MARKDOWN');
+  const [autoOnCommit, setAutoOnCommit] = useState<boolean>(false);
+  const [autoOnPr, setAutoOnPr] = useState<boolean>(false);
+  const [autoOnMerge, setAutoOnMerge] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [editMode, setEditMode] = useState<EditMode>('visual');
@@ -116,6 +123,10 @@ export default function TemplatesPage() {
     setDocType('MODULE_GUIDE');
     setDescription('');
     setIsDefault(false);
+    setOutputFormat('MARKDOWN');
+    setAutoOnCommit(false);
+    setAutoOnPr(false);
+    setAutoOnMerge(false);
     const seed = schema?.sample ?? EMPTY_BODY;
     setBody({
       version: 1,
@@ -135,6 +146,10 @@ export default function TemplatesPage() {
     setDocType(t.docType);
     setDescription(t.description ?? '');
     setIsDefault(t.isDefault);
+    setOutputFormat((t.outputFormat as OutputFormat | null | undefined) ?? 'MARKDOWN');
+    setAutoOnCommit(Boolean(t.autoGenerateOnCommit));
+    setAutoOnPr(Boolean(t.autoGenerateOnPr));
+    setAutoOnMerge(Boolean(t.autoGenerateOnMerge));
     applyBodyFromTemplate(t);
     setEditMode('visual');
     setShowForm(true);
@@ -154,6 +169,10 @@ export default function TemplatesPage() {
         name,
         description: description || undefined,
         bodyJson: bodyToJson(body),
+        outputFormat,
+        autoGenerateOnCommit: autoOnCommit,
+        autoGenerateOnPr: autoOnPr,
+        autoGenerateOnMerge: autoOnMerge,
         isDefault,
       };
       if (editingTemplate) {
@@ -276,6 +295,48 @@ export default function TemplatesPage() {
               </div>
             </div>
 
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="tmpl-output">{t('templates.outputFormat')}</Label>
+                <Select
+                  value={outputFormat}
+                  onValueChange={(v) => setOutputFormat(v as OutputFormat)}
+                >
+                  <SelectTrigger id="tmpl-output"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {OUTPUT_FORMATS.map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {t(`templates.outputFormat_${f}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <div className="text-sm font-medium">{t('templates.autoTriggers')}</div>
+              <p className="text-xs text-muted-foreground">{t('templates.autoTriggersDesc')}</p>
+              <div className="space-y-1.5">
+                {[
+                  { field: 'autoOnCommit' as const, label: t('templates.autoOnCommit'), value: autoOnCommit, set: setAutoOnCommit },
+                  { field: 'autoOnPr' as const, label: t('templates.autoOnPr'), value: autoOnPr, set: setAutoOnPr },
+                  { field: 'autoOnMerge' as const, label: t('templates.autoOnMerge'), value: autoOnMerge, set: setAutoOnMerge },
+                ].map((opt) => (
+                  <label key={opt.field} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={opt.value}
+                      onChange={(e) => opt.set(e.target.checked)}
+                      className="h-4 w-4 rounded border-input accent-primary"
+                      aria-label={opt.label}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-semibold">Body</Label>
@@ -371,35 +432,40 @@ export default function TemplatesPage() {
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {list.workspaceTemplates.map((t) => (
-                  <Card key={t.id}>
+                {list.workspaceTemplates.map((tmpl) => (
+                  <Card key={tmpl.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <CardTitle className="text-sm truncate">{t.name}</CardTitle>
-                          <CardDescription className="text-xs font-mono">{t.slug}</CardDescription>
+                          <CardTitle className="text-sm truncate">{tmpl.name}</CardTitle>
+                          <CardDescription className="text-xs font-mono">{tmpl.slug}</CardDescription>
                         </div>
                         <div className="flex gap-1 flex-shrink-0">
-                          {t.isDefault && <Badge variant="success" className="text-xs">default</Badge>}
+                          {tmpl.isDefault && <Badge variant="success" className="text-xs">default</Badge>}
+                          {(tmpl.autoGenerateOnCommit || tmpl.autoGenerateOnPr || tmpl.autoGenerateOnMerge) && (
+                            <Badge variant="info" className="text-xs">
+                              {t('templates.autoTriggerBadge')}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex gap-1.5 flex-wrap">
-                        <Badge variant="muted" className="text-xs">{t.docType}</Badge>
-                        <Badge variant="muted" className="text-xs">v{t.version}</Badge>
+                        <Badge variant="muted" className="text-xs">{tmpl.docType}</Badge>
+                        <Badge variant="muted" className="text-xs">v{tmpl.version}</Badge>
                       </div>
-                      {t.description && (
-                        <p className="text-xs text-muted-foreground">{t.description}</p>
+                      {tmpl.description && (
+                        <p className="text-xs text-muted-foreground">{tmpl.description}</p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Updated {format(new Date(t.updatedAt), 'MMM d, yyyy')}
+                        Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
                       <div className="flex gap-2 pt-1">
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(t)}>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(tmpl)}>
                           <Pencil className="mr-1 h-3 w-3" /> Edit
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete(t)}>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete(tmpl)}>
                           <Trash2 className="mr-1 h-3 w-3" /> Delete
                         </Button>
                       </div>
@@ -427,29 +493,34 @@ export default function TemplatesPage() {
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {list.globalTemplates.map((t) => (
-                  <Card key={t.id}>
+                {list.globalTemplates.map((tmpl) => (
+                  <Card key={tmpl.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <CardTitle className="text-sm truncate">{t.name}</CardTitle>
-                          <CardDescription className="text-xs font-mono">{t.slug}</CardDescription>
+                          <CardTitle className="text-sm truncate">{tmpl.name}</CardTitle>
+                          <CardDescription className="text-xs font-mono">{tmpl.slug}</CardDescription>
                         </div>
                         <div className="flex gap-1 flex-shrink-0">
-                          {t.isDefault && <Badge variant="success" className="text-xs">default</Badge>}
+                          {tmpl.isDefault && <Badge variant="success" className="text-xs">default</Badge>}
+                          {(tmpl.autoGenerateOnCommit || tmpl.autoGenerateOnPr || tmpl.autoGenerateOnMerge) && (
+                            <Badge variant="info" className="text-xs">
+                              {t('templates.autoTriggerBadge')}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex gap-1.5 flex-wrap">
-                        <Badge variant="muted" className="text-xs">{t.docType}</Badge>
-                        <Badge variant="muted" className="text-xs">v{t.version}</Badge>
+                        <Badge variant="muted" className="text-xs">{tmpl.docType}</Badge>
+                        <Badge variant="muted" className="text-xs">v{tmpl.version}</Badge>
                       </div>
-                      {t.description && (
-                        <p className="text-xs text-muted-foreground">{t.description}</p>
+                      {tmpl.description && (
+                        <p className="text-xs text-muted-foreground">{tmpl.description}</p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Updated {format(new Date(t.updatedAt), 'MMM d, yyyy')}
+                        Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
                       <p className="text-xs text-muted-foreground italic">Read-only</p>
                     </CardContent>
