@@ -15,6 +15,7 @@ import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import { aiSettingsApi } from '../services/aiSettings';
 import { AiProvider, AiSettings, PROVIDER_DEFAULTS, UpdateAiSettingsPayload } from '../types/aiSettings';
+import { AiUsageCard } from '../components/AiUsageCard';
 
 export default function WorkspaceAiSettingsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -415,6 +416,8 @@ export default function WorkspaceAiSettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      <AiUsageCard />
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => void save()} disabled={saving}>
