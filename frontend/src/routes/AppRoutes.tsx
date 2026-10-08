@@ -5,6 +5,7 @@ import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
+import AdminIntegrationsPage from '../pages/AdminIntegrationsPage';
 import AdminOverviewPage from '../pages/AdminOverviewPage';
 import AdminRolesPage from '../pages/AdminRolesPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
@@ -31,6 +32,7 @@ import VerifyEmailPage from '../pages/VerifyEmailPage';
 import WorkspaceAiSettingsPage from '../pages/WorkspaceAiSettingsPage';
 import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
+import WorkspaceIntegrationsPage from '../pages/WorkspaceIntegrationsPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 import AdminNotificationsPage from '../pages/AdminNotificationsPage';
@@ -279,6 +281,22 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminNotificationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/integrations"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminIntegrationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/integrations"
+          element={
+            <ProtectedRoute>
+              <WorkspaceIntegrationsPage />
             </ProtectedRoute>
           }
         />
