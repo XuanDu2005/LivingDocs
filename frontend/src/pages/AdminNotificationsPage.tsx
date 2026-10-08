@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CheckCircle2, Megaphone, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Eye, Megaphone, Pencil, Send } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from '../components/ui/dialog';
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from '../components/ui/card';
@@ -66,6 +70,9 @@ export default function AdminNotificationsPage() {
   const [historyLoading, setHistoryLoading] = useState<boolean>(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
+  const [editingEntry, setEditingEntry] = useState<BroadcastHistoryEntry | null>(null);
+  const [dialogMode, setDialogMode] = useState<'view' | 'edit'>('view');
+
   const [roles, setRoles] = useState<Role[]>([]);
 
   async function loadHistory() {
@@ -88,6 +95,33 @@ export default function AdminNotificationsPage() {
   useEffect(() => {
     void loadHistory();
   }, []);
+
+  function openEntry(entry: BroadcastHistoryEntry, mode: 'view' | 'edit') {
+    setEditingEntry(entry);
+    setDialogMode(mode);
+    if (mode === 'edit') {
+      // Pre-fill the compose form so admin can adjust and resend.
+      const target: NotificationTarget =
+        entry.target === 'role' ? 'role'
+        : entry.target === 'user' ? 'user'
+        : 'all';
+      setTarget(target);
+      if (target === 'role' && entry.roleCode) setRoleCode(entry.roleCode);
+      if (target === 'user' && entry.actorUserId) setUserId(entry.actorUserId);
+      setKind(entry.kind || 'general');
+      setTitle(entry.title || '');
+      setBody(entry.body || '');
+      setLink(entry.link || '');
+      // Clear stale state from a previous send.
+      setError(null);
+      setLastResult(null);
+    }
+  }
+
+  function closeDialog() {
+    setEditingEntry(null);
+    setDialogMode('view');
+  }
 
   function canSubmit(): boolean {
     if (!title.trim()) return false;
@@ -347,6 +381,26 @@ export default function AdminNotificationsPage() {
                         <code className="break-all">{h.link}</code>
                       )}
                     </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEntry(h, 'view')}
+                      >
+                        <Eye className="mr-1 h-3 w-3" />
+                        {t('adminNotifications.view')}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => openEntry(h, 'edit')}
+                      >
+                        <Pencil className="mr-1 h-3 w-3" />
+                        {t('adminNotifications.editResend')}
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -354,6 +408,136 @@ export default function AdminNotificationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={editingEntry !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editingEntry
+                ? (dialogMode === 'edit'
+                    ? t('adminNotifications.editResend')
+                    : t('adminNotifications.viewTitle'))
+                : t('adminNotifications.viewTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {editingEntry && t('adminNotifications.originalSent', {
+                when: format(parseISO(editingEntry.sentAt), 'PPpp'),
+                recipients: editingEntry.recipients,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingEntry && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="muted" className="text-[10px]">{editingEntry.kind}</Badge>
+                <Badge variant="outline" className="text-[10px]">
+                  {editingEntry.target === 'role' && editingEntry.roleCode
+                    ? `${t('adminNotifications.targetRole')} · ${editingEntry.roleCode}`
+                    : editingEntry.target === 'user'
+                      ? t('adminNotifications.targetUser')
+                      : t('adminNotifications.targetAll')}
+                </Badge>
+              </div>
+
+              {dialogMode === 'view' ? (
+                <>
+                  <div>
+                    <div className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('adminNotifications.titleLabel')}
+                    </div>
+                    <div className="mt-1 text-sm">{editingEntry.title}</div>
+                  </div>
+                  {editingEntry.body && (
+                    <div>
+                      <div className="text-xs font-medium uppercase text-muted-foreground">
+                        {t('adminNotifications.bodyLabel')}
+                      </div>
+                      <div className="mt-1 whitespace-pre-wrap text-sm">{editingEntry.body}</div>
+                    </div>
+                  )}
+                  {editingEntry.link && (
+                    <div>
+                      <div className="text-xs font-medium uppercase text-muted-foreground">
+                        {t('adminNotifications.linkLabel')}
+                      </div>
+                      <code className="mt-1 block break-all text-xs">{editingEntry.link}</code>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="rounded border border-info/30 bg-info/5 px-3 py-2 text-xs text-info-foreground">
+                    {t('adminNotifications.editHint')}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-title">{t('adminNotifications.titleLabel')}</Label>
+                    <Input
+                      id="edit-title"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      maxLength={255}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-body">{t('adminNotifications.bodyLabel')}</Label>
+                    <Textarea
+                      id="edit-body"
+                      value={body}
+                      onChange={(e) => setBody(e.target.value)}
+                      rows={4}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-link">{t('adminNotifications.linkLabel')}</Label>
+                    <Input
+                      id="edit-link"
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {dialogMode === 'view' ? (
+              <>
+                <Button variant="outline" onClick={closeDialog}>
+                  {t('adminNotifications.close')}
+                </Button>
+                {editingEntry && (
+                  <Button
+                    type="button"
+                    onClick={() => openEntry(editingEntry, 'edit')}
+                  >
+                    <Pencil className="mr-1 h-4 w-4" />
+                    {t('adminNotifications.editResend')}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={closeDialog}>
+                  {t('adminNotifications.cancel')}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={sending || !canSubmit()}
+                  onClick={async () => {
+                    await onSubmit(new Event('submit') as unknown as React.FormEvent<HTMLFormElement>);
+                    closeDialog();
+                  }}
+                >
+                  <Send className="mr-1 h-4 w-4" />
+                  {sending ? t('adminNotifications.sending') : t('adminNotifications.resend')}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

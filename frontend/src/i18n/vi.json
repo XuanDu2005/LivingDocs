@@ -500,6 +500,14 @@
     "recentTitle": "Thông báo gần đây",
     "recentDesc": "Các chiến dịch gửi gần nhất. Mỗi dòng là một lần gửi, không phải mỗi người nhận.",
     "recipients": "Người nhận: {{count}}",
+    "view": "Xem",
+    "viewTitle": "Chi tiết thông báo",
+    "originalSent": "Đã gửi lúc {{when}} tới {{recipients}} người dùng",
+    "close": "Đóng",
+    "editResend": "Sửa & gửi lại",
+    "editHint": "Đã nạp vào form soạn. Chỉnh sửa rồi bấm Gửi lại để gửi một thông báo mới với nội dung đã chỉnh.",
+    "resend": "Gửi lại",
+    "cancel": "Huỷ",
     "emptyTitle": "Chưa có thông báo nào được gửi.",
     "emptyDesc": "Sau khi bạn gửi thông báo phía trên, nó sẽ hiện ở đây.",
     "loading": "Đang tải…"
@@ -509,8 +517,11 @@
     "openBell": "Mở thông báo",
     "refresh": "Làm mới",
     "markRead": "Đánh dấu đã đọc",
+    "markAllRead": "Đánh dấu tất cả đã đọc",
+    "close": "Đóng",
     "openLink": "Mở",
-    "empty": "Bạn đã đọc hết rồi."
+    "empty": "Bạn đã đọc hết rồi.",
+    "totalCount": "{{count}} thông báo"
   },
   "adminWorkspaces": {
     "title": "Quản trị · Workspace",
