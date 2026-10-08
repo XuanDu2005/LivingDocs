@@ -7,6 +7,7 @@ import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
 import AdminAuditLogPage from '../pages/AdminAuditLogPage';
 import AdminIndexingJobsPage from '../pages/AdminIndexingJobsPage';
+import AnalyticsDashboardPage from '../pages/AnalyticsDashboardPage';
 import AdminIntegrationsPage from '../pages/AdminIntegrationsPage';
 import AdminNotificationPoliciesPage from '../pages/AdminNotificationPoliciesPage';
 import AdminOverviewPage from '../pages/AdminOverviewPage';
@@ -342,6 +343,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <WorkspaceLanguagesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/analytics"
+          element={
+            <ProtectedRoute>
+              <AnalyticsDashboardPage />
             </ProtectedRoute>
           }
         />

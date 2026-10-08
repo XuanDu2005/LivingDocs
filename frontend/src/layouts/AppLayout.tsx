@@ -84,6 +84,7 @@ function buildWorkspaceItems(workspaceId?: string) {
   { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
   { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
   { labelKey: 'nav.languages', to: `/workspaces/${workspaceId}/languages`, icon: Sparkles },
+  { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: Sparkles },
   { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
   ];
 }
