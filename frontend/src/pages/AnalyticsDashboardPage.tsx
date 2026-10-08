@@ -10,7 +10,7 @@ import {
 } from '../components/ui/select';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Legend,
+  BarChart, Bar,
 } from 'recharts';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';

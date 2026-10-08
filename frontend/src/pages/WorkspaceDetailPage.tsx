@@ -108,30 +108,39 @@ export default function WorkspaceDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ws, memberList, wsSettings] = await Promise.all([
+      const [ws, memberList] = await Promise.all([
         getWorkspace(workspaceId),
         listMembers(workspaceId),
-        isManager ? getWorkspaceSettings(workspaceId) : null,
       ]);
       setWorkspace(ws);
       setMembers(memberList);
       setName(ws.name);
       setDescription(ws.description ?? '');
-      if (wsSettings) {
-        setSettings(wsSettings);
-        setDriftSeverityThreshold(wsSettings.driftSeverityThreshold);
-        setAutoUpdateOnPr(wsSettings.autoUpdateOnPr);
-        setAutoUpdateOnCommit(wsSettings.autoUpdateOnCommit);
-        setRequireManagerApproval(wsSettings.requireManagerApproval);
-        setMergePolicyCritical(wsSettings.mergePolicyCritical);
-        setAiConfidenceThreshold(wsSettings.aiConfidenceThreshold);
+
+      // Load settings if user is manager of this workspace
+      const isWsManager = memberList.some(
+        (m) => m.userId === user?.id && m.role === 'MANAGER'
+      );
+      if (isWsManager || (ws.ownerId && ws.ownerId === user?.id)) {
+        try {
+          const wsSettings = await getWorkspaceSettings(workspaceId);
+          setSettings(wsSettings);
+          setDriftSeverityThreshold(wsSettings.driftSeverityThreshold);
+          setAutoUpdateOnPr(wsSettings.autoUpdateOnPr);
+          setAutoUpdateOnCommit(wsSettings.autoUpdateOnCommit);
+          setRequireManagerApproval(wsSettings.requireManagerApproval);
+          setMergePolicyCritical(wsSettings.mergePolicyCritical);
+          setAiConfidenceThreshold(wsSettings.aiConfidenceThreshold);
+        } catch {
+          // settings not available for non-managers - ignore
+        }
       }
     } catch (err) {
       setError(describeError(err));
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, isManager]);
+  }, [workspaceId, user?.id]);
 
   useEffect(() => {
     void loadAll();

@@ -269,13 +269,14 @@ public class DocTemplateService {
         workspaceService.requireRole(actorId, source.getWorkspaceId(), WorkspaceRole.MANAGER);
 
         // Generate a new unique slug
-        String baseSlug = slugify(newName);
-        String newSlug = baseSlug;
+        final String baseSlug = slugify(newName);
+        String candidate = baseSlug;
         int suffix = 1;
-        while (templateRepository.findBySlugAndVersion(newSlug, 1).isPresent()) {
+        while (templateRepository.findBySlugAndVersion(candidate, 1).isPresent()) {
             suffix++;
-            newSlug = baseSlug + "-" + suffix;
+            candidate = baseSlug + "-" + suffix;
         }
+        final String newSlug = candidate;
 
         UUID newId = UUID.randomUUID();
         jdbc.update("INSERT INTO doc_templates (" +

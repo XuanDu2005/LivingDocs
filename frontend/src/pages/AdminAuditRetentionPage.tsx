@@ -189,7 +189,7 @@ export default function AdminAuditRetentionPage() {
               <DialogTrigger asChild>
                 <Button size="sm">{t('audit.newPolicy')}</Button>
               </DialogTrigger>
-            <DialogContent>
+              <DialogContent>
               <DialogHeader>
                 <DialogTitle>
                   {editExisting
@@ -257,6 +257,7 @@ export default function AdminAuditRetentionPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>

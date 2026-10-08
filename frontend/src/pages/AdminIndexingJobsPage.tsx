@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Database, RefreshCw, X, CheckCircle2, AlertCircle, Loader2, RotateCw } from 'lucide-react';
+import { ArrowLeft, Database, RefreshCw, X, Loader2, RotateCw } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
