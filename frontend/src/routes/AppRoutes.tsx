@@ -5,6 +5,7 @@ import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
+import AdminAuditLogPage from '../pages/AdminAuditLogPage';
 import AdminIndexingJobsPage from '../pages/AdminIndexingJobsPage';
 import AdminIntegrationsPage from '../pages/AdminIntegrationsPage';
 import AdminNotificationPoliciesPage from '../pages/AdminNotificationPoliciesPage';
@@ -277,6 +278,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminIndexingJobsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/audit-logs"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAuditLogPage />
             </ProtectedRoute>
           }
         />
