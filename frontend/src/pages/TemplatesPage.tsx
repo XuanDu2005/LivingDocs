@@ -24,6 +24,7 @@ import { templatesApi, DocTemplate, DocTemplateListResponse } from '../services/
 import { templateSchemaApi } from '../services/templateSchema';
 import { describeError } from '../services/auth';
 import { VisualTemplateBuilder } from '../components/VisualTemplateBuilder';
+import { VersionHistoryDialog } from '../components/VersionHistoryDialog';
 import {
   TemplateBody,
   TemplateSchemaResponse,
@@ -65,6 +66,8 @@ export default function TemplatesPage() {
   const [busy, setBusy] = useState<boolean>(false);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [editMode, setEditMode] = useState<EditMode>('visual');
+  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+  const [historyTemplateId, setHistoryTemplateId] = useState<string | null>(null);
 
   const load = async () => {
     if (!workspaceId) return;
@@ -461,9 +464,20 @@ export default function TemplatesPage() {
                       <p className="text-xs text-muted-foreground">
                         Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
-                      <div className="flex gap-2 pt-1">
+                      <div className="flex gap-2 pt-1 flex-wrap">
                         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(tmpl)}>
                           <Pencil className="mr-1 h-3 w-3" /> Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setHistoryTemplateId(tmpl.id);
+                            setHistoryOpen(true);
+                          }}
+                        >
+                          <Code2 className="mr-1 h-3 w-3" /> History
                         </Button>
                         <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete(tmpl)}>
                           <Trash2 className="mr-1 h-3 w-3" /> Delete
@@ -530,6 +544,16 @@ export default function TemplatesPage() {
             )}
           </div>
         </>
+      )}
+
+      {workspaceId && (
+        <VersionHistoryDialog
+          workspaceId={workspaceId}
+          templateId={historyTemplateId}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          onRollback={() => void load()}
+        />
       )}
     </div>
   );
