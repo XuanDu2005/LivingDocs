@@ -503,6 +503,14 @@
     "recentTitle": "Recent notifications",
     "recentDesc": "Latest broadcast campaigns. One row per send, not per recipient.",
     "recipients": "Recipients: {{count}}",
+    "view": "View",
+    "viewTitle": "Notification details",
+    "originalSent": "Sent {{when}} to {{recipients}} users",
+    "close": "Close",
+    "editResend": "Edit & resend",
+    "editHint": "Loaded into compose. Adjust and click Resend to send a new notification with these values.",
+    "resend": "Resend",
+    "cancel": "Cancel",
     "emptyTitle": "No notifications have been sent yet.",
     "emptyDesc": "Once you send a notification above it will appear in this list.",
     "loading": "Loading…"
@@ -512,8 +520,11 @@
     "openBell": "Open notifications",
     "refresh": "Refresh",
     "markRead": "Mark as read",
+    "markAllRead": "Mark all read",
+    "close": "Close",
     "openLink": "Open",
-    "empty": "You're all caught up."
+    "empty": "You're all caught up.",
+    "totalCount": "{{count}} notifications"
   },
   "adminWorkspaces": {
     "title": "Admin · Workspaces",
