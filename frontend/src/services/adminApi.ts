@@ -54,6 +54,13 @@ export const adminApi = {
     await apiClient.delete(`/admin/audit-retention/${entityType}`);
   },
 
+  runPruneNow: async (): Promise<{ totalPruned: number; policiesProcessed: number }> => {
+    const { data } = await apiClient.post<{ totalPruned: number; policiesProcessed: number }>(
+      '/admin/audit-retention/run'
+    );
+    return data;
+  },
+
   // Cross-tenant workspace management
   listAllWorkspaces: async (): Promise<AdminWorkspace[]> => {
     const { data } = await apiClient.get<AdminWorkspace[]>('/admin/workspaces');

@@ -44,6 +44,8 @@ export default function AdminAuditRetentionPage() {
   const [pruneStrategy, setPruneStrategy] = useState<PruneStrategy>('HARD_DELETE');
   const [enabled, setEnabled] = useState<boolean>(true);
   const [description, setDescription] = useState<string>('');
+  const [runningPrune, setRunningPrune] = useState<boolean>(false);
+  const [pruneResult, setPruneResult] = useState<string | null>(null);
 
   useEffect(() => { void load(); }, []);
 
@@ -123,6 +125,26 @@ export default function AdminAuditRetentionPage() {
     }
   }
 
+  async function runPruneNow() {
+    if (!confirm(t('audit.confirmPrune', { defaultValue: 'Run pruning now? This will delete old records based on retention policies.' }))) return;
+    setRunningPrune(true);
+    setPruneResult(null);
+    setError(null);
+    try {
+      const result = await adminApi.runPruneNow();
+      setPruneResult(t('audit.pruneResult', {
+        pruned: result.totalPruned,
+        policies: result.policiesProcessed,
+        defaultValue: `Pruned ${result.totalPruned} records across ${result.policiesProcessed} policies.`
+      }));
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setRunningPrune(false);
+    }
+  }
+
   if (loading) return <LoadingState message={t('audit.loading')} />;
   if (error) return <ErrorState message={error} />;
 
@@ -133,25 +155,40 @@ export default function AdminAuditRetentionPage() {
         <p className="text-sm text-muted-foreground">{t('audit.subtitle')}</p>
       </div>
 
+      {pruneResult && (
+        <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
+          {pruneResult}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base flex items-center gap-2">
             <ShieldAlert className="h-4 w-4" /> {t('audit.policies')}
             <Badge variant="muted">{policies.length}</Badge>
           </CardTitle>
-          <Dialog
-            open={dialogOpen}
-            onOpenChange={(o) => {
-              if (o) {
-                if (!dialogOpen) openCreate();
-              } else {
-                closeDialog();
-              }
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button size="sm">{t('audit.newPolicy')}</Button>
-            </DialogTrigger>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void runPruneNow()}
+              disabled={runningPrune}
+            >
+              {runningPrune ? t('audit.pruning', { defaultValue: 'Pruning…' }) : t('audit.runPrune', { defaultValue: 'Run prune now' })}
+            </Button>
+            <Dialog
+              open={dialogOpen}
+              onOpenChange={(o) => {
+                if (o) {
+                  if (!dialogOpen) openCreate();
+                } else {
+                  closeDialog();
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button size="sm">{t('audit.newPolicy')}</Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>
