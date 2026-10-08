@@ -19,6 +19,7 @@ import {
   GitBranch,
   Stethoscope,
   ScrollText,
+  Megaphone,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,6 +28,7 @@ import { useTheme } from '../components/theme-provider';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { NotificationBell } from '../components/NotificationBell';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -59,6 +61,7 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.users', to: '/admin/users', icon: Users },
   { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
   { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
+  { labelKey: 'nav.adminNotifications', to: '/admin/notifications', icon: Megaphone },
   { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
   { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
 ];
@@ -217,6 +220,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
+              <NotificationBell />
               <LanguageSwitcher />
             </div>
           ) : (

@@ -44,6 +44,7 @@
     "roles": "Vai trò",
     "auditRetention": "Lưu giữ nhật ký",
     "adminWorkspaces": "Tất cả workspace",
+    "adminNotifications": "Thông báo",
     "overview": "Tổng quan"
   },
   "auth": {
@@ -473,6 +474,43 @@
     "drift_alert": {
       "description": "Cảnh báo trôi dạt đã xử lý."
     }
+  },
+  "adminNotifications": {
+    "title": "Quản trị · Thông báo",
+    "subtitle": "Gửi thông báo nền tảng tới một người dùng, một vai trò, hoặc tất cả user đang kích hoạt. Mỗi lần gửi được ghi vào audit log.",
+    "backToAdmin": "Về trang quản trị",
+    "composeTitle": "Soạn thông báo",
+    "composeDesc": "Người nhận được tự xác định phía server. Trùng lặp (user khớp nhiều target) tự động được loại bỏ.",
+    "target": "Đối tượng",
+    "targetAll": "Tất cả user đang kích hoạt",
+    "targetRole": "Một vai trò nền tảng",
+    "targetUser": "Một user (theo id)",
+    "userIdLabel": "User ID (UUID)",
+    "roleCodeLabel": "Vai trò nền tảng",
+    "kindLabel": "Loại",
+    "titleLabel": "Tiêu đề",
+    "titlePlaceholder": "Bảo trì dự kiến vào ngày mai",
+    "bodyLabel": "Nội dung",
+    "bodyPlaceholder": "Tin nhắn dài hơn — hỗ trợ xuống dòng.",
+    "linkLabel": "Liên kết (tùy chọn)",
+    "send": "Gửi thông báo",
+    "sending": "Đang gửi…",
+    "sentOk": "Đã gửi \"{{title}}\" tới {{count}} user.",
+    "duplicates": "Đã loại bỏ {{count}} người nhận trùng lặp.",
+    "recentTitle": "Thông báo gần đây",
+    "recentDesc": "Các chiến dịch gửi gần nhất. Mỗi dòng là một lần gửi, không phải mỗi người nhận.",
+    "recipients": "Người nhận: {{count}}",
+    "emptyTitle": "Chưa có thông báo nào được gửi.",
+    "emptyDesc": "Sau khi bạn gửi thông báo phía trên, nó sẽ hiện ở đây.",
+    "loading": "Đang tải…"
+  },
+  "notifications": {
+    "title": "Thông báo",
+    "openBell": "Mở thông báo",
+    "refresh": "Làm mới",
+    "markRead": "Đánh dấu đã đọc",
+    "openLink": "Mở",
+    "empty": "Bạn đã đọc hết rồi."
   },
   "adminWorkspaces": {
     "title": "Quản trị · Workspace",
