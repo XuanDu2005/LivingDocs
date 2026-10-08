@@ -68,6 +68,7 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
   { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
   { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
+  { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Sparkles },
 ];
 
 function buildWorkspaceItems(workspaceId?: string) {

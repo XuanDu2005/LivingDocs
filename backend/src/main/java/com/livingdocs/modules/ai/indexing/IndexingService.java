@@ -147,6 +147,47 @@ public class IndexingService {
     }
 
     /**
+     * Re-queue a FAILED job by resetting its status and counters, then
+     * running the async worker again.
+     */
+    @Transactional
+    public IndexJob requeue(UUID jobId, UUID actorId) {
+        IndexJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("Indexing job not found"));
+        workspaceService.requireMember(actorId, job.getWorkspaceId());
+        if (job.getStatus() != IndexJobStatus.FAILED) {
+            throw new IllegalStateException("Only FAILED jobs can be retried");
+        }
+        job.setStatus(IndexJobStatus.PENDING);
+        job.setProcessedTargets(0);
+        job.setFailedTargets(0);
+        job.setChunksIndexed(0);
+        job.setErrorMessage(null);
+        job.setStartedAt(null);
+        job.setFinishedAt(null);
+        job.setUpdatedAt(OffsetDateTime.now());
+        IndexJob saved = jobRepository.save(job);
+        runIndexJobAsync(saved.getId());
+        return saved;
+    }
+
+    /**
+     * Find a job by id (no workspace scoping).
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<IndexJob> findById(UUID jobId) {
+        return jobRepository.findById(jobId);
+    }
+
+    /**
+     * Admin: list all jobs across all workspaces.
+     */
+    @Transactional(readOnly = true)
+    public Page<IndexJob> listAll(Pageable pageable) {
+        return jobRepository.findAllByOrderByCreatedAtDesc(pageable);
+    }
+
+    /**
      * Asynchronous worker entry point. Runs on the
      * {@code indexingExecutor} pool. Each job runs in its own
      * transaction so partial progress survives a failure.
