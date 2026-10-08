@@ -2,6 +2,8 @@ package com.livingdocs.modules.template.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -61,6 +63,19 @@ public class DocTemplate {
     @Column(name = "body", nullable = false, columnDefinition = "jsonb")
     private String body;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "output_format", nullable = false, length = 16)
+    private OutputFormat outputFormat = OutputFormat.MARKDOWN;
+
+    @Column(name = "auto_generate_on_commit", nullable = false)
+    private boolean autoGenerateOnCommit;
+
+    @Column(name = "auto_generate_on_pr", nullable = false)
+    private boolean autoGenerateOnPr;
+
+    @Column(name = "auto_generate_on_merge", nullable = false)
+    private boolean autoGenerateOnMerge;
+
     @Column(name = "is_default", nullable = false)
     private boolean isDefault;
 
@@ -89,6 +104,7 @@ public class DocTemplate {
         this.body = body;
         this.isDefault = isDefault;
         this.createdBy = createdBy;
+        this.outputFormat = OutputFormat.MARKDOWN;
     }
 
     @jakarta.persistence.PrePersist
@@ -112,6 +128,14 @@ public class DocTemplate {
     public String getDocType() { return docType; }
     public Integer getVersion() { return version; }
     public String getBody() { return body; }
+    public OutputFormat getOutputFormat() { return outputFormat; }
+    public void setOutputFormat(OutputFormat v) { this.outputFormat = v; }
+    public boolean isAutoGenerateOnCommit() { return autoGenerateOnCommit; }
+    public void setAutoGenerateOnCommit(boolean v) { this.autoGenerateOnCommit = v; }
+    public boolean isAutoGenerateOnPr() { return autoGenerateOnPr; }
+    public void setAutoGenerateOnPr(boolean v) { this.autoGenerateOnPr = v; }
+    public boolean isAutoGenerateOnMerge() { return autoGenerateOnMerge; }
+    public void setAutoGenerateOnMerge(boolean v) { this.autoGenerateOnMerge = v; }
     public boolean isDefault() { return isDefault; }
     public UUID getCreatedBy() { return createdBy; }
     public OffsetDateTime getCreatedAt() { return createdAt; }

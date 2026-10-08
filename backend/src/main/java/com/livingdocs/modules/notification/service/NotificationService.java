@@ -3,6 +3,8 @@ package com.livingdocs.modules.notification.service;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.notification.model.Notification;
 import com.livingdocs.modules.notification.repository.NotificationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,10 +27,15 @@ import java.util.UUID;
 @Service
 public class NotificationService {
 
-    private final NotificationRepository repository;
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
-    public NotificationService(NotificationRepository repository) {
+    private final NotificationRepository repository;
+    private final NotificationPolicyService policyService;
+
+    public NotificationService(NotificationRepository repository,
+                               NotificationPolicyService policyService) {
         this.repository = repository;
+        this.policyService = policyService;
     }
 
     @Transactional
@@ -58,6 +65,25 @@ public class NotificationService {
         }
         repository.saveAll(rows);
         return rows.size();
+    }
+
+    /**
+     * Policy-aware variant of {@link #sendBatch}. The optional
+     * {@code workspaceId} is used to consult
+     * {@link NotificationPolicyService#isEnabled(UUID, String)}; if the
+     * policy says the kind is disabled for that scope, no rows are
+     * persisted and the call returns 0. Callers that don't care about
+     * policies should still use {@link #sendBatch}.
+     */
+    @Transactional
+    public int sendBatch(UUID workspaceId, Collection<UUID> userIds, String kind,
+                         String title, String body, String link) {
+        if (!policyService.isEnabled(workspaceId, kind)) {
+            log.debug("Notification policy disabled for workspace={} kind={} — dropping send",
+                    workspaceId, kind);
+            return 0;
+        }
+        return sendBatch(userIds, kind, title, body, link);
     }
 
     @Transactional(readOnly = true)

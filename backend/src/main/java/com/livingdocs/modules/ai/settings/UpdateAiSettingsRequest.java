@@ -21,6 +21,9 @@ public record UpdateAiSettingsRequest(
         @Size(max = 120)
         String model,
 
+        @Size(max = 120)
+        String embeddingModel,
+
         @Size(max = 500)
         String baseUrl,
 
@@ -40,5 +43,9 @@ public record UpdateAiSettingsRequest(
 
     public boolean hasApiKey() {
         return apiKey != null && !apiKey.isBlank();
+    }
+
+    public boolean hasEmbeddingModel() {
+        return embeddingModel != null && !embeddingModel.isBlank();
     }
 }

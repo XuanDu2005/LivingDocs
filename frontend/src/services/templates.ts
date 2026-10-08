@@ -12,6 +12,10 @@ export interface DocTemplate {
   docType: string;
   version: number;
   bodyJson: string;
+  outputFormat?: 'MARKDOWN' | 'HTML' | 'PDF' | null;
+  autoGenerateOnCommit?: boolean;
+  autoGenerateOnPr?: boolean;
+  autoGenerateOnMerge?: boolean;
   isDefault: boolean;
   createdBy: string;
   createdAt: string;
@@ -42,6 +46,10 @@ export const templatesApi = {
       description?: string;
       docType: string;
       bodyJson: string;
+      outputFormat?: 'MARKDOWN' | 'HTML' | 'PDF' | null;
+      autoGenerateOnCommit?: boolean;
+      autoGenerateOnPr?: boolean;
+      autoGenerateOnMerge?: boolean;
       isDefault: boolean;
     },
   ) {
@@ -56,6 +64,10 @@ export const templatesApi = {
       name: string;
       description?: string;
       bodyJson: string;
+      outputFormat?: 'MARKDOWN' | 'HTML' | 'PDF' | null;
+      autoGenerateOnCommit?: boolean;
+      autoGenerateOnPr?: boolean;
+      autoGenerateOnMerge?: boolean;
       isDefault: boolean;
     },
   ) {

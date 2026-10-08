@@ -1,5 +1,5 @@
 import apiClient from './api';
-import { AiSettings, UpdateAiSettingsPayload } from '../types/aiSettings';
+import { AiSettings, ConfidenceThreshold, UpdateAiSettingsPayload } from '../types/aiSettings';
 
 export const aiSettingsApi = {
   get: async (workspaceId: string): Promise<AiSettings> => {
@@ -18,6 +18,21 @@ export const aiSettingsApi = {
   test: async (workspaceId: string): Promise<{ status: string; provider: string; model: string; hasApiKey: boolean }> => {
     const { data } = await apiClient.get<{ status: string; provider: string; model: string; hasApiKey: boolean }>(
       `/workspaces/${workspaceId}/ai-settings/test`,
+    );
+    return data;
+  },
+
+  getThreshold: async (workspaceId: string): Promise<ConfidenceThreshold> => {
+    const { data } = await apiClient.get<ConfidenceThreshold>(
+      `/workspaces/${workspaceId}/ai-settings/threshold`,
+    );
+    return data;
+  },
+
+  updateThreshold: async (workspaceId: string, value: number): Promise<ConfidenceThreshold> => {
+    const { data } = await apiClient.put<ConfidenceThreshold>(
+      `/workspaces/${workspaceId}/ai-settings/threshold`,
+      { value },
     );
     return data;
   },

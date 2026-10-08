@@ -1,6 +1,7 @@
 package com.livingdocs.modules.template.dto;
 
 import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.model.OutputFormat;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -17,6 +18,10 @@ public record DocTemplateResponse(
         String docType,
         Integer version,
         String bodyJson,
+        OutputFormat outputFormat,
+        boolean autoGenerateOnCommit,
+        boolean autoGenerateOnPr,
+        boolean autoGenerateOnMerge,
         boolean isDefault,
         UUID createdBy,
         OffsetDateTime createdAt,
@@ -32,6 +37,10 @@ public record DocTemplateResponse(
                 t.getDocType(),
                 t.getVersion(),
                 t.getBody(),
+                t.getOutputFormat(),
+                t.isAutoGenerateOnCommit(),
+                t.isAutoGenerateOnPr(),
+                t.isAutoGenerateOnMerge(),
                 t.isDefault(),
                 t.getCreatedBy(),
                 t.getCreatedAt(),

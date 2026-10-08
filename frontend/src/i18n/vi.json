@@ -48,6 +48,8 @@
     "auditRetention": "Lưu giữ nhật ký",
     "adminWorkspaces": "Tất cả workspace",
     "adminNotifications": "Thông báo",
+    "adminNotificationPolicies": "Chính sách thông báo",
+    "workspaceNotificationPolicies": "Chính sách thông báo",
     "integrations": "Tích hợp",
     "overview": "Tổng quan"
   },
@@ -125,6 +127,16 @@
     "placeholderRequired": "Bắt buộc",
     "placeholderMaxWords": "Giới hạn từ",
     "placeholderBinding": "AST binding",
+    "outputFormat": "Định dạng đầu ra",
+    "outputFormat_MARKDOWN": "Markdown",
+    "outputFormat_HTML": "HTML",
+    "outputFormat_PDF": "PDF",
+    "autoTriggers": "Trigger tự sinh tài liệu",
+    "autoTriggersDesc": "Chọn khi nào mẫu này nên chạy tự động theo các sự kiện Git/GitHub/GitLab.",
+    "autoOnCommit": "Tự sinh khi có commit",
+    "autoOnPr": "Tự sinh khi mở Pull Request",
+    "autoOnMerge": "Tự sinh khi merge",
+    "autoTriggerBadge": "tự động",
     "empty": {
       "noSections": "Chưa có mục nào. Thêm một mục để bắt đầu.",
       "noPlaceholders": "Chưa có placeholder. Thêm một để hướng dẫn AI.",
@@ -173,7 +185,16 @@
     "pickWorkspace": "Chọn một workspace để cấu hình.",
     "noWorkspaces": "Chưa có workspace nào.",
     "noMemberships": "Bạn chưa thuộc workspace nào. Hãy tạo hoặc tham gia một workspace để cấu hình AI.",
-    "subtitle": "Chọn provider, mô hình và thông tin xác thực mà LivingDocs dùng để sinh tài liệu, phát hiện trôi dạt, và cung cấp cho knowledge base. Cấu hình giới hạn trong workspace này."
+    "subtitle": "Chọn provider, mô hình và thông tin xác thực mà LivingDocs dùng để sinh tài liệu, phát hiện trôi dạt, và cung cấp cho knowledge base. Cấu hình giới hạn trong workspace này.",
+    "embeddingModel": "Embedding model",
+    "embeddingModelDesc": "Dùng để xây vector index cho knowledge base. Để trống sẽ dùng mặc định của provider.",
+    "thresholdTitle": "Ngưỡng tin cậy",
+    "thresholdDesc": "Mức tin cậy tối thiểu để AI tự động duyệt một phiên bản (hoặc tự chuyển sang review).",
+    "thresholdLabel": "Ngưỡng tin cậy",
+    "thresholdValue": "Giá trị",
+    "thresholdHelp": "0.00 chấp nhận tất cả; 1.00 chỉ chấp nhận khi model chắc chắn. 0.70 là điểm khởi đầu hợp lý.",
+    "saveThreshold": "Lưu ngưỡng",
+    "saveThresholdOk": "Đã lưu ngưỡng tin cậy."
   },
   "dashboard": {
     "welcome": "Chào, {{name}}",
@@ -728,6 +749,19 @@
     "eventsEmptyDesc": "Khi dịch vụ đã kết nối gửi sự kiện, nó sẽ xuất hiện ở đây.",
     "linkPrompt": "Liên kết tài khoản (yêu cầu admin thiết lập)",
     "lastUsed": "Dùng lần cuối {{when}}"
+  },
+  "notificationPolicies": {
+    "title": "Chính sách thông báo",
+    "adminSubtitle": "Mặc định toàn hệ thống cho từng loại sự kiện thông báo. Workspace có thể ghi đè trong cài đặt riêng.",
+    "workspaceSubtitle": "Ghi đè mặc định toàn hệ thống cho workspace này. Dùng switch để bật/tắt từng loại sự kiện.",
+    "tableTitle": "Các loại sự kiện",
+    "tableDesc": "Mỗi hàng tương ứng với một sự kiện thông báo mà hệ thống có thể tạo.",
+    "loading": "Đang tải chính sách thông báo…",
+    "enabled": "Đang bật",
+    "disabled": "Đang tắt",
+    "saved": "Đã lưu.",
+    "emptyTitle": "Chưa có chính sách",
+    "emptyDesc": "Chưa có loại sự kiện thông báo nào để cấu hình."
   },
   "auth": {
     "confirmPassword": "Xác nhận mật khẩu",

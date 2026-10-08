@@ -6,6 +6,7 @@ import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
 import AdminIntegrationsPage from '../pages/AdminIntegrationsPage';
+import AdminNotificationPoliciesPage from '../pages/AdminNotificationPoliciesPage';
 import AdminOverviewPage from '../pages/AdminOverviewPage';
 import AdminRolesPage from '../pages/AdminRolesPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
@@ -33,6 +34,7 @@ import WorkspaceAiSettingsPage from '../pages/WorkspaceAiSettingsPage';
 import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspaceIntegrationsPage from '../pages/WorkspaceIntegrationsPage';
+import WorkspaceNotificationPoliciesPage from '../pages/WorkspaceNotificationPoliciesPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 import AdminNotificationsPage from '../pages/AdminNotificationsPage';
@@ -293,10 +295,26 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="/admin/notification-policies"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminNotificationPoliciesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/workspaces/:workspaceId/integrations"
           element={
             <ProtectedRoute>
               <WorkspaceIntegrationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/notification-policies"
+          element={
+            <ProtectedRoute>
+              <WorkspaceNotificationPoliciesPage />
             </ProtectedRoute>
           }
         />

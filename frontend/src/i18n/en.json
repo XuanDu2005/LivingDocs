@@ -48,6 +48,8 @@
     "auditRetention": "Audit retention",
     "adminWorkspaces": "All workspaces",
     "adminNotifications": "Notifications",
+    "adminNotificationPolicies": "Notification policies",
+    "workspaceNotificationPolicies": "Notification policies",
     "integrations": "Integrations",
     "overview": "Overview"
   },
@@ -128,6 +130,16 @@
     "placeholderRequired": "Required",
     "placeholderMaxWords": "Max words",
     "placeholderBinding": "AST binding",
+    "outputFormat": "Output format",
+    "outputFormat_MARKDOWN": "Markdown",
+    "outputFormat_HTML": "HTML",
+    "outputFormat_PDF": "PDF",
+    "autoTriggers": "Automatic generation triggers",
+    "autoTriggersDesc": "Choose when this template should run automatically in response to Git/GitHub/GitLab events.",
+    "autoOnCommit": "Auto-generate on commit",
+    "autoOnPr": "Auto-generate on pull request",
+    "autoOnMerge": "Auto-generate on merge",
+    "autoTriggerBadge": "auto",
     "empty": {
       "noSections": "No sections yet. Add one to get started.",
       "noPlaceholders": "No placeholders. Add one to instruct the AI what to write.",
@@ -176,7 +188,16 @@
     "pickWorkspace": "Pick a workspace to configure.",
     "noWorkspaces": "No workspaces exist yet.",
     "noMemberships": "You are not a member of any workspace yet. Create or join one to configure AI settings.",
-    "subtitle": "Pick the provider, model, and credentials LivingDocs uses to generate documentation, detect drift, and power the knowledge base. The configuration is scoped to this workspace only."
+    "subtitle": "Pick the provider, model, and credentials LivingDocs uses to generate documentation, detect drift, and power the knowledge base. The configuration is scoped to this workspace only.",
+    "embeddingModel": "Embedding model",
+    "embeddingModelDesc": "Used to build the vector index for the knowledge base. Leave blank to inherit the provider default.",
+    "thresholdTitle": "Confidence threshold",
+    "thresholdDesc": "Minimum confidence for the AI to auto-approve a generated version (or auto-flag it for review).",
+    "thresholdLabel": "Confidence threshold",
+    "thresholdValue": "Value",
+    "thresholdHelp": "0.00 accepts every suggestion; 1.00 only accepts what the model certifies as high-confidence. 0.70 is a reasonable starting point.",
+    "saveThreshold": "Save threshold",
+    "saveThresholdOk": "Confidence threshold saved."
   },
   "dashboard": {
     "welcome": "Welcome, {{name}}",
@@ -731,5 +752,18 @@
     "eventsEmptyDesc": "Once a connected service delivers an event it will appear here.",
     "linkPrompt": "Connect an account (admin setup required)",
     "lastUsed": "Last used {{when}}"
+  },
+  "notificationPolicies": {
+    "title": "Notification policies",
+    "adminSubtitle": "Platform-wide defaults for every notification event kind. Workspaces can override these in their own settings.",
+    "workspaceSubtitle": "Override the platform defaults for this workspace. Use the toggle to enable or disable each event kind.",
+    "tableTitle": "Event kinds",
+    "tableDesc": "Each row represents one notification event the platform can produce.",
+    "loading": "Loading notification policies…",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "saved": "Saved.",
+    "emptyTitle": "No policies",
+    "emptyDesc": "There are no notification event kinds to configure."
   }
 }

@@ -111,7 +111,8 @@ public class IntegrationWebhookDispatcher {
             if (recipients.isEmpty()) {
                 continue;
             }
-            notificationService.sendBatch(recipients, n.kind(), n.title(), n.body(), n.link());
+            notificationService.sendBatch(matched.getWorkspaceId(), recipients,
+                    n.kind(), n.title(), n.body(), n.link());
             delivered += recipients.size();
         }
 
