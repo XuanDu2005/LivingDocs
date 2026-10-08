@@ -44,6 +44,7 @@
     "roles": "Roles",
     "auditRetention": "Audit retention",
     "adminWorkspaces": "All workspaces",
+    "adminNotifications": "Notifications",
     "overview": "Overview"
   },
   "auth": {
@@ -476,6 +477,43 @@
     "drift_alert": {
       "description": "Resolved drift alerts."
     }
+  },
+  "adminNotifications": {
+    "title": "Admin · Notifications",
+    "subtitle": "Send a platform notification to one user, a platform role, or every enabled user. Each send is recorded in the audit log.",
+    "backToAdmin": "Back to admin",
+    "composeTitle": "Compose notification",
+    "composeDesc": "Recipients are resolved server-side. Duplicates (a user matching multiple targets) are dropped automatically.",
+    "target": "Target",
+    "targetAll": "All enabled users",
+    "targetRole": "One platform role",
+    "targetUser": "One user (by id)",
+    "userIdLabel": "User ID (UUID)",
+    "roleCodeLabel": "Platform role",
+    "kindLabel": "Kind",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Maintenance window scheduled for tomorrow",
+    "bodyLabel": "Body",
+    "bodyPlaceholder": "Optional longer message — supports line breaks.",
+    "linkLabel": "Link (optional)",
+    "send": "Send notification",
+    "sending": "Sending…",
+    "sentOk": "Sent \"{{title}}\" to {{count}} user(s).",
+    "duplicates": "{{count}} duplicate recipient(s) dropped.",
+    "recentTitle": "Recent notifications",
+    "recentDesc": "Latest broadcast campaigns. One row per send, not per recipient.",
+    "recipients": "Recipients: {{count}}",
+    "emptyTitle": "No notifications have been sent yet.",
+    "emptyDesc": "Once you send a notification above it will appear in this list.",
+    "loading": "Loading…"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "openBell": "Open notifications",
+    "refresh": "Refresh",
+    "markRead": "Mark as read",
+    "openLink": "Open",
+    "empty": "You're all caught up."
   },
   "adminWorkspaces": {
     "title": "Admin · Workspaces",

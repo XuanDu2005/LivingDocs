@@ -33,6 +33,7 @@ import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
+import AdminNotificationsPage from '../pages/AdminNotificationsPage';
 
 /**
  * Centralised route table. New pages should be added here and only here.
@@ -270,6 +271,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminWorkspacesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/notifications"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminNotificationsPage />
             </ProtectedRoute>
           }
         />

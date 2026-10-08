@@ -7,7 +7,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -31,6 +35,35 @@ public class NotificationService {
     public Notification send(UUID userId, String kind, String title, String body, String link) {
         Notification n = new Notification(userId, kind, title, body, link);
         return repository.save(n);
+    }
+
+    /**
+     * Send the same notification to every user in {@code userIds}.
+     *
+     * <p>Duplicate IDs are deduplicated so the same payload doesn't get
+     * inserted twice for a user that appears in multiple targets
+     * (e.g. they hold both the {@code STAFF} and {@code MANAGER} roles).
+     * Returns the number of notifications that were actually persisted.
+     */
+    @Transactional
+    public int sendBatch(Collection<UUID> userIds, String kind, String title,
+                         String body, String link) {
+        Set<UUID> unique = new HashSet<>(userIds);
+        if (unique.isEmpty()) {
+            return 0;
+        }
+        List<Notification> rows = new ArrayList<>(unique.size());
+        for (UUID userId : unique) {
+            rows.add(new Notification(userId, kind, title, body, link));
+        }
+        repository.saveAll(rows);
+        return rows.size();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Notification> listRecent(int limit) {
+        return repository.findAll(org.springframework.data.domain.PageRequest.of(0, Math.max(1, limit)))
+                .getContent();
     }
 
     @Transactional(readOnly = true)
