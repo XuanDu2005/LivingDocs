@@ -28,8 +28,15 @@ public class CodeEntityController {
     @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/code-entities")
     @Operation(summary = "List code entities indexed for a repository")
     public List<CodeEntityResponse> list(@PathVariable UUID workspaceId,
-                                          @PathVariable UUID repositoryId) {
+                                        @PathVariable UUID repositoryId) {
         return service.listForRepository(CurrentUser.requireId(), workspaceId, repositoryId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/code-entities/gaps")
+    @Operation(summary = "View the code entities that currently have no documentation")
+    public List<CodeEntityResponse> listGaps(@PathVariable UUID workspaceId,
+                                            @PathVariable UUID repositoryId) {
+        return service.listCoverageGaps(CurrentUser.requireId(), workspaceId, repositoryId);
     }
 
     @GetMapping("/code-entities/{entityId}")

@@ -41,6 +41,17 @@ public class CodeEntityService {
     }
 
     @Transactional(readOnly = true)
+    public List<CodeEntityResponse> listCoverageGaps(UUID actorId, UUID workspaceId, UUID repositoryId) {
+        Repository repo = githubRepoRepository.findById(repositoryId)
+                .orElseThrow(() -> new NotFoundException("Repository not found"));
+        workspaceService.requireMember(actorId, repo.getWorkspaceId());
+        
+        // Gọi query tìm các Code Entity chưa có link tài liệu
+        return repository.findCoverageGaps(repositoryId).stream()
+                .map(CodeEntityResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
     public CodeEntityResponse get(UUID actorId, UUID entityId) {
         CodeEntity e = repository.findById(entityId)
                 .orElseThrow(() -> new NotFoundException("Code entity not found"));

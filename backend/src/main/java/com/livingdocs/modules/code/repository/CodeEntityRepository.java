@@ -17,4 +17,12 @@ public interface CodeEntityRepository extends JpaRepository<CodeEntity, UUID> {
     List<CodeEntity> findAllBySimpleNameIgnoreCase(String simpleName);
 
     long countByRepositoryId(UUID repositoryId);
+
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT e FROM CodeEntity e 
+        WHERE e.repositoryId = :repositoryId 
+        AND e.id NOT IN (SELECT link.codeEntityId FROM CodeDocumentLink link)
+        ORDER BY e.filePath ASC, e.startLine ASC
+    """)
+    List<CodeEntity> findCoverageGaps(@org.springframework.data.repository.query.Param("repositoryId") UUID repositoryId);
 }

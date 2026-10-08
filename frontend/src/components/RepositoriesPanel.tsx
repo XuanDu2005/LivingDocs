@@ -1,3 +1,4 @@
+import CoverageGapsPanel from './CoverageGapsPanel';
 import { useCallback, useEffect, useState } from 'react';
 import {
   GitBranch,
@@ -357,6 +358,9 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
               </div>
             )}
           </div>
+        )}
+        {selectedRepo && (
+          <CoverageGapsPanel workspaceId={workspaceId!} repositoryId={selectedRepo.id} />
         )}
       </CardContent>
     </Card>
