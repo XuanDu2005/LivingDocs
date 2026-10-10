@@ -1,7 +1,9 @@
 import { ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
+  BarChart3,
   BookOpen,
+  Code2,
   FileText,
   LayoutDashboard,
   Library,
@@ -22,6 +24,8 @@ import {
   Megaphone,
   PlugZap,
   BellRing,
+  Workflow,
+  FileType,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -44,6 +48,11 @@ interface NavItem {
   authOnly?: boolean;
 }
 
+interface NavGroup {
+  labelKey: string;
+  items: NavItem[];
+}
+
 /** Items shown to every authenticated user. */
 const WORKSPACE_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.home', to: '/', icon: BookOpen },
@@ -57,19 +66,53 @@ const WORKSPACE_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.health', to: '/workspaces', icon: Stethoscope, authOnly: true },
 ];
 
-/** Items shown only to ADMINs. Rendered in their own section. */
-const ADMIN_NAV_ITEMS: NavItem[] = [
-  { labelKey: 'nav.overview', to: '/admin', icon: LayoutDashboard },
-  { labelKey: 'nav.users', to: '/admin/users', icon: Users },
-  { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
-  { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
-  { labelKey: 'nav.adminNotifications', to: '/admin/notifications', icon: Megaphone },
-  { labelKey: 'nav.adminNotificationPolicies', to: '/admin/notification-policies', icon: BellRing },
-  { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
-  { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
-  { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
-  { labelKey: 'nav.auditLogs', to: '/admin/audit-logs', icon: FileText },
-  { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Sparkles },
+/**
+ * Items shown only to ADMINs, grouped by responsibility. The first
+ * group is "Overview" so admins land on a snapshot before drilling
+ * into any specific area; the order is tuned for the daily workflow
+ * of a platform admin (who → governance → integrations → ops).
+ */
+const ADMIN_NAV_GROUPS: NavGroup[] = [
+  {
+    labelKey: 'nav.adminGroupOverview',
+    items: [
+      { labelKey: 'nav.overview', to: '/admin', icon: LayoutDashboard },
+      { labelKey: 'nav.adminAnalytics', to: '/admin/analytics', icon: BarChart3 },
+    ],
+  },
+  {
+    labelKey: 'nav.adminGroupUsers',
+    items: [
+      { labelKey: 'nav.users', to: '/admin/users', icon: Users },
+      { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
+      { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
+    ],
+  },
+  {
+    labelKey: 'nav.adminGroupPlatform',
+    items: [
+      { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
+      { labelKey: 'nav.adminAutoUpdate', to: '/admin/auto-update', icon: Workflow },
+      { labelKey: 'nav.adminTemplates', to: '/admin/templates', icon: FileType },
+      { labelKey: 'nav.adminLanguages', to: '/admin/languages', icon: Code2 },
+      { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
+    ],
+  },
+  {
+    labelKey: 'nav.adminGroupNotifications',
+    items: [
+      { labelKey: 'nav.adminNotifications', to: '/admin/notifications', icon: Megaphone },
+      { labelKey: 'nav.adminNotificationPolicies', to: '/admin/notification-policies', icon: BellRing },
+    ],
+  },
+  {
+    labelKey: 'nav.adminGroupOperations',
+    items: [
+      { labelKey: 'nav.auditLogs', to: '/admin/audit-logs', icon: FileText },
+      { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
+      { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Sparkles },
+    ],
+  },
 ];
 
 function buildWorkspaceItems(workspaceId?: string) {
@@ -110,7 +153,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         if (item.authOnly && !isAuthenticated) return false;
         return true;
       });
-  const adminItems = isAdmin ? ADMIN_NAV_ITEMS : [];
+  const adminGroups = isAdmin ? ADMIN_NAV_GROUPS : [];
   const showWorkspaceItems = !isAdmin && isAuthenticated && Boolean(workspaceId);
 
   function onLogout() {
@@ -151,22 +194,29 @@ export function AppLayout({ children }: AppLayoutProps) {
             </div>
           )}
 
-          {adminItems.length > 0 && (
-            <div>
+          {adminGroups.length > 0 && (
+            <>
               <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {t('nav.sectionAdministration')}
               </div>
-              <div className="space-y-0.5">
-                {adminItems.map((item) => (
-                  <SidebarLink
-                    key={item.labelKey}
-                    to={item.to}
-                    icon={item.icon}
-                    label={translateNavLabel(item.labelKey, t)}
-                  />
-                ))}
-              </div>
-            </div>
+              {adminGroups.map((group) => (
+                <div key={group.labelKey}>
+                  <div className="mb-1 mt-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+                    {translateNavLabel(group.labelKey, t)}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => (
+                      <SidebarLink
+                        key={item.labelKey}
+                        to={item.to}
+                        icon={item.icon}
+                        label={translateNavLabel(item.labelKey, t)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
 
           {showWorkspaceItems && workspaceId && (
