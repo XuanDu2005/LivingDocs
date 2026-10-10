@@ -1,21 +1,25 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, ShieldCheck, ShieldOff, UserCog, Users,
+  ShieldCheck, ShieldOff, UserCog, Users, Search, X,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '../components/ui/card';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '../components/ui/select';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
 import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
-import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
+import { LoadingState, ErrorState } from '../components/ui/states';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
@@ -37,6 +41,27 @@ export default function AdminUsersPage() {
 
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
+
+  // Search + role filter
+  const [search, setSearch] = useState<string>('');
+  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter((u) => {
+      // Role filter
+      if (roleFilter === 'NONE') {
+        if (u.roles.length > 0) return false;
+      } else if (roleFilter !== 'ALL') {
+        if (!u.roles.includes(roleFilter)) return false;
+      }
+      // Search filter
+      if (q.length === 0) return true;
+      const email = u.email.toLowerCase();
+      const name = (u.displayName ?? '').toLowerCase();
+      return email.includes(q) || name.includes(q);
+    });
+  }, [users, search, roleFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,19 +124,6 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      {!workspaceId && (
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/users"><ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}</Link>
-        </Button>
-      )}
-      {workspaceId && (
-        <Button variant="ghost" size="sm" asChild>
-          <Link to={`/workspaces/${workspaceId}`}>
-            <ArrowLeft className="mr-1 h-4 w-4" /> {t('common.back')}
-          </Link>
-        </Button>
-      )}
-
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('adminUsers.title')}</h1>
         <p className="text-sm text-muted-foreground">
@@ -121,11 +133,52 @@ export default function AdminUsersPage() {
 
       {/* Users table */}
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="h-4 w-4" /> {t('adminUsers.platformUsers')}
-            <Badge variant="muted">{users.length}</Badge>
+            <Badge variant="muted">
+              {filteredUsers.length === users.length
+                ? users.length
+                : `${filteredUsers.length}/${users.length}`}
+            </Badge>
           </CardTitle>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('adminUsers.searchPlaceholder')}
+                className="pl-8 pr-8"
+              />
+              {search.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <div className="w-full sm:w-56">
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">{t('adminUsers.filterAllRoles')}</SelectItem>
+                  <SelectItem value="NONE">{t('adminUsers.filterNoRole')}</SelectItem>
+                  {roles.map((r) => (
+                    <SelectItem key={r.id} value={r.code}>
+                      {r.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -140,14 +193,16 @@ export default function AdminUsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.length === 0 && (
+              {filteredUsers.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                    {t('adminUsers.noUsers')}
+                    {users.length === 0
+                      ? t('adminUsers.noUsers')
+                      : t('adminUsers.noMatches')}
                   </TableCell>
                 </TableRow>
               )}
-              {users.map((u) => (
+              {filteredUsers.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.email}</TableCell>
                   <TableCell>{u.displayName ?? '—'}</TableCell>
@@ -266,10 +321,9 @@ export default function AdminUsersPage() {
             <CardTitle className="text-base">Audit log</CardTitle>
           </CardHeader>
           <CardContent>
-            <EmptyState
-              title="Workspace audit log"
-              description="The workspace-scoped audit log is still available at /workspaces/{id}/audit-logs."
-            />
+            <p className="text-sm text-muted-foreground">
+              The workspace-scoped audit log is still available at /workspaces/{workspaceId}/audit-logs.
+            </p>
           </CardContent>
         </Card>
       )}

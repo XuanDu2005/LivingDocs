@@ -464,7 +464,11 @@
     "enable": "Kích hoạt",
     "cannotDisableSelf": "Bạn không thể vô hiệu hoá chính mình.",
     "cannotRemoveAllRoles": "Không thể gỡ hết vai trò — hãy vô hiệu hoá tài khoản.",
-    "noRoles": "không có"
+    "noRoles": "không có",
+    "searchPlaceholder": "Tìm theo tên hoặc email…",
+    "filterAllRoles": "Tất cả vai trò",
+    "filterNoRole": "Chưa có vai trò",
+    "noMatches": "Không có người dùng nào khớp với bộ lọc."
   },
   "adminRoles": {
     "title": "Quản trị · Vai trò",
