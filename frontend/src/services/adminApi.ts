@@ -3,8 +3,11 @@ import {
   AdminWorkspace,
   AssignRolesPayload,
   AuditRetentionPolicy,
+  Permission,
   Role,
+  RolePermissionMatrix,
   UpdateRetentionPolicyPayload,
+  UpdateRolePermissionsPayload,
   UserWithRoles,
 } from '../types/admin';
 
@@ -12,6 +15,30 @@ export const adminApi = {
   // Roles
   listRoles: async (): Promise<Role[]> => {
     const { data } = await apiClient.get<Role[]>('/admin/roles');
+    return data;
+  },
+
+  // Permission catalogue + role-permission matrix
+  listPermissions: async (): Promise<Permission[]> => {
+    const { data } = await apiClient.get<Permission[]>('/admin/permissions');
+    return data;
+  },
+
+  getRolePermissionMatrix: async (roleId: string): Promise<RolePermissionMatrix> => {
+    const { data } = await apiClient.get<RolePermissionMatrix>(
+      `/admin/permissions/roles/${roleId}/matrix`,
+    );
+    return data;
+  },
+
+  updateRolePermissionMatrix: async (
+    roleId: string,
+    payload: UpdateRolePermissionsPayload,
+  ): Promise<RolePermissionMatrix> => {
+    const { data } = await apiClient.put<RolePermissionMatrix>(
+      `/admin/permissions/roles/${roleId}/matrix`,
+      payload,
+    );
     return data;
   },
 

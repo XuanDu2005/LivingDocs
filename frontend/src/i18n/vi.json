@@ -487,7 +487,25 @@
     "howItWorksP1": "Mỗi request xác thực sẽ lấy mã vai trò đang hoạt động từ bảng",
     "howItWorksP1Mid": "và cấp chúng như Spring Security authorities (tiền tố",
     "howItWorksP2": "Endpoint nền tảng được chú thích bằng",
-    "howItWorksP3": "Năm vai trò được seed — DEVELOPER, STAFF, TECHNICAL_LEAD, MANAGER, ADMIN — là định danh bất biến. Thêm vai trò mới cần migration Flyway để JWT và payload kiểm toán vẫn tương thích."
+    "howItWorksP3": "Năm vai trò được seed — DEVELOPER, STAFF, TECHNICAL_LEAD, MANAGER, ADMIN — là định danh bất biến. Thêm vai trò mới cần migration Flyway để JWT và payload kiểm toán vẫn tương thích.",
+    "tabCatalogue": "Danh mục",
+    "tabMatrix": "Ma trận quyền",
+    "matrix": {
+      "selectRole": "Chọn vai trò",
+      "loading": "Đang tải quyền…",
+      "subtitle": "Bật/tắt các quyền mà vai trò này được giữ. Thay đổi sẽ áp dụng cho tất cả người dùng hiện tại và tương lai.",
+      "searchPlaceholder": "Tìm quyền…",
+      "allCategories": "Tất cả nhóm",
+      "save": "Lưu quyền",
+      "saving": "Đang lưu…",
+      "unsaved": "Có thay đổi chưa lưu",
+      "saved": "Đã cập nhật quyền.",
+      "empty": "Chưa có vai trò nào.",
+      "noMatches": "Không có quyền nào khớp với bộ lọc hiện tại.",
+      "adminNotice": "Vai trò ADMIN luôn được cấp mọi quyền để hệ thống luôn có ít nhất một vai trò quản trị được.",
+      "adminLocked": "Quyền của ADMIN được ghim là 'cấp tất cả' để giữ hệ thống luôn quản trị được.",
+      "togglePermission": "Bật/tắt quyền {{code}}"
+    }
   },
   "roleLabels": {
     "DEVELOPER": {
