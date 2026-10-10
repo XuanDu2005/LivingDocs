@@ -354,7 +354,17 @@
     "resolutionAccepted": "Accepted",
     "resolutionAcceptedFull": "Accepted (risk acknowledged)",
     "resolutionDismissed": "Dismissed",
-    "resolutionFixed": "Fixed"
+    "resolutionFixed": "Fixed",
+    "reviewTitle": "Drift Review & Resolution",
+    "descriptionLabel": "Description:",
+    "noDescription": "No detailed description provided by the system.",
+    "suggestionLabel": "AI Suggestion:",
+    "resolutionLabel": "Resolution:",
+    "resolutionFixed": "Documentation updated (FIXED)",
+    "resolutionAccepted": "Ignore, doc is still correct (ACCEPTED)",
+    "resolutionDismissed": "Dismiss false alarm (DISMISSED)",
+    "resolutionOpen": "Keep monitoring (OPEN)",
+    "saveResolution": "Save Resolution"
   },
   "knowledge": {
     "title": "Knowledge base",

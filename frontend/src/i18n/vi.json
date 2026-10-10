@@ -351,7 +351,17 @@
     "resolutionAccepted": "Chấp nhận",
     "resolutionAcceptedFull": "Chấp nhận (ghi nhận rủi ro)",
     "resolutionDismissed": "Bỏ qua",
-    "resolutionFixed": "Đã sửa"
+    "resolutionFixed": "Đã sửa",
+    "reviewTitle": "Đánh giá & Xử lý sai lệch",
+    "descriptionLabel": "Mô tả sai lệch:",
+    "noDescription": "Không có mô tả chi tiết từ hệ thống.",
+    "suggestionLabel": "AI Gợi ý cách sửa:",
+    "resolutionLabel": "Quyết định xử lý:",
+    "resolutionFixed": "Đã cập nhật lại tài liệu (FIXED)",
+    "resolutionAccepted": "Bỏ qua, tài liệu vẫn đúng (ACCEPTED)",
+    "resolutionDismissed": "Đóng cảnh báo sai (DISMISSED)",
+    "resolutionOpen": "Tiếp tục theo dõi (OPEN)",
+    "saveResolution": "Lưu quyết định"
   },
   "knowledge": {
     "title": "Knowledge base",

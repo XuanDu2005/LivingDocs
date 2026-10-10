@@ -369,37 +369,50 @@ export default function DocumentDetailPage() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Create new version</DialogTitle>
-                <DialogDescription>
-                  Write new markdown content for this document. A new version will be created.
+                <DialogTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-orange-500" />
+                  {t('drift.reviewTitle', 'Đánh giá & Xử lý sai lệch')}
+                </DialogTitle>
+                <DialogDescription className="text-base font-semibold text-foreground pt-2">
+                  {a.title}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-summary">Change summary</Label>
-                  <Input
-                    id="new-summary"
-                    value={newSummary}
-                    onChange={(e) => setNewSummary(e.target.value)}
-                    placeholder={t('documentDetail.changeSummaryPlaceholder')}
-                  />
+                              
+              <div className="space-y-4 my-2">
+                <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-300 rounded-md text-sm border border-red-100 dark:border-red-900">
+                  <strong className="block mb-1">{t('drift.descriptionLabel', 'Mô tả sai lệch:')}</strong>
+                  <p>{a.description || t('drift.noDescription', 'Không có mô tả chi tiết từ hệ thống.')}</p>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-body">Body (Markdown)</Label>
-                  <Textarea
-                    id="new-body"
-                    value={newBody}
-                    onChange={(e) => setNewBody(e.target.value)}
-                    rows={12}
-                    className="font-mono text-sm"
-                    required
-                  />
+                {(a as any).suggestion && (
+                  <div className="p-3 bg-green-50 dark:bg-green-950/20 text-green-900 dark:text-green-300 rounded-md text-sm border border-green-100 dark:border-green-900">
+                    <strong className="block mb-1 flex items-center gap-1">
+                      <Bot className="w-4 h-4" /> {t('drift.suggestionLabel', 'AI Gợi ý cách sửa:')}
+                    </strong>
+                    <p>{(a as any).suggestion}</p>
+                  </div>
+                )}
+
+                <div className="space-y-1.5 mt-4 pt-4 border-t border-border">
+                  <Label>{t('drift.resolutionLabel', 'Quyết định xử lý:')}</Label>
+                  <Select value={resolveResolution} onValueChange={setResolveResolution}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="FIXED">{t('drift.resolutionFixed', 'Đã cập nhật lại tài liệu (FIXED)')}</SelectItem>
+                      <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted', 'Bỏ qua, tài liệu vẫn đúng (ACCEPTED)')}</SelectItem>
+                      <SelectItem value="DISMISSED">{t('drift.resolutionDismissed', 'Đóng cảnh báo sai (DISMISSED)')}</SelectItem>
+                      <SelectItem value="OPEN">{t('drift.resolutionOpen', 'Tiếp tục theo dõi (OPEN)')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowNewVersion(false)}>Cancel</Button>
-                <Button onClick={() => void handleCreateVersion()} disabled={creatingVersion || !newBody.trim()}>
-                  {creatingVersion ? t('documentDetail.creating') : t('documentDetail.createVersion')}
+                <Button variant="outline" onClick={() => setResolveAlertId(null)}>
+                  {t('common.cancel', 'Hủy')}
+                </Button>
+                <Button onClick={() => void handleResolveDrift(a.id)}>
+                  {t('drift.saveResolution', 'Lưu quyết định')}
                 </Button>
               </DialogFooter>
             </DialogContent>
