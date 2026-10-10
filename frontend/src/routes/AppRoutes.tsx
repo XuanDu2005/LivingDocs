@@ -4,9 +4,13 @@ import { GuestRoute, ProtectedRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
+import AdminAnalyticsPage from '../pages/AdminAnalyticsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
 import AdminAuditLogPage from '../pages/AdminAuditLogPage';
+import AdminAutoUpdatePage from '../pages/AdminAutoUpdatePage';
 import AdminIndexingJobsPage from '../pages/AdminIndexingJobsPage';
+import AdminLanguagesPage from '../pages/AdminLanguagesPage';
+import AdminTemplatesPage from '../pages/AdminTemplatesPage';
 import AnalyticsDashboardPage from '../pages/AnalyticsDashboardPage';
 import AdminIntegrationsPage from '../pages/AdminIntegrationsPage';
 import AdminNotificationPoliciesPage from '../pages/AdminNotificationPoliciesPage';
@@ -279,6 +283,38 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminIndexingJobsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/analytics"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/templates"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminTemplatesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/auto-update"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAutoUpdatePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/languages"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminLanguagesPage />
             </ProtectedRoute>
           }
         />
