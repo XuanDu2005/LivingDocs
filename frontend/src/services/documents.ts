@@ -162,4 +162,10 @@ export const documentsApi = {
       )
       .then((r) => r.data);
   },
+  toggleAutoUpdate: async (workspaceId: string, documentId: string, enabled: boolean) => {
+    const { data } = await apiClient.put<Document>(
+      `/workspaces/${workspaceId}/documents/${documentId}/auto-update?enabled=${enabled}`
+    );
+    return data;
+  },
 };

@@ -101,4 +101,13 @@ public class DocumentController {
                 req.bodyMarkdown(), req.changeSummary(), ActorRole.STAFF);
         return ResponseEntity.status(HttpStatus.CREATED).body(DocumentVersionResponse.from(v));
     }
+    /* Toggle auto-update setting for a document */
+    @PutMapping("/workspaces/{workspaceId}/documents/{documentId}/auto-update")
+    @Operation(summary = "Enable or disable auto-update for a document")
+    public DocumentResponse toggleAutoUpdate(@PathVariable UUID workspaceId,
+                                             @PathVariable UUID documentId,
+                                             @RequestParam boolean enabled) {
+        Document updated = documentService.toggleAutoUpdate(CurrentUser.requireId(), workspaceId, documentId, enabled);
+        return DocumentResponse.from(updated);
+    }
 }
