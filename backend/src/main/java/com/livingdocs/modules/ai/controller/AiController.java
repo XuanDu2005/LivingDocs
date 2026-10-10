@@ -67,6 +67,14 @@ public class AiController {
         return Map.of("ingested", count, "alerts", alerts);
     }
 
+    @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/regenerate")
+    @Operation(summary = "Manually trigger AI to regenerate documentation")
+    public DocumentVersionResponse regenerate(@PathVariable UUID workspaceId,
+                                              @PathVariable UUID documentId) {
+        var v = aiService.regenerateOnDemand(CurrentUser.requireId(), workspaceId, documentId);
+        return DocumentVersionResponse.from(v);
+    }
+
     /** Convenience wrapper for the request body. */
     public record DriftDetectionBody(
             List<AiDtos.SourceFile> filesBefore,

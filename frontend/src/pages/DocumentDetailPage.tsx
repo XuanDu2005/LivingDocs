@@ -28,6 +28,7 @@ import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
 import { describeError } from '../services/auth';
 import { format } from 'date-fns';
+import RegenerateDocButton from '../components/RegenerateDocButton';
 
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
   PENDING: 'warning',
@@ -338,6 +339,7 @@ export default function DocumentDetailPage() {
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
+          <RegenerateDocButton workspaceId={workspaceId} documentId={documentId} />
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
