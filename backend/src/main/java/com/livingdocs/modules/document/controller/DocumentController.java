@@ -5,6 +5,7 @@ import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.CreateVersionRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
 import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
+import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.service.DocumentService;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.model.ActorRole;

@@ -3,6 +3,7 @@ package com.livingdocs.modules.document.service;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
 import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -51,15 +53,18 @@ public class DocumentService {
     private final DocumentVersionRepository versionRepository;
     private final WorkspaceService workspaceService;
     private final DocTemplateService templateService;
+    private final AuditLogService auditLogService;
 
     public DocumentService(DocumentRepository documentRepository,
                            DocumentVersionRepository versionRepository,
                            WorkspaceService workspaceService,
-                           DocTemplateService templateService) {
+                           DocTemplateService templateService,
+                           AuditLogService auditLogService) {
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
         this.workspaceService = workspaceService;
         this.templateService = templateService;
+        this.auditLogService = auditLogService;
     }
 
     @Transactional

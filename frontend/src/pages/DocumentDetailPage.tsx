@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Bot, Check, Eye, History, Link2, Plus, RotateCcw, Shield, Upload } from 'lucide-react';
+import { ArrowLeft, Bot, Check, Eye, History, Link2, RotateCcw, Shield, Upload } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import {
@@ -102,12 +100,6 @@ export default function DocumentDetailPage() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
-  // New version dialog
-  const [showNewVersion, setShowNewVersion] = useState<boolean>(false);
-  const [newBody, setNewBody] = useState<string>('');
-  const [newSummary, setNewSummary] = useState<string>('');
-  const [creatingVersion, setCreatingVersion] = useState<boolean>(false);
 
   // Link entity dialog
   const [showLinkEntity, setShowLinkEntity] = useState<boolean>(false);
@@ -240,25 +232,6 @@ export default function DocumentDetailPage() {
     }
   }
 
-  async function handleCreateVersion() {
-    if (!workspaceId || !documentId) return;
-    setCreatingVersion(true);
-    try {
-      await documentsApi.appendVersion(workspaceId, documentId, {
-        bodyMarkdown: newBody,
-        changeSummary: newSummary || undefined,
-      });
-      setShowNewVersion(false);
-      setNewBody('');
-      setNewSummary('');
-      await load();
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setCreatingVersion(false);
-    }
-  }
-
   async function handleGenerateWithAI() {
     if (!workspaceId || !documentId || !doc?.repositoryId) return;
     setGenerating(true);
@@ -381,6 +354,7 @@ export default function DocumentDetailPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          <RegenerateDocButton workspaceId={workspaceId} documentId={documentId} />
         </div>
       </div>
 

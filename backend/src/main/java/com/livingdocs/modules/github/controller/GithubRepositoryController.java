@@ -51,6 +51,12 @@ public class GithubRepositoryController {
         return new GithubRepositoryListResponse(items);
     }
 
+    @GetMapping("/github/repositories/by-url")
+    @Operation(summary = "Fetch a single repository by its GitHub URL")
+    public GithubRepositoryCatalogItem getByUrl(@RequestParam String url) {
+        return repositoryService.getRepositoryByUrl(url);
+    }
+
     @PostMapping("/workspaces/{workspaceId}/repositories")
     @Operation(summary = "Connect a repository from the GitHub catalog to a workspace")
     public ResponseEntity<RepositoryResponse> connect(@PathVariable UUID workspaceId,

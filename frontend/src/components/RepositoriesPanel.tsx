@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   GitBranch,
   GitPullRequest,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -16,6 +17,7 @@ import {
   CardTitle,
 } from './ui/card';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { LoadingState, ErrorState, EmptyState } from './ui/states';
 import { describeError } from '../services/auth';
@@ -63,6 +65,9 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [pullsLoading, setPullsLoading] = useState<boolean>(false);
+  const [urlInput, setUrlInput] = useState<string>('');
+  const [urlLoading, setUrlLoading] = useState<boolean>(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,6 +99,29 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
       setCatalogError(describeError(err));
     } finally {
       setCatalogLoading(false);
+    }
+  }
+
+  async function fetchByUrl() {
+    const url = urlInput.trim();
+    if (!url) return;
+    setUrlLoading(true);
+    setUrlError(null);
+    try {
+      const repo = await githubApi.getRepositoryByUrl(url);
+      // Add to catalog if not already connected
+      const connectedIds = new Set(repos.map((r) => r.githubId));
+      if (!connectedIds.has(repo.githubId)) {
+        setCatalog((prev) => {
+          if (prev.some((r) => r.githubId === repo.githubId)) return prev;
+          return [...prev, repo];
+        });
+      }
+      setUrlInput('');
+    } catch (err) {
+      setUrlError(describeError(err));
+    } finally {
+      setUrlLoading(false);
     }
   }
 
@@ -196,6 +224,38 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
                 <X className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Add by URL */}
+            <div className="mb-3 rounded-md border bg-card p-3">
+              <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                <Link2 className="h-4 w-4" />
+                Add repository by URL
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://github.com/owner/repo"
+                  value={urlInput}
+                  onChange={(e) => {
+                    setUrlInput(e.target.value);
+                    setUrlError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      void fetchByUrl();
+                    }
+                  }}
+                  disabled={urlLoading}
+                  className="text-sm"
+                />
+                <Button size="sm" onClick={() => void fetchByUrl()} disabled={urlLoading || !urlInput.trim()}>
+                  {urlLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
+                </Button>
+              </div>
+              {urlError && <p className="mt-1.5 text-xs text-destructive">{urlError}</p>}
+            </div>
+
+            <div className="mb-2 text-sm text-muted-foreground">— or select from your repositories —</div>
+
             {catalogLoading && <LoadingState message="Loading catalog…" />}
             {catalogError && <ErrorState message={catalogError} />}
             {!catalogLoading && catalog.length === 0 && !catalogError && (
