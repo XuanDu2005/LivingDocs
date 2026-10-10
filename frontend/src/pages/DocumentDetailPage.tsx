@@ -330,9 +330,30 @@ export default function DocumentDetailPage() {
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{doc.slug}</code>
             <Badge variant="muted">{doc.docType}</Badge>
-            <Badge variant={doc.autoUpdateEnabled ? 'info' : 'muted'}>
-              {doc.autoUpdateEnabled ? 'auto-update' : 'manual'}
-            </Badge>
+            <button 
+              type="button"
+              onClick={async () => {
+                try {
+                  const updatedDoc = await documentsApi.toggleAutoUpdate(workspaceId, documentId, !doc.autoUpdateEnabled);
+                  setDoc(updatedDoc);
+                } catch (err) {
+                  alert("Lỗi khi thay đổi trạng thái tự động cập nhật.");
+                }
+              }}
+              className="transition-transform active:scale-95 outline-none"
+              title="Nhấn để Bật/Tắt chế độ tự động cập nhật bằng AI khi có code mới"
+            >
+              <Badge 
+                variant={doc.autoUpdateEnabled ? 'info' : 'muted'} 
+                className="cursor-pointer hover:opacity-80 flex items-center gap-1"
+              >
+                {doc.autoUpdateEnabled ? (
+                  <><Shield className="w-3 h-3" /> Auto-update: ON</>
+                ) : (
+                  <>Manual: OFF</>
+                )}
+              </Badge>
+            </button>
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">

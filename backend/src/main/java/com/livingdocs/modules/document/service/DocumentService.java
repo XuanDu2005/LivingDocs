@@ -2,6 +2,7 @@ package com.livingdocs.modules.document.service;
 
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ConflictException;
+import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
@@ -181,5 +182,32 @@ public class DocumentService {
         }
         workspaceService.requireMember(actorId, workspaceId);
         return d;
+    }
+
+    /**
+     * Toggle the auto-update setting for a document. If enabled, the system will
+     * automatically regenerate the document when the linked code repository changes.
+     */
+    @Transactional
+    public Document toggleAutoUpdate(UUID actorId, UUID workspaceId, UUID documentId, boolean enabled) {
+        workspaceService.requireMember(actorId, workspaceId);
+        
+        Document doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+        
+        if (!doc.getWorkspaceId().equals(workspaceId)) {
+            throw new ForbiddenException("Document does not belong to this workspace");
+        }
+        
+        boolean previous = doc.isAutoUpdateEnabled();
+        if (previous != enabled) {
+            doc.setAutoUpdateEnabled(enabled);
+            documentRepository.save(doc);
+            
+            auditLogService.record(actorId, "MEMBER", "document.auto_update.toggle",
+                    "document", documentId.toString(), workspaceId,
+                    Map.of("enabled", enabled, "previous", previous, "title", doc.getTitle()));
+        }
+        return doc;
     }
 }
