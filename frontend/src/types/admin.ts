@@ -11,6 +11,43 @@ export interface Role {
   updatedAt: string;
 }
 
+export interface Permission {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  category: string;
+  displayOrder: number;
+  system: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RolePermissionRow {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  category: string;
+  displayOrder: number;
+  granted: boolean;
+  grantedAt: string | null;
+}
+
+export interface RolePermissionMatrix {
+  roleId: string;
+  roleCode: string;
+  roleName: string;
+  roleSystem: boolean;
+  totalPermissions: number;
+  grantedCount: number;
+  permissions: RolePermissionRow[];
+}
+
+export interface UpdateRolePermissionsPayload {
+  grantedPermissionIds: string[];
+}
+
 export interface UserWithRoles {
   id: string;
   email: string;

@@ -490,7 +490,25 @@
     "howItWorksP1": "Each authenticated request resolves the user's active role codes from the",
     "howItWorksP1Mid": "table and grants them as Spring Security authorities (prefixed with",
     "howItWorksP2": "Platform endpoints are annotated with",
-    "howItWorksP3": "The five seeded roles — DEVELOPER, STAFF, TECHNICAL_LEAD, MANAGER, ADMIN — are immutable identifiers. Adding new platform roles requires a new Flyway migration so JWTs and audit payloads remain compatible."
+    "howItWorksP3": "The five seeded roles — DEVELOPER, STAFF, TECHNICAL_LEAD, MANAGER, ADMIN — are immutable identifiers. Adding new platform roles requires a new Flyway migration so JWTs and audit payloads remain compatible.",
+    "tabCatalogue": "Catalogue",
+    "tabMatrix": "Permissions matrix",
+    "matrix": {
+      "selectRole": "Select a role",
+      "loading": "Loading permissions…",
+      "subtitle": "Toggle the permissions this role holds. Changes are applied to all current and future role holders.",
+      "searchPlaceholder": "Search permissions…",
+      "allCategories": "All categories",
+      "save": "Save permissions",
+      "saving": "Saving…",
+      "unsaved": "Unsaved changes",
+      "saved": "Permissions updated.",
+      "empty": "No roles yet.",
+      "noMatches": "No permissions match the current filter.",
+      "adminNotice": "The ADMIN role is permanently granted every permission so the platform always has at least one manageable role.",
+      "adminLocked": "ADMIN role permissions are pinned to all-granted to keep the platform manageable.",
+      "togglePermission": "Toggle permission {{code}}"
+    }
   },
   "roleLabels": {
     "DEVELOPER": {
