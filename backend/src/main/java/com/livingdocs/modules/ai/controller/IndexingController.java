@@ -1,6 +1,7 @@
 package com.livingdocs.modules.ai.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePlatformRole;
 import com.livingdocs.modules.ai.indexing.IndexJob;
 import com.livingdocs.modules.ai.indexing.IndexingService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
@@ -100,5 +101,39 @@ public class IndexingController {
     public IndexJob cancel(@PathVariable UUID jobId) {
         UUID actorId = CurrentUser.requireId();
         return indexingService.cancel(jobId, actorId);
+    }
+
+    @PostMapping("/indexing-jobs/{jobId}/retry")
+    @Operation(summary = "Retry a failed indexing job by re-queuing it")
+    public ResponseEntity<IndexJob> retry(@PathVariable UUID jobId) {
+        UUID actorId = CurrentUser.requireId();
+        IndexJob job = indexingService.findById(jobId)
+                .orElseThrow(() -> new com.livingdocs.common.exception.NotFoundException("Job not found"));
+        workspaceService.requireMember(actorId, job.getWorkspaceId());
+        if (job.getStatus() != com.livingdocs.modules.ai.indexing.IndexJobStatus.FAILED) {
+            throw new com.livingdocs.common.exception.BadRequestException(
+                "Only FAILED jobs can be retried (current: " + job.getStatus() + ")");
+        }
+        IndexJob requeued = indexingService.requeue(jobId, actorId);
+        return ResponseEntity.accepted().body(requeued);
+    }
+
+    /**
+     * Admin endpoint: list ALL indexing jobs across ALL workspaces.
+     * Requires ADMIN platform role.
+     */
+    @GetMapping("/admin/indexing-jobs")
+    @RequirePlatformRole({"ADMIN"})
+    @Operation(summary = "List all indexing jobs across all workspaces (admin only)")
+    public Map<String, Object> listAllForAdmin(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 200));
+        Page<IndexJob> p = indexingService.listAll(pageable);
+        return Map.of(
+                "items", p.getContent(),
+                "page", p.getNumber(),
+                "size", p.getSize(),
+                "total", p.getTotalElements());
     }
 }

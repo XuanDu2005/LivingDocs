@@ -260,6 +260,62 @@ public class DocTemplateService {
     }
 
     @Transactional
+    public DocTemplateResponse clone(UUID actorId, UUID templateId, String newName) {
+        DocTemplate source = templateRepository.findById(templateId)
+                .orElseThrow(() -> new NotFoundException("Source template not found"));
+        if (source.getWorkspaceId() == null) {
+            throw new ForbiddenException("Global templates must be cloned into a workspace first");
+        }
+        workspaceService.requireRole(actorId, source.getWorkspaceId(), WorkspaceRole.MANAGER);
+
+        // Generate a new unique slug
+        final String baseSlug = slugify(newName);
+        String candidate = baseSlug;
+        int suffix = 1;
+        while (templateRepository.findBySlugAndVersion(candidate, 1).isPresent()) {
+            suffix++;
+            candidate = baseSlug + "-" + suffix;
+        }
+        final String newSlug = candidate;
+
+        UUID newId = UUID.randomUUID();
+        jdbc.update("INSERT INTO doc_templates (" +
+                        "id, workspace_id, name, slug, description, doc_type, " +
+                        "version, body, output_format, " +
+                        "auto_generate_on_commit, auto_generate_on_pr, auto_generate_on_merge, " +
+                        "is_default, created_by) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)",
+                ps -> {
+                    ps.setObject(1, newId);
+                    ps.setObject(2, source.getWorkspaceId());
+                    ps.setString(3, newName);
+                    ps.setString(4, newSlug);
+                    ps.setString(5, source.getDescription());
+                    ps.setString(6, source.getDocType());
+                    ps.setInt(7, 1);
+                    ps.setString(8, source.getBody());
+                    ps.setString(9, source.getOutputFormat().name());
+                    ps.setBoolean(10, source.isAutoGenerateOnCommit());
+                    ps.setBoolean(11, source.isAutoGenerateOnPr());
+                    ps.setBoolean(12, source.isAutoGenerateOnMerge());
+                    ps.setBoolean(13, false); // cloned templates are not default
+                    ps.setObject(14, actorId);
+                });
+        em.clear();
+        DocTemplate saved = templateRepository.findById(newId)
+                .orElseThrow(() -> new IllegalStateException("Insert failed for " + newId));
+        log.info("Template cloned: source={} new={}", templateId, newId);
+        return DocTemplateResponse.from(saved);
+    }
+
+    private String slugify(String s) {
+        return s.toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-|-$", "")
+                .substring(0, Math.min(120, s.length()));
+    }
+
+    @Transactional
     public void delete(UUID actorId, UUID templateId) {
         DocTemplate current = templateRepository.findById(templateId)
                 .orElseThrow(() -> new NotFoundException("Template not found"));

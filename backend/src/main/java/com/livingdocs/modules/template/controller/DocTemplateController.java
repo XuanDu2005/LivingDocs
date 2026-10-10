@@ -5,6 +5,8 @@ import com.livingdocs.modules.template.dto.CreateDocTemplateRequest;
 import com.livingdocs.modules.template.dto.DocTemplateListResponse;
 import com.livingdocs.modules.template.dto.DocTemplateResponse;
 import com.livingdocs.modules.template.dto.UpdateDocTemplateRequest;
+import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.repository.DocTemplateRepository;
 import com.livingdocs.modules.template.service.DocTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -36,9 +39,12 @@ import java.util.UUID;
 public class DocTemplateController {
 
     private final DocTemplateService templateService;
+    private final DocTemplateRepository templateRepository;
 
-    public DocTemplateController(DocTemplateService templateService) {
+    public DocTemplateController(DocTemplateService templateService,
+                                  DocTemplateRepository templateRepository) {
         this.templateService = templateService;
+        this.templateRepository = templateRepository;
     }
 
     @GetMapping("/workspaces/{workspaceId}/templates")
@@ -86,6 +92,27 @@ public class DocTemplateController {
                                         @PathVariable UUID templateId,
                                         @RequestParam("version") int version) {
         return templateService.rollback(CurrentUser.requireId(), templateId, version);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/templates/{templateId}/versions")
+    @Operation(summary = "List all versions of a template (history)")
+    public List<DocTemplateResponse> listVersions(@PathVariable UUID workspaceId,
+                                                   @PathVariable UUID templateId) {
+        DocTemplate current = templateRepository.findById(templateId)
+                .orElseThrow(() -> new com.livingdocs.common.exception.NotFoundException("Template not found"));
+        return templateRepository.findAllBySlugOrderByVersionDesc(current.getSlug())
+                .stream()
+                .map(DocTemplateResponse::from)
+                .toList();
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/templates/{templateId}/clone")
+    @Operation(summary = "Clone a template into a new template in this workspace")
+    public ResponseEntity<DocTemplateResponse> clone(@PathVariable UUID workspaceId,
+                                                       @PathVariable UUID templateId,
+                                                       @RequestParam("newName") String newName) {
+        DocTemplateResponse cloned = templateService.clone(CurrentUser.requireId(), templateId, newName);
+        return ResponseEntity.status(HttpStatus.CREATED).body(cloned);
     }
 
     @DeleteMapping("/workspaces/{workspaceId}/templates/{templateId}")

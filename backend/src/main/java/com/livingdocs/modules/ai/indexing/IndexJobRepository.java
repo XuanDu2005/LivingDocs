@@ -59,4 +59,9 @@ public interface IndexJobRepository extends JpaRepository<IndexJob, UUID> {
                            com.livingdocs.modules.ai.indexing.IndexJobStatus.RUNNING)
         """)
     boolean existsActiveReindexAll(@Param("workspaceId") UUID workspaceId);
+
+    /**
+     * Admin: list all jobs across all workspaces, newest first.
+     */
+    Page<IndexJob> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

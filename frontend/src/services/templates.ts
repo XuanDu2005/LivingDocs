@@ -83,4 +83,27 @@ export const templatesApi = {
       `/workspaces/${workspaceId}/templates/${templateId}`,
     );
   },
+  listVersions(workspaceId: string, templateId: string) {
+    return apiClient
+      .get<DocTemplate[]>(`/workspaces/${workspaceId}/templates/${templateId}/versions`)
+      .then((r) => r.data);
+  },
+  rollback(workspaceId: string, templateId: string, version: number) {
+    return apiClient
+      .post<DocTemplate>(
+        `/workspaces/${workspaceId}/templates/${templateId}/rollback`,
+        null,
+        { params: { version } }
+      )
+      .then((r) => r.data);
+  },
+  clone(workspaceId: string, templateId: string, newName: string) {
+    return apiClient
+      .post<DocTemplate>(
+        `/workspaces/${workspaceId}/templates/${templateId}/clone`,
+        null,
+        { params: { newName } }
+      )
+      .then((r) => r.data);
+  },
 };

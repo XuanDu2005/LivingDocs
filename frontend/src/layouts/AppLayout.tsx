@@ -68,6 +68,8 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
   { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
   { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
+  { labelKey: 'nav.auditLogs', to: '/admin/audit-logs', icon: FileText },
+  { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Sparkles },
 ];
 
 function buildWorkspaceItems(workspaceId?: string) {
@@ -81,6 +83,8 @@ function buildWorkspaceItems(workspaceId?: string) {
     { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
   { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
   { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
+  { labelKey: 'nav.languages', to: `/workspaces/${workspaceId}/languages`, icon: Sparkles },
+  { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: Sparkles },
   { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
   ];
 }

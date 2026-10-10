@@ -39,6 +39,15 @@ public class WorkspaceSettings {
     @Column(name = "ai_confidence_threshold", nullable = false)
     private float aiConfidenceThreshold = 0.70f;
 
+    @Column(name = "daily_token_limit")
+    private Long dailyTokenLimit;
+
+    @Column(name = "monthly_token_limit")
+    private Long monthlyTokenLimit;
+
+    @Column(name = "rate_limit_per_min")
+    private Integer rateLimitPerMin;
+
     @Column(name = "extra", nullable = false, columnDefinition = "jsonb")
     private String extra = "{}";
 
@@ -73,6 +82,12 @@ public class WorkspaceSettings {
     public void setMergePolicyCritical(String v) { this.mergePolicyCritical = v; }
     public float getAiConfidenceThreshold() { return aiConfidenceThreshold; }
     public void setAiConfidenceThreshold(float v) { this.aiConfidenceThreshold = v; }
+    public Long getDailyTokenLimit() { return dailyTokenLimit; }
+    public void setDailyTokenLimit(Long v) { this.dailyTokenLimit = v; }
+    public Long getMonthlyTokenLimit() { return monthlyTokenLimit; }
+    public void setMonthlyTokenLimit(Long v) { this.monthlyTokenLimit = v; }
+    public Integer getRateLimitPerMin() { return rateLimitPerMin; }
+    public void setRateLimitPerMin(Integer v) { this.rateLimitPerMin = v; }
     public String getExtra() { return extra; }
     public void setExtra(String v) { this.extra = v == null || v.isBlank() ? "{}" : v; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
