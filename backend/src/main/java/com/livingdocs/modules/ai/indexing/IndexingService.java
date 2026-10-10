@@ -8,6 +8,8 @@ import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -144,6 +146,47 @@ public class IndexingService {
         job.setFinishedAt(OffsetDateTime.now());
         job.setUpdatedAt(OffsetDateTime.now());
         return jobRepository.save(job);
+    }
+
+    /**
+     * Re-queue a FAILED job by resetting its status and counters, then
+     * running the async worker again.
+     */
+    @Transactional
+    public IndexJob requeue(UUID jobId, UUID actorId) {
+        IndexJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("Indexing job not found"));
+        workspaceService.requireMember(actorId, job.getWorkspaceId());
+        if (job.getStatus() != IndexJobStatus.FAILED) {
+            throw new IllegalStateException("Only FAILED jobs can be retried");
+        }
+        job.setStatus(IndexJobStatus.PENDING);
+        job.setProcessedTargets(0);
+        job.setFailedTargets(0);
+        job.setChunksIndexed(0);
+        job.setErrorMessage(null);
+        job.setStartedAt(null);
+        job.setFinishedAt(null);
+        job.setUpdatedAt(OffsetDateTime.now());
+        IndexJob saved = jobRepository.save(job);
+        runIndexJobAsync(saved.getId());
+        return saved;
+    }
+
+    /**
+     * Find a job by id (no workspace scoping).
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<IndexJob> findById(UUID jobId) {
+        return jobRepository.findById(jobId);
+    }
+
+    /**
+     * Admin: list all jobs across all workspaces.
+     */
+    @Transactional(readOnly = true)
+    public Page<IndexJob> listAll(Pageable pageable) {
+        return jobRepository.findAllByOrderByCreatedAtDesc(pageable);
     }
 
     /**

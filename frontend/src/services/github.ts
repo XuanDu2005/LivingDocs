@@ -104,6 +104,14 @@ export const githubApi = {
     return res.data.repositories;
   },
 
+  async getRepositoryByUrl(url: string): Promise<GithubRepositoryCatalogItem> {
+    const res = await apiClient.get<GithubRepositoryCatalogItem>(
+      '/github/repositories/by-url',
+      { params: { url } },
+    );
+    return res.data;
+  },
+
   async listRepositories(workspaceId: string): Promise<Repository[]> {
     const res = await apiClient.get<Repository[]>(`/workspaces/${workspaceId}/repositories`);
     return res.data;

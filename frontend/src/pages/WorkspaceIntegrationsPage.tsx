@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { AxiosError } from 'axios';
 import {
   ArrowLeft,
   Github,
   GitBranch,
   MessageSquare,
   Plug,
+  ShieldAlert,
   ShieldCheck,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
+import { ConnectionDialog } from '../components/ConnectionDialog';
 import { describeError } from '../services/auth';
 import { integrationsApi } from '../services/integrations';
 import {
@@ -48,16 +51,25 @@ export default function WorkspaceIntegrationsPage() {
   const [rows2, setRows] = useState<Connection[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState<boolean>(false);
+  const [editingProvider, setEditingProvider] = useState<IntegrationProvider | null>(null);
 
   async function load() {
     if (!workspaceId) return;
     setLoading(true);
     setError(null);
+    setForbidden(false);
     try {
       const conns = await integrationsApi.listWorkspaceConnections(workspaceId);
       setRows(conns);
     } catch (err) {
-      setError(describeError(err));
+      // 403 means the user is not a member of this workspace — show a
+      // dedicated message instead of the generic error string.
+      if (err instanceof AxiosError && err.response?.status === 403) {
+        setForbidden(true);
+      } else {
+        setError(describeError(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -86,6 +98,17 @@ export default function WorkspaceIntegrationsPage() {
         </p>
       </div>
 
+      {forbidden && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-3">
+          <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <div className="font-medium">{t('integrations.forbiddenTitle')}</div>
+            <p className="mt-1 text-amber-700/80 dark:text-amber-300/80">
+              {t('integrations.forbiddenWorkspace')}
+            </p>
+          </div>
+        </div>
+      )}
       {error && <ErrorState message={error} />}
 
       {loading ? (
@@ -141,8 +164,15 @@ export default function WorkspaceIntegrationsPage() {
                       ))}
                     </ul>
                   )}
-                  <Button size="sm" variant="outline" disabled>
-                    {t('integrations.linkPrompt')}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={forbidden}
+                    onClick={() => setEditingProvider(p)}
+                  >
+                    {matches.length === 0
+                      ? t('integrations.linkPrompt')
+                      : t('integrations.addAnother')}
                   </Button>
                 </CardContent>
               </Card>
@@ -150,6 +180,19 @@ export default function WorkspaceIntegrationsPage() {
           })}
         </div>
       )}
+
+      <ConnectionDialog
+        open={editingProvider !== null}
+        provider={editingProvider}
+        workspaceId={workspaceId}
+        scope="workspace"
+        existing={null}
+        onClose={() => setEditingProvider(null)}
+        onSaved={async () => {
+          setEditingProvider(null);
+          await load();
+        }}
+      />
     </div>
   );
 }

@@ -153,4 +153,17 @@ public class GithubRepositoryService {
                 r.defaultBranch(), r.htmlUrl(), r.description(),
                 r.isPrivate(), r.isArchived(), r.isDisabled());
     }
+
+    /**
+     * Fetches a single repository by its GitHub URL and returns it as a catalog item.
+     *
+     * @param url GitHub repository URL (e.g. https://github.com/owner/repo)
+     * @return repository info as a catalog item
+     * @throws NotFoundException if the repository is not found or not accessible
+     */
+    public GithubRepositoryCatalogItem getRepositoryByUrl(String url) {
+        GithubConnection conn = oauthService.requireForCurrentUser();
+        GithubRepositorySummary r = githubClient.fetchRepositoryByUrl(conn.getAccessToken(), url);
+        return toCatalogItem(r);
+    }
 }

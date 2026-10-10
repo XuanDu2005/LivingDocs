@@ -5,6 +5,7 @@ import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.CreateVersionRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
 import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
+import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.service.DocumentService;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.model.ActorRole;
@@ -100,5 +101,14 @@ public class DocumentController {
                 CurrentUser.requireId(), documentId,
                 req.bodyMarkdown(), req.changeSummary(), ActorRole.STAFF);
         return ResponseEntity.status(HttpStatus.CREATED).body(DocumentVersionResponse.from(v));
+    }
+    /* Toggle auto-update setting for a document */
+    @PutMapping("/workspaces/{workspaceId}/documents/{documentId}/auto-update")
+    @Operation(summary = "Enable or disable auto-update for a document")
+    public DocumentResponse toggleAutoUpdate(@PathVariable UUID workspaceId,
+                                             @PathVariable UUID documentId,
+                                             @RequestParam boolean enabled) {
+        Document updated = documentService.toggleAutoUpdate(CurrentUser.requireId(), workspaceId, documentId, enabled);
+        return DocumentResponse.from(updated);
     }
 }

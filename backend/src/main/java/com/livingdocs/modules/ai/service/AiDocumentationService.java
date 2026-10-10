@@ -133,6 +133,40 @@ public class AiDocumentationService {
         return ingested;
     }
 
+    /**
+     * Request AI to automatically rewrite or update a document.
+     * (Regenerate on demand).
+     */
+    @Transactional
+    public DocumentVersion regenerateOnDemand(UUID actorId, UUID workspaceId, UUID documentId) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        workspaceService.requireMember(actorId, workspaceId);
+
+        String currentBody = _currentBodyFor(documentId);
+
+        List<AiDtos.SourceFile> sourceFiles = List.of(
+                new AiDtos.SourceFile(document.getTitle() + ".md", currentBody)
+        );
+
+        AiDtos.GenerateResponse resp = aiClient.generate(
+                workspaceId, sourceFiles, "MODULE_GUIDE", "Please refine, update and regenerate this documentation thoroughly.", null);
+
+        if (resp == null) {
+            throw new RuntimeException("AI service is currently unavailable");
+        }
+
+        DocumentVersion version = versionService.createAiVersion(
+                actorId, documentId,
+                resp.markdown(),
+                "Manual AI Regeneration triggered by user",
+                null, null,
+                (float) Math.max(0.0, Math.min(1.0, resp.confidence())));
+        
+        reviewService.markPendingForStaffReview(documentId, version.getId());
+        return version;
+    }
+
     // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------

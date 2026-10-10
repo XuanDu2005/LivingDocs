@@ -49,8 +49,15 @@ import {
   WorkspaceMember,
   WorkspaceRole,
 } from '../services/workspaces';
+import {
+  getWorkspaceSettings,
+  updateWorkspaceSettings,
+  WorkspaceSettings,
+  UpdateWorkspaceSettingsPayload,
+} from '../services/workspaceSettings';
 import { RepositoriesPanel } from '../components/RepositoriesPanel';
 import { format } from 'date-fns';
+import { Switch } from '../components/ui/switch';
 
 const toolLinks = (workspaceId: string) => [
   { to: `/workspaces/${workspaceId}/documents`, icon: FileText, label: 'Documents' },
@@ -84,6 +91,18 @@ export default function WorkspaceDetailPage() {
   const [addingMember, setAddingMember] = useState<boolean>(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
+  // Workspace settings state
+  const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
+  const [driftSeverityThreshold, setDriftSeverityThreshold] = useState<string>('MEDIUM');
+  const [autoUpdateOnPr, setAutoUpdateOnPr] = useState<boolean>(true);
+  const [autoUpdateOnCommit, setAutoUpdateOnCommit] = useState<boolean>(false);
+  const [requireManagerApproval, setRequireManagerApproval] = useState<boolean>(true);
+  const [mergePolicyCritical, setMergePolicyCritical] = useState<string>('WARN');
+  const [aiConfidenceThreshold, setAiConfidenceThreshold] = useState<number>(0.7);
+  const [savingSettings, setSavingSettings] = useState<boolean>(false);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
+  const [settingsSavedMessage, setSettingsSavedMessage] = useState<string | null>(null);
+
   const loadAll = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -97,12 +116,31 @@ export default function WorkspaceDetailPage() {
       setMembers(memberList);
       setName(ws.name);
       setDescription(ws.description ?? '');
+
+      // Load settings if user is manager of this workspace
+      const isWsManager = memberList.some(
+        (m) => m.userId === user?.id && m.role === 'MANAGER'
+      );
+      if (isWsManager || (ws.ownerId && ws.ownerId === user?.id)) {
+        try {
+          const wsSettings = await getWorkspaceSettings(workspaceId);
+          setSettings(wsSettings);
+          setDriftSeverityThreshold(wsSettings.driftSeverityThreshold);
+          setAutoUpdateOnPr(wsSettings.autoUpdateOnPr);
+          setAutoUpdateOnCommit(wsSettings.autoUpdateOnCommit);
+          setRequireManagerApproval(wsSettings.requireManagerApproval);
+          setMergePolicyCritical(wsSettings.mergePolicyCritical);
+          setAiConfidenceThreshold(wsSettings.aiConfidenceThreshold);
+        } catch {
+          // settings not available for non-managers - ignore
+        }
+      }
     } catch (err) {
       setError(describeError(err));
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, user?.id]);
 
   useEffect(() => {
     void loadAll();
@@ -129,6 +167,31 @@ export default function WorkspaceDetailPage() {
       setSaveError(describeError(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onSaveSettings(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!workspaceId) return;
+    setSavingSettings(true);
+    setSettingsSaveError(null);
+    setSettingsSavedMessage(null);
+    try {
+      const payload: UpdateWorkspaceSettingsPayload = {
+        driftSeverityThreshold,
+        autoUpdateOnPr,
+        autoUpdateOnCommit,
+        requireManagerApproval,
+        mergePolicyCritical,
+        aiConfidenceThreshold,
+      };
+      const updated = await updateWorkspaceSettings(workspaceId, payload);
+      setSettings(updated);
+      setSettingsSavedMessage('Settings updated.');
+    } catch (err) {
+      setSettingsSaveError(describeError(err));
+    } finally {
+      setSavingSettings(false);
     }
   }
 
@@ -248,6 +311,151 @@ export default function WorkspaceDetailPage() {
               )}
               <Button type="submit" disabled={saving}>
                 {saving ? 'Saving…' : 'Save changes'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Governance Settings Card - shown only to Managers */}
+      {isManager && settings && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Governance settings</CardTitle>
+            <CardDescription>Configure document update and approval workflows.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={onSaveSettings} className="space-y-4">
+              {/* Drift Severity Threshold */}
+              <div className="space-y-1.5">
+                <Label htmlFor="drift-threshold">Drift severity threshold</Label>
+                <Select
+                  value={driftSeverityThreshold}
+                  onValueChange={setDriftSeverityThreshold}
+                >
+                  <SelectTrigger id="drift-threshold">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low (all alerts)</SelectItem>
+                    <SelectItem value="MEDIUM">Medium+</SelectItem>
+                    <SelectItem value="HIGH">High+</SelectItem>
+                    <SelectItem value="CRITICAL">Critical only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Minimum severity level for drift alerts.
+                </p>
+              </div>
+
+              {/* Auto-update toggles */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Auto-update triggers</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <div className="text-sm">Auto-update on Pull Request</div>
+                      <p className="text-xs text-muted-foreground">
+                        Automatically check and update docs when PRs are opened.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={autoUpdateOnPr}
+                      onCheckedChange={setAutoUpdateOnPr}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <div className="text-sm">Auto-update on Commit</div>
+                      <p className="text-xs text-muted-foreground">
+                        Automatically check and update docs on every push.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={autoUpdateOnCommit}
+                      onCheckedChange={setAutoUpdateOnCommit}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Approval workflow */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Approval workflow</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <div className="text-sm">Require manager approval</div>
+                      <p className="text-xs text-muted-foreground">
+                        Documents must be approved by a Manager before publishing.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={requireManagerApproval}
+                      onCheckedChange={setRequireManagerApproval}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Merge Policy for Critical */}
+              <div className="space-y-1.5">
+                <Label htmlFor="merge-policy">Merge policy for critical drift</Label>
+                <Select
+                  value={mergePolicyCritical}
+                  onValueChange={setMergePolicyCritical}
+                >
+                  <SelectTrigger id="merge-policy">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="WARN">Warn only</SelectItem>
+                    <SelectItem value="BLOCK">Block merge</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Action to take when critical drift is detected before merge.
+                </p>
+              </div>
+
+              {/* AI Confidence Threshold */}
+              <div className="space-y-1.5">
+                <Label htmlFor="ai-confidence">AI confidence threshold</Label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    id="ai-confidence"
+                    min="0"
+                    max="100"
+                    value={Math.round(aiConfidenceThreshold * 100)}
+                    onChange={(e) =>
+                      setAiConfidenceThreshold(Number(e.target.value) / 100)
+                    }
+                    className="flex-1"
+                  />
+                  <span className="w-12 text-right text-sm font-medium">
+                    {Math.round(aiConfidenceThreshold * 100)}%
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Minimum AI confidence level for auto-publishing. Lower values accept
+                  more potential errors.
+                </p>
+              </div>
+
+              {settingsSaveError && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  {settingsSaveError}
+                </div>
+              )}
+              {settingsSavedMessage && (
+                <div className="flex items-center gap-2 text-sm text-success">
+                  <Check className="h-4 w-4" />
+                  {settingsSavedMessage}
+                </div>
+              )}
+              <Button type="submit" disabled={savingSettings}>
+                {savingSettings ? 'Saving…' : 'Save settings'}
               </Button>
             </form>
           </CardContent>

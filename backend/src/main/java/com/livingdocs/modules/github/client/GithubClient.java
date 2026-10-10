@@ -37,4 +37,11 @@ public interface GithubClient {
      * Lists pull requests for the given repository.
      */
     List<GithubPullRequest> listPullRequests(String accessToken, String owner, String repo, String state);
+
+    /**
+     * Fetches a single repository by its GitHub URL.
+     *
+     * @throws GithubClientException if the repo is not found or not accessible
+     */
+    GithubRepositorySummary fetchRepositoryByUrl(String accessToken, String url);
 }
