@@ -86,6 +86,8 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
       { labelKey: 'nav.users', to: '/admin/users', icon: Users },
       { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
       { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
+      { labelKey: 'nav.adminRepositories', to: '/admin/repositories', icon: GitBranch },
+      { labelKey: 'nav.adminAiUsage', to: '/admin/ai-usage', icon: Sparkles },
     ],
   },
   {
