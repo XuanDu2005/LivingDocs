@@ -1,3 +1,4 @@
+import RegenerateDocButton from '../components/RegenerateDocButton';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -28,7 +29,6 @@ import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
 import { describeError } from '../services/auth';
 import { format } from 'date-fns';
-import RegenerateDocButton from '../components/RegenerateDocButton';
 
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
   PENDING: 'warning',
@@ -206,7 +206,11 @@ export default function DocumentDetailPage() {
     if (!workspaceId || !documentId || !selectedVersion || timeline.length < 2) return;
     setDiffLoading(true);
     try {
-      const prev = timeline.find((t) => t.versionNumber === selectedVersion.versionNumber - 1);
+      const publishedVersion = timeline.find(
+        (t) => t.status === 'PUBLISHED' && t.versionNumber < selectedVersion.versionNumber
+      );
+      const prev = publishedVersion || timeline.find((t) => t.versionNumber === selectedVersion.versionNumber - 1);
+
       if (prev) {
         const d = await documentsApi.diff(documentId, prev.versionNumber, selectedVersion.versionNumber);
         setDiffText(d.unifiedDiff);
@@ -360,7 +364,9 @@ export default function DocumentDetailPage() {
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
+
           <RegenerateDocButton workspaceId={workspaceId} documentId={documentId} />
+
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
@@ -369,50 +375,37 @@ export default function DocumentDetailPage() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-orange-500" />
-                  {t('drift.reviewTitle', 'Đánh giá & Xử lý sai lệch')}
-                </DialogTitle>
-                <DialogDescription className="text-base font-semibold text-foreground pt-2">
-                  {a.title}
+                <DialogTitle>Create new version</DialogTitle>
+                <DialogDescription>
+                  Write new markdown content for this document. A new version will be created.
                 </DialogDescription>
               </DialogHeader>
-                              
-              <div className="space-y-4 my-2">
-                <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-300 rounded-md text-sm border border-red-100 dark:border-red-900">
-                  <strong className="block mb-1">{t('drift.descriptionLabel', 'Mô tả sai lệch:')}</strong>
-                  <p>{a.description || t('drift.noDescription', 'Không có mô tả chi tiết từ hệ thống.')}</p>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-summary">Change summary</Label>
+                  <Input
+                    id="new-summary"
+                    value={newSummary}
+                    onChange={(e) => setNewSummary(e.target.value)}
+                    placeholder={t('documentDetail.changeSummaryPlaceholder')}
+                  />
                 </div>
-                {(a as any).suggestion && (
-                  <div className="p-3 bg-green-50 dark:bg-green-950/20 text-green-900 dark:text-green-300 rounded-md text-sm border border-green-100 dark:border-green-900">
-                    <strong className="block mb-1 flex items-center gap-1">
-                      <Bot className="w-4 h-4" /> {t('drift.suggestionLabel', 'AI Gợi ý cách sửa:')}
-                    </strong>
-                    <p>{(a as any).suggestion}</p>
-                  </div>
-                )}
-
-                <div className="space-y-1.5 mt-4 pt-4 border-t border-border">
-                  <Label>{t('drift.resolutionLabel', 'Quyết định xử lý:')}</Label>
-                  <Select value={resolveResolution} onValueChange={setResolveResolution}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="FIXED">{t('drift.resolutionFixed', 'Đã cập nhật lại tài liệu (FIXED)')}</SelectItem>
-                      <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted', 'Bỏ qua, tài liệu vẫn đúng (ACCEPTED)')}</SelectItem>
-                      <SelectItem value="DISMISSED">{t('drift.resolutionDismissed', 'Đóng cảnh báo sai (DISMISSED)')}</SelectItem>
-                      <SelectItem value="OPEN">{t('drift.resolutionOpen', 'Tiếp tục theo dõi (OPEN)')}</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-body">Body (Markdown)</Label>
+                  <Textarea
+                    id="new-body"
+                    value={newBody}
+                    onChange={(e) => setNewBody(e.target.value)}
+                    rows={12}
+                    className="font-mono text-sm"
+                    required
+                  />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setResolveAlertId(null)}>
-                  {t('common.cancel', 'Hủy')}
-                </Button>
-                <Button onClick={() => void handleResolveDrift(a.id)}>
-                  {t('drift.saveResolution', 'Lưu quyết định')}
+                <Button variant="outline" onClick={() => setShowNewVersion(false)}>Cancel</Button>
+                <Button onClick={() => void handleCreateVersion()} disabled={creatingVersion || !newBody.trim()}>
+                  {creatingVersion ? t('documentDetail.creating') : t('documentDetail.createVersion')}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -750,27 +743,79 @@ export default function DocumentDetailPage() {
                                 Resolve
                               </Button>
                             </DialogTrigger>
-                            <DialogContent>
+                            <DialogContent className="max-w-2xl">
                               <DialogHeader>
-                                <DialogTitle>Resolve drift alert</DialogTitle>
-                                <DialogDescription>{a.title}</DialogDescription>
+                                <DialogTitle className="flex items-center gap-2">
+                                  <Shield className="w-5 h-5 text-orange-500" />
+                                  {t('drift.reviewTitle', 'Đánh giá & Xử lý sai lệch')}
+                                </DialogTitle>
+                                <DialogDescription className="text-base font-semibold text-foreground pt-2">
+                                  {a.title}
+                                </DialogDescription>
                               </DialogHeader>
-                              <div className="space-y-3">
-                                <Select value={resolveResolution} onValueChange={setResolveResolution}>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
-                                    <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted')}</SelectItem>
-                                    <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
-                                    <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              
+                              <div className="space-y-4 my-2">
+                                {/* Hiển thị Mô tả chi tiết lỗi */}
+                                <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-300 rounded-md text-sm border border-red-100 dark:border-red-900">
+                                  <strong className="block mb-1">{t('drift.descriptionLabel', 'Mô tả sai lệch:')}</strong>
+                                  <p>{a.description || t('drift.noDescription', 'Không có mô tả chi tiết từ hệ thống.')}</p>
+                                </div>
+
+                                {/* Hiển thị Gợi ý sửa tài liệu của AI */}
+                                {(a as any).suggestion && (
+                                  <div className="p-3 bg-green-50 dark:bg-green-950/20 text-green-900 dark:text-green-300 rounded-md text-sm border border-green-100 dark:border-green-900">
+                                    <strong className="block mb-1 flex items-center gap-1">
+                                      <Bot className="w-4 h-4" /> {t('drift.suggestionLabel', 'AI Gợi ý cách sửa:')}
+                                    </strong>
+                                    <p>{(a as any).suggestion}</p>
+                                  </div>
+                                )}
+
+                                {/* Hiển thị Bằng chứng gốc từ Code (Grounding Evidence) */}
+                                {(() => {
+                                  let evObj = null;
+                                  try {
+                                    evObj = typeof (a as any).evidence === 'string' 
+                                      ? JSON.parse((a as any).evidence) 
+                                      : (a as any).evidence;
+                                  } catch (e) {}
+                                  
+                                  if (!evObj || Object.keys(evObj).length === 0) return null;
+                                  
+                                  return (
+                                    <div className="p-3 bg-gray-100 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 rounded-md text-xs font-mono border border-gray-200 dark:border-gray-700 overflow-auto">
+                                      <strong className="block mb-1 font-sans text-sm flex items-center gap-1">
+                                        <Link2 className="w-4 h-4" /> Bằng chứng từ Source Code (Grounding Evidence):
+                                      </strong>
+                                      <pre>{JSON.stringify(evObj, null, 2)}</pre>
+                                    </div>
+                                  );
+                                })()}
+
+                                {/* Khung chọn trạng thái xử lý */}
+                                <div className="space-y-1.5 mt-4 pt-4 border-t border-border">
+                                  <Label>{t('drift.resolutionLabel', 'Quyết định xử lý:')}</Label>
+                                  <Select value={resolveResolution} onValueChange={setResolveResolution}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="FIXED">{t('drift.resolutionFixed', 'Đã cập nhật lại tài liệu (FIXED)')}</SelectItem>
+                                      <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted', 'Bỏ qua, tài liệu vẫn đúng (ACCEPTED)')}</SelectItem>
+                                      <SelectItem value="DISMISSED">{t('drift.resolutionDismissed', 'Đóng cảnh báo sai (DISMISSED)')}</SelectItem>
+                                      <SelectItem value="OPEN">{t('drift.resolutionOpen', 'Tiếp tục theo dõi (OPEN)')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                               </div>
+
                               <DialogFooter>
-                                <Button variant="outline" onClick={() => setResolveAlertId(null)}>Cancel</Button>
-                                <Button onClick={() => void handleResolveDrift(a.id)}>Resolve</Button>
+                                <Button variant="outline" onClick={() => setResolveAlertId(null)}>
+                                  {t('common.cancel', 'Hủy')}
+                                </Button>
+                                <Button onClick={() => void handleResolveDrift(a.id)}>
+                                  {t('drift.saveResolution', 'Lưu quyết định')}
+                                </Button>
                               </DialogFooter>
                             </DialogContent>
                           </Dialog>

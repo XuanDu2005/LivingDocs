@@ -1,5 +1,7 @@
 package com.livingdocs.modules.document.service;
 
+import java.util.Map;
+import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.ForbiddenException;
@@ -52,15 +54,18 @@ public class DocumentService {
     private final DocumentVersionRepository versionRepository;
     private final WorkspaceService workspaceService;
     private final DocTemplateService templateService;
+    private final AuditLogService auditLogService; // <-- Biến mới thêm vào
 
     public DocumentService(DocumentRepository documentRepository,
                            DocumentVersionRepository versionRepository,
                            WorkspaceService workspaceService,
-                           DocTemplateService templateService) {
+                           DocTemplateService templateService,
+                           AuditLogService auditLogService) { // <-- Nhận vào qua tham số
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
         this.workspaceService = workspaceService;
         this.templateService = templateService;
+        this.auditLogService = auditLogService; // <-- Gán giá trị ở đây
     }
 
     @Transactional

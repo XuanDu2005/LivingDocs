@@ -1,5 +1,6 @@
 package com.livingdocs.modules.document.controller;
 
+import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.CreateVersionRequest;
