@@ -17,6 +17,8 @@ import AdminNotificationPoliciesPage from '../pages/AdminNotificationPoliciesPag
 import AdminOverviewPage from '../pages/AdminOverviewPage';
 import AdminRolesPage from '../pages/AdminRolesPage';
 import AdminUsersPage from '../pages/AdminUsersPage';
+import AdminRepositoriesPage from '../pages/AdminRepositoriesPage';
+import AdminAiUsagePage from '../pages/AdminAiUsagePage';
 import AiSettingsIndexPage from '../pages/AiSettingsIndexPage';
 import DashboardPage from '../pages/DashboardPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
@@ -331,6 +333,22 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyRole={['ADMIN']}>
               <AdminWorkspacesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/repositories"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminRepositoriesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/ai-usage"
+          element={
+            <ProtectedRoute requireAnyRole={['ADMIN']}>
+              <AdminAiUsagePage />
             </ProtectedRoute>
           }
         />
