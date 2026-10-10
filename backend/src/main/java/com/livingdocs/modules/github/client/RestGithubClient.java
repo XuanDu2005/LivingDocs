@@ -193,6 +193,65 @@ public class RestGithubClient implements GithubClient {
         }
     }
 
+    @Override
+    public GithubRepositorySummary fetchRepositoryByUrl(String accessToken, String url) {
+        // Parse owner/name from URL
+        String owner;
+        String repo;
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String path = uri.getPath();
+            if (path == null || path.isBlank()) {
+                throw new GithubClientException("Invalid GitHub URL: " + url);
+            }
+            // Remove leading/trailing slashes
+            path = path.replaceAll("^/+|/+$", "");
+            String[] parts = path.split("/");
+            if (parts.length < 2) {
+                throw new GithubClientException(
+                        "Invalid GitHub URL format. Expected: https://github.com/owner/repo");
+            }
+            owner = parts[0];
+            repo = parts[1];
+        } catch (Exception e) {
+            throw new GithubClientException("Invalid GitHub URL: " + url, e);
+        }
+
+        try {
+            JsonNode r = webClient.get()
+                    .uri("/repos/{owner}/{repo}", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofMillis(properties.getApi().getTimeoutMs()));
+            if (r == null) {
+                throw new GithubClientException("GitHub returned an empty repository payload");
+            }
+            return new GithubRepositorySummary(
+                    r.path("id").asLong(),
+                    r.path("name").asText(),
+                    r.path("full_name").asText(),
+                    r.path("owner").path("login").asText(),
+                    r.path("default_branch").asText("main"),
+                    r.path("html_url").asText(null),
+                    r.path("description").asText(null),
+                    r.path("private").asBoolean(false),
+                    r.path("archived").asBoolean(false),
+                    r.path("disabled").asBoolean(false));
+        } catch (WebClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                throw new GithubClientException(
+                        "Repository not found or not accessible: " + owner + "/" + repo);
+            }
+            throw new GithubClientException(
+                    "GET /repos failed: " + ex.getStatusCode() + " " + ex.getResponseBodyAsString(), ex);
+        } catch (GithubClientException e) {
+            throw e;
+        } catch (Exception ex) {
+            throw new GithubClientException("GET /repos failed: " + ex.getMessage(), ex);
+        }
+    }
+
     private static OffsetDateTime parseDate(String text) {
         if (text == null || text.isBlank()) {
             return null;

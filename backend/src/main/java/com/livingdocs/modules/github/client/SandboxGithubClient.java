@@ -121,4 +121,37 @@ public class SandboxGithubClient implements GithubClient {
                 "https://github.example/" + fullName,
                 description, isPrivate, false, false);
     }
+
+    @Override
+    public GithubRepositorySummary fetchRepositoryByUrl(String accessToken, String url) {
+        // Parse owner/name from URL in sandbox mode
+        String owner;
+        String repoName;
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String path = uri.getPath();
+            if (path == null || path.isBlank()) {
+                throw new RuntimeException("Invalid URL");
+            }
+            path = path.replaceAll("^/+|/+$", "");
+            String[] parts = path.split("/");
+            if (parts.length < 2) {
+                throw new RuntimeException("Invalid format");
+            }
+            owner = parts[0];
+            repoName = parts[1];
+        } catch (Exception e) {
+            throw new com.livingdocs.modules.github.client.GithubClientException(
+                    "Invalid GitHub URL format. Expected: https://github.com/owner/repo");
+        }
+
+        // Return a sandbox repo based on the parsed owner/repo
+        return repo(
+                (long) Math.abs((owner + repoName).hashCode()) % 10000 + 1000,
+                repoName,
+                owner + "/" + repoName,
+                "main",
+                "Repository fetched by URL (sandbox)",
+                repoName.contains("private"));
+    }
 }
