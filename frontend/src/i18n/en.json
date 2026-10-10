@@ -467,7 +467,11 @@
     "enable": "Enable",
     "cannotDisableSelf": "You cannot disable your own account.",
     "cannotRemoveAllRoles": "Cannot remove all roles — disable the account instead.",
-    "noRoles": "none"
+    "noRoles": "none",
+    "searchPlaceholder": "Search by name or email…",
+    "filterAllRoles": "All roles",
+    "filterNoRole": "No role",
+    "noMatches": "No users match your filters."
   },
   "adminRoles": {
     "title": "Admin · Roles",
