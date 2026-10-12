@@ -1,22 +1,4 @@
-import axios from 'axios';
-
-/*Create a separate, small instance using the same baseUrl.*/
-const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  },
-});
-
-/* Add an interceptor to automatically get the token from localStorage and assign it to the header */
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('livingdocs_auth_token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+import { apiClient } from './api';
 
 export interface DocumentTag {
   id: string;
