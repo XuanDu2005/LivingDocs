@@ -405,30 +405,30 @@ export default function DocumentDetailPage() {
                   size="sm" 
                   className="h-[24px] text-[11px] px-2 py-0 border-dashed font-medium text-muted-foreground hover:text-foreground"
                 >
-                  <Plus className="h-3 w-3 mr-1" /> Thêm thẻ
+                  <Plus className="h-3 w-3 mr-1" /> {t('documentDetail.addTag', 'Thêm thẻ')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[400px]">
                 <DialogHeader>
-                  <DialogTitle>Thêm thẻ mới</DialogTitle>
+                  <DialogTitle>{t('documentDetail.newTagTitle', 'Thêm thẻ mới')}</DialogTitle>
                   <DialogDescription>
-                    Tạo thẻ mới và gắn vào tài liệu này.
+                    {t('documentDetail.newTagDesc', 'Tạo thẻ mới và gắn vào tài liệu này.')}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="tagName" className="text-right">Tên thẻ</Label>
+                    <Label htmlFor="tagName" className="text-right">{t('documentDetail.tagName', 'Tên thẻ')}</Label>
                     <Input
                       id="tagName"
                       value={newTagName}
                       onChange={(e) => setNewTagName(e.target.value)}
                       className="col-span-3"
-                      placeholder="VD: Quan trọng, Backend..."
+                      placeholder={t('documentDetail.tagNamePlaceholder', 'VD: Quan trọng, Backend...')}
                       maxLength={30}
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Màu sắc</Label>
+                    <Label className="text-right">{t('documentDetail.tagColor', 'Màu sắc')}</Label>
                     <div className="col-span-3 flex items-center gap-3 flex-wrap">
                       {['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7', '#64748B'].map((color) => (
                         <button
@@ -445,15 +445,17 @@ export default function DocumentDetailPage() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowAddTag(false)}>Hủy</Button>
+                  <Button variant="outline" onClick={() => setShowAddTag(false)}>
+                    {t('common.cancel', 'Hủy')}
+                  </Button>
                   <Button onClick={() => void handleAddNewTag()} disabled={!newTagName.trim() || addingTag}>
-                    {addingTag ? 'Đang lưu...' : 'Lưu thẻ'}
+                    {addingTag ? t('common.saving', 'Đang lưu...') : t('documentDetail.saveTag', 'Lưu thẻ')}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
-        {/* --------------------------------------- */}
+          {/* --------------------------------------- */}
         <div className="flex gap-2 flex-shrink-0">
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
