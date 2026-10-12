@@ -1,8 +1,11 @@
 package com.livingdocs.modules.admin.dto;
 
+import com.livingdocs.modules.admin.model.DocOutputFormat;
+import com.livingdocs.modules.admin.model.GenerationTrigger;
 import com.livingdocs.modules.admin.model.PlatformSettings;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 public record PlatformSettingsResponse(
     boolean defaultAutoUpdateOnCommit,
@@ -12,6 +15,9 @@ public record PlatformSettingsResponse(
     boolean defaultRequireManagerApproval,
     String defaultMergePolicyCritical,
     float defaultAiConfidenceThreshold,
+    DocOutputFormat defaultOutputFormat,
+    UUID defaultTemplateId,
+    GenerationTrigger defaultGenerationTrigger,
     OffsetDateTime updatedAt
 ) {
     public static PlatformSettingsResponse from(PlatformSettings p) {
@@ -23,6 +29,9 @@ public record PlatformSettingsResponse(
                 p.isDefaultRequireManagerApproval(),
                 p.getDefaultMergePolicyCritical(),
                 p.getDefaultAiConfidenceThreshold(),
+                p.getDefaultOutputFormat(),
+                p.getDefaultTemplateId(),
+                p.getDefaultGenerationTrigger(),
                 p.getUpdatedAt()
         );
     }

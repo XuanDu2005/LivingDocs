@@ -1,11 +1,16 @@
 package com.livingdocs.modules.workspace.model;
 
+import com.livingdocs.modules.admin.model.DocOutputFormat;
+import com.livingdocs.modules.admin.model.GenerationTrigger;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /**
  * Per-workspace governance knobs. The {@code extra} JSONB column carries
@@ -19,7 +24,7 @@ public class WorkspaceSettings {
 
     @Id
     @Column(name = "workspace_id", nullable = false, updatable = false)
-    private java.util.UUID workspaceId;
+    private UUID workspaceId;
 
     @Column(name = "drift_severity_threshold", nullable = false, length = 16)
     private String driftSeverityThreshold = "MEDIUM";
@@ -48,6 +53,20 @@ public class WorkspaceSettings {
     @Column(name = "rate_limit_per_min")
     private Integer rateLimitPerMin;
 
+    // V17: doc-generation defaults inherited from platform_settings on
+    // creation. Nullable so existing rows fall back to template defaults
+    // until the workspace is re-saved.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_output_format", length = 16)
+    private DocOutputFormat defaultOutputFormat;
+
+    @Column(name = "default_template_id")
+    private UUID defaultTemplateId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_generation_trigger", length = 24)
+    private GenerationTrigger defaultGenerationTrigger;
+
     @Column(name = "extra", nullable = false, columnDefinition = "jsonb")
     private String extra = "{}";
 
@@ -58,7 +77,7 @@ public class WorkspaceSettings {
         // JPA
     }
 
-    public WorkspaceSettings(java.util.UUID workspaceId) {
+    public WorkspaceSettings(UUID workspaceId) {
         this.workspaceId = workspaceId;
         this.updatedAt = OffsetDateTime.now();
     }
@@ -69,7 +88,7 @@ public class WorkspaceSettings {
         this.updatedAt = OffsetDateTime.now();
     }
 
-    public java.util.UUID getWorkspaceId() { return workspaceId; }
+    public UUID getWorkspaceId() { return workspaceId; }
     public String getDriftSeverityThreshold() { return driftSeverityThreshold; }
     public void setDriftSeverityThreshold(String v) { this.driftSeverityThreshold = v; }
     public boolean isAutoUpdateOnPr() { return autoUpdateOnPr; }
@@ -88,6 +107,12 @@ public class WorkspaceSettings {
     public void setMonthlyTokenLimit(Long v) { this.monthlyTokenLimit = v; }
     public Integer getRateLimitPerMin() { return rateLimitPerMin; }
     public void setRateLimitPerMin(Integer v) { this.rateLimitPerMin = v; }
+    public DocOutputFormat getDefaultOutputFormat() { return defaultOutputFormat; }
+    public void setDefaultOutputFormat(DocOutputFormat v) { this.defaultOutputFormat = v; }
+    public UUID getDefaultTemplateId() { return defaultTemplateId; }
+    public void setDefaultTemplateId(UUID v) { this.defaultTemplateId = v; }
+    public GenerationTrigger getDefaultGenerationTrigger() { return defaultGenerationTrigger; }
+    public void setDefaultGenerationTrigger(GenerationTrigger v) { this.defaultGenerationTrigger = v; }
     public String getExtra() { return extra; }
     public void setExtra(String v) { this.extra = v == null || v.isBlank() ? "{}" : v; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
