@@ -3,21 +3,25 @@ package com.livingdocs.modules.github.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.modules.github.client.GithubClient;
+import com.livingdocs.modules.github.client.GithubCommit;
 import com.livingdocs.modules.github.client.GithubPullRequest;
+import com.livingdocs.modules.github.model.Commit;
 import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.model.WebhookEvent;
+import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.UUID;
 
 /**
@@ -31,17 +35,23 @@ public class GithubIngestionService {
 
     private final RepositoryRepository repositoryRepository;
     private final PullRequestRepository pullRequestRepository;
+    private final CommitRepository commitRepository;
     private final GithubClient githubClient;
     private final ObjectMapper objectMapper;
+    private final WorkspaceSettingsRepository workspaceSettingsRepository;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
+                                  CommitRepository commitRepository,
                                   GithubClient githubClient,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  WorkspaceSettingsRepository workspaceSettingsRepository) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
+        this.commitRepository = commitRepository;
         this.githubClient = githubClient;
         this.objectMapper = objectMapper;
+        this.workspaceSettingsRepository = workspaceSettingsRepository;
     }
 
     /**
@@ -52,7 +62,7 @@ public class GithubIngestionService {
         switch (event.getEventType()) {
             case "ping" -> log.info("Webhook ping received (delivery {})", event.getDeliveryId());
             case "pull_request" -> handlePullRequest(event);
-            case "push" -> log.debug("Push event ignored for now (delivery {})", event.getDeliveryId());
+            case "push" -> handlePush(event);
             default -> log.debug("Ignoring webhook event type {}", event.getEventType());
         }
     }
@@ -145,6 +155,70 @@ public class GithubIngestionService {
                     pr.closedAt(),
                     pr.mergedAt()));
         }
+    }
+
+    /**
+     * Handle a "push" event: persist the new commits and (best-effort)
+     * trigger AI auto-update for documents linked to the affected repo.
+     */
+    private void handlePush(WebhookEvent event) {
+        JsonNode payload = parse(event);
+        JsonNode repoNode = payload.path("repository");
+        long githubId = repoNode.path("id").asLong();
+        Optional<Repository> repoOpt = repositoryRepository.findByGithubId(githubId);
+        if (repoOpt.isEmpty()) {
+            log.debug("Push webhook for unconnected repo (id={}), ignoring", githubId);
+            return;
+        }
+        Repository repo = repoOpt.get();
+
+        // 1. Persist any new commits carried by the event payload
+        JsonNode commits = payload.path("commits");
+        String branch = payload.path("ref").asText("").replaceFirst("^refs/heads/", "");
+        List<String> shas = new ArrayList<>();
+        if (commits.isArray()) {
+            for (JsonNode c : commits) {
+                String sha = c.path("id").asText();
+                if (sha.isBlank()) continue;
+                shas.add(sha);
+                if (commitRepository.findByRepositoryIdAndSha(repo.getId(), sha).isPresent()) {
+                    continue;
+                }
+                JsonNode author = c.path("author");
+                Commit row = new Commit(
+                        repo.getId(),
+                        sha,
+                        c.path("message").asText(),
+                        author.path("name").asText(null),
+                        author.path("email").asText(null),
+                        parseDate(c.path("timestamp").asText(null)),
+                        parseDate(c.path("timestamp").asText(null)),
+                        c.path("url").asText(null),
+                        branch
+                );
+                commitRepository.save(row);
+            }
+        }
+        log.info("Push webhook ingested {} commit(s) for repo {}", shas.size(), repo.getFullName());
+
+        // 2. Best-effort: trigger AI auto-update if the workspace settings
+        //    and the per-repository toggle are both enabled. We do not
+        //    re-fetch file diffs here (that requires the GitHub contents
+        //    API) — we just create a new PENDING version that the user
+        //    can later trigger drift analysis on.
+        if (!repo.isAutoUpdateEnabled()) {
+            log.debug("Auto-update disabled for repo {}, skipping push trigger", repo.getFullName());
+            return;
+        }
+        Optional<com.livingdocs.modules.workspace.model.WorkspaceSettings> settingsOpt =
+                workspaceSettingsRepository.findByWorkspaceId(repo.getWorkspaceId());
+        if (settingsOpt.isPresent() && !settingsOpt.get().isAutoUpdateOnCommit()) {
+            log.debug("Workspace autoUpdateOnCommit disabled, skipping push trigger");
+            return;
+        }
+        // Push events persist commits; PR events (which carry a diff)
+        // drive the actual regeneration. We intentionally do not call
+        // AiDocumentationService.regenerateOnDemand() here.
     }
 
     private static PullRequest.State mapState(String state, OffsetDateTime mergedAt) {

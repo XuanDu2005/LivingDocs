@@ -10,6 +10,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -73,6 +75,16 @@ public class DocumentVersion {
     @Column(name = "confidence_score")
     private Float confidenceScore;
 
+    /**
+     * Raw JSON list of {@link com.livingdocs.modules.ai.client.AiDtos.GroundingSource}
+     * records returned by the AI service when this version was generated.
+     * Persisted as JSONB so it can be queried and returned verbatim from
+     * the standalone grounding endpoint.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "grounding_json", columnDefinition = "jsonb")
+    private String groundingJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -118,4 +130,6 @@ public class DocumentVersion {
 
     public void setStatus(VersionStatus status) { this.status = status; }
     public void setConfidenceScore(Float score) { this.confidenceScore = score; }
+    public String getGroundingJson() { return groundingJson; }
+    public void setGroundingJson(String groundingJson) { this.groundingJson = groundingJson; }
 }

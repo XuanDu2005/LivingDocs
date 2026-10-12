@@ -128,6 +128,19 @@ public class GithubOAuthService {
         log.info("GitHub connection revoked for user {}", userId);
     }
 
+    /**
+     * Mark a specific user's connection with a new status. Used by the
+     * health-check / ingestion path when a GitHub API call returns 401.
+     */
+    @Transactional
+    public void markConnectionStatus(UUID userId, GithubConnection.Status status) {
+        connectionRepository.findByUserId(userId).ifPresent(conn -> {
+            conn.setStatus(status);
+            connectionRepository.save(conn);
+            log.info("GitHub connection status for user {} set to {}", userId, status);
+        });
+    }
+
     public void touch(GithubConnection connection) {
         connection.setLastUsedAt(OffsetDateTime.now());
         connectionRepository.save(connection);

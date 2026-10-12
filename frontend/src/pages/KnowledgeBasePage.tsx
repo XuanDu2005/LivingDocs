@@ -417,6 +417,41 @@ export default function KnowledgeBasePage() {
         </CardContent>
       </Card>
 
+      {/* Indexing stats dashboard */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Database className="h-4 w-4" /> {t('knowledge.indexingStats', 'Indexing status')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded border bg-muted/30 p-3">
+              <div className="text-xs text-muted-foreground">{t('knowledge.statTotalDocs', 'Total documents')}</div>
+              <div className="text-2xl font-semibold mt-1">{docs.length}</div>
+            </div>
+            <div className="rounded border bg-muted/30 p-3">
+              <div className="text-xs text-muted-foreground">{t('knowledge.statIndexed', 'Indexed documents')}</div>
+              <div className="text-2xl font-semibold mt-1 text-green-600">
+                {docs.filter((d) => d.status === 'PUBLISHED' || d.status === 'APPROVED').length}
+              </div>
+            </div>
+            <div className="rounded border bg-muted/30 p-3">
+              <div className="text-xs text-muted-foreground">{t('knowledge.statChunks', 'Total chunks')}</div>
+              <div className="text-2xl font-semibold mt-1">
+                {jobs.reduce((acc, j) => acc + (j.chunksIndexed || 0), 0)}
+              </div>
+            </div>
+            <div className="rounded border bg-muted/30 p-3">
+              <div className="text-xs text-muted-foreground">{t('knowledge.statPending', 'Pending jobs')}</div>
+              <div className="text-2xl font-semibold mt-1 text-amber-600">
+                {jobs.filter((j) => j.status === 'PENDING' || j.status === 'RUNNING').length}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Indexing jobs */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

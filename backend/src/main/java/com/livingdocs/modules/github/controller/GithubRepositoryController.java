@@ -1,5 +1,6 @@
 package com.livingdocs.modules.github.controller;
 
+import com.livingdocs.modules.github.dto.CommitDto;
 import com.livingdocs.modules.github.dto.ConnectRepositoryRequest;
 import com.livingdocs.modules.github.dto.GithubRepositoryCatalogItem;
 import com.livingdocs.modules.github.dto.GithubRepositoryListResponse;
@@ -7,6 +8,7 @@ import com.livingdocs.modules.github.dto.PullRequestResponse;
 import com.livingdocs.modules.github.dto.RepositoryResponse;
 import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.model.Repository;
+import com.livingdocs.modules.github.service.CommitIngestionService;
 import com.livingdocs.modules.github.service.GithubIngestionService;
 import com.livingdocs.modules.github.service.GithubRepositoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,12 +20,14 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -37,11 +41,14 @@ public class GithubRepositoryController {
 
     private final GithubRepositoryService repositoryService;
     private final GithubIngestionService ingestionService;
+    private final CommitIngestionService commitIngestionService;
 
     public GithubRepositoryController(GithubRepositoryService repositoryService,
-                                      GithubIngestionService ingestionService) {
+                                      GithubIngestionService ingestionService,
+                                      CommitIngestionService commitIngestionService) {
         this.repositoryService = repositoryService;
         this.ingestionService = ingestionService;
+        this.commitIngestionService = commitIngestionService;
     }
 
     @GetMapping("/github/catalog/repositories")
@@ -89,6 +96,16 @@ public class GithubRepositoryController {
         return ResponseEntity.ok(toResponse(repo));
     }
 
+    @PutMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/auto-update")
+    @Operation(summary = "Enable or disable AI auto-update for a specific repository")
+    public ResponseEntity<RepositoryResponse> setRepositoryAutoUpdate(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestParam boolean enabled) {
+        Repository repo = repositoryService.setAutoUpdate(workspaceId, repositoryId, enabled);
+        return ResponseEntity.ok(toResponse(repo));
+    }
+
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/pulls/ingest")
     @Operation(summary = "Pull the list of pull requests from GitHub and store them locally")
     public List<PullRequestResponse> ingestPulls(@PathVariable UUID workspaceId,
@@ -107,6 +124,25 @@ public class GithubRepositoryController {
                 .toList();
     }
 
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/commits/ingest")
+    @Operation(summary = "Pull the latest commits from GitHub and store them locally")
+    public Map<String, Object> ingestCommits(@PathVariable UUID workspaceId,
+                                              @PathVariable UUID repositoryId,
+                                              @RequestParam(defaultValue = "30") int perPage) {
+        var stored = commitIngestionService.ingestLatest(workspaceId, repositoryId, perPage);
+        return Map.of("ingested", stored.size(), "commits", stored.stream().map(CommitDto::from).toList());
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/commits")
+    @Operation(summary = "List commits stored locally for a repository")
+    public List<CommitDto> listCommits(@PathVariable UUID workspaceId,
+                                       @PathVariable UUID repositoryId,
+                                       @RequestParam(defaultValue = "50") int limit) {
+        return commitIngestionService.listForRepository(workspaceId, repositoryId, limit).stream()
+                .map(CommitDto::from)
+                .toList();
+    }
+
     private RepositoryResponse toResponse(Repository r) {
         return new RepositoryResponse(
                 r.getId().toString(),
@@ -122,7 +158,8 @@ public class GithubRepositoryController {
                 r.getStatus().name(),
                 r.getConnectedBy().toString(),
                 r.getConnectedAt() == null ? null : r.getConnectedAt().toString(),
-                r.getLastSyncedAt() == null ? null : r.getLastSyncedAt().toString());
+                r.getLastSyncedAt() == null ? null : r.getLastSyncedAt().toString(),
+                r.isAutoUpdateEnabled());
     }
 
     private PullRequestResponse toPrResponse(PullRequest p) {

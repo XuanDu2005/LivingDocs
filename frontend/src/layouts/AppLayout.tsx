@@ -19,14 +19,14 @@ import {
   Activity,
   AlertTriangle,
   GitBranch,
-  Github,
   Stethoscope,
-  ScrollText,
   Megaphone,
   PlugZap,
   BellRing,
   Workflow,
   FileType,
+  Database,
+  Layers,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -73,10 +73,8 @@ const WORKSPACE_NAV_ITEMS: NavItem[] = [
 ];
 
 /**
- * Items shown only to ADMINs, grouped by responsibility. The first
- * group is "Overview" so admins land on a snapshot before drilling
- * into any specific area; the order is tuned for the daily workflow
- * of a platform admin (who → governance → integrations → ops).
+ * Items shown only to ADMINs, grouped by responsibility.
+ * Groups are ordered by daily workflow: Overview → Users → Platform → Operations.
  */
 const ADMIN_NAV_GROUPS: NavGroup[] = [
   {
@@ -91,18 +89,22 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: 'nav.users', to: '/admin/users', icon: Users },
       { labelKey: 'nav.roles', to: '/admin/roles', icon: ShieldCheck },
-      { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: ScrollText },
-      { labelKey: 'nav.adminRepositories', to: '/admin/repositories', icon: GitBranch },
-      { labelKey: 'nav.adminAiUsage', to: '/admin/ai-usage', icon: Sparkles },
     ],
   },
   {
-    labelKey: 'nav.adminGroupPlatform',
+    labelKey: 'nav.adminGroupResources',
+    items: [
+      { labelKey: 'nav.adminWorkspaces', to: '/admin/workspaces', icon: Database },
+      { labelKey: 'nav.adminRepositories', to: '/admin/repositories', icon: GitBranch },
+      { labelKey: 'nav.adminTemplates', to: '/admin/templates', icon: FileType },
+      { labelKey: 'nav.adminLanguages', to: '/admin/languages', icon: Code2 },
+    ],
+  },
+  {
+    labelKey: 'nav.adminGroupSettings',
     items: [
       { labelKey: 'nav.aiSettings', to: '/admin/ai-settings', icon: Sparkles },
       { labelKey: 'nav.adminAutoUpdate', to: '/admin/auto-update', icon: Workflow },
-      { labelKey: 'nav.adminTemplates', to: '/admin/templates', icon: FileType },
-      { labelKey: 'nav.adminLanguages', to: '/admin/languages', icon: Code2 },
       { labelKey: 'nav.integrations', to: '/admin/integrations', icon: PlugZap },
     ],
   },
@@ -118,26 +120,57 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: 'nav.auditLogs', to: '/admin/audit-logs', icon: FileText },
       { labelKey: 'nav.auditRetention', to: '/admin/audit-retention', icon: ShieldAlert },
-      { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Sparkles },
+      { labelKey: 'nav.indexingJobs', to: '/admin/indexing-jobs', icon: Layers },
+      { labelKey: 'nav.adminAiUsage', to: '/admin/ai-usage', icon: Activity },
     ],
   },
 ];
 
-function buildWorkspaceItems(workspaceId?: string) {
+interface WorkspaceNavGroup {
+  labelKey: string;
+  items: NavItem[];
+}
+
+function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
   if (!workspaceId) return [];
   return [
-    { labelKey: 'nav.documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
-    { labelKey: 'nav.repositories', to: `/workspaces/${workspaceId}/repositories`, icon: Github },
-    { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
-    { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
-    { labelKey: 'workspace_templates_title', to: `/workspaces/${workspaceId}/templates`, icon: Sparkles },
-    { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
-    { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
-  { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
-  { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
-  { labelKey: 'nav.languages', to: `/workspaces/${workspaceId}/languages`, icon: Sparkles },
-  { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: Sparkles },
-  { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
+    {
+      labelKey: 'nav.workspaceGroupContent',
+      items: [
+        { labelKey: 'nav.documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
+        { labelKey: 'nav.templates', to: `/workspaces/${workspaceId}/templates`, icon: FileType },
+        { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
+        { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
+      ],
+    },
+    {
+      labelKey: 'nav.workspaceGroupConnections',
+      items: [
+        { labelKey: 'nav.repositories', to: `/workspaces/${workspaceId}/repositories`, icon: GitBranch },
+        { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
+      ],
+    },
+    {
+      labelKey: 'nav.workspaceGroupAI',
+      items: [
+        { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
+        { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
+      ],
+    },
+    {
+      labelKey: 'nav.workspaceGroupInsights',
+      items: [
+        { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: BarChart3 },
+        { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
+      ],
+    },
+    {
+      labelKey: 'nav.workspaceGroupSettings',
+      items: [
+        { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
+        { labelKey: 'nav.languages', to: `/workspaces/${workspaceId}/languages`, icon: Code2 },
+      ],
+    },
   ];
 }
 
@@ -239,16 +272,23 @@ export function AppLayout({ children }: AppLayoutProps) {
                   {workspaceId.slice(0, 6)}
                 </Badge>
               </div>
-              <div className="space-y-0.5">
-                {wsItems.map((item) => (
-                  <SidebarLink
-                    key={item.to}
-                    to={item.to}
-                    icon={item.icon}
-                    label={translateNavLabel(item.labelKey, t)}
-                  />
-                ))}
-              </div>
+              {wsItems.map((group) => (
+                <div key={group.labelKey} className="mt-2">
+                  <div className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+                    {translateNavLabel(group.labelKey, t)}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => (
+                      <SidebarLink
+                        key={item.to}
+                        to={item.to}
+                        icon={item.icon}
+                        label={translateNavLabel(item.labelKey, t)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </nav>

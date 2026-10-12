@@ -24,6 +24,9 @@ import { LoadingState, ErrorState } from '../components/ui/states';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 import { listWorkspaces, Workspace } from '../services/workspaces';
+import { documentsApi } from '../services/documents';
+import { driftApi } from '../services/drift';
+import { reviewsApi } from '../services/drift';
 import { fetchBackendHealth, HealthStatus } from '../services/health';
 import { format } from 'date-fns';
 
@@ -42,6 +45,9 @@ export default function DashboardPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [documentsCount, setDocumentsCount] = useState<number | null>(null);
+  const [pendingReviewsCount, setPendingReviewsCount] = useState<number | null>(null);
+  const [openDriftsCount, setOpenDriftsCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -54,6 +60,11 @@ export default function DashboardPage() {
         ]);
         setWorkspaces(wsList);
         setHealth(hs);
+
+        // Fire-and-forget stat loaders — show "—" until each resolves
+        loadDocumentsCount(wsList);
+        loadPendingReviewsCount();
+        loadOpenDriftsCount(wsList);
       } catch (err) {
         setError(describeError(err));
       } finally {
@@ -62,6 +73,58 @@ export default function DashboardPage() {
     }
     void load();
   }, []);
+
+  async function loadDocumentsCount(wsList: Workspace[]) {
+    if (wsList.length === 0) {
+      setDocumentsCount(0);
+      return;
+    }
+    try {
+      const counts = await Promise.all(
+        wsList.map((w) =>
+          documentsApi
+            .list(w.id)
+            .then((docs) => docs.length)
+            .catch(() => 0),
+        ),
+      );
+      setDocumentsCount(counts.reduce((a, b) => a + b, 0));
+    } catch {
+      // Keep null = "—"
+    }
+  }
+
+  async function loadPendingReviewsCount() {
+    try {
+      const reviews = await reviewsApi.myReviews();
+      // Pending means no decision yet OR the most recent decision is not APPROVED
+      // The API returns DocumentReview rows; we consider anything not APPROVED as pending
+      const pending = reviews.filter((r) => r.decision !== 'APPROVED').length;
+      setPendingReviewsCount(pending);
+    } catch {
+      // Keep null = "—"
+    }
+  }
+
+  async function loadOpenDriftsCount(wsList: Workspace[]) {
+    if (wsList.length === 0) {
+      setOpenDriftsCount(0);
+      return;
+    }
+    try {
+      const counts = await Promise.all(
+        wsList.map((w) =>
+          driftApi
+            .list(w.id, { status: 'OPEN' })
+            .then((alerts) => alerts.length)
+            .catch(() => 0),
+        ),
+      );
+      setOpenDriftsCount(counts.reduce((a, b) => a + b, 0));
+    } catch {
+      // Keep null = "—"
+    }
+  }
 
   const firstWs = workspaces[0];
 
@@ -75,21 +138,21 @@ export default function DashboardPage() {
     },
     {
       labelKey: 'dashboard.statDocuments',
-      value: '—',
+      value: documentsCount === null ? '—' : String(documentsCount),
       hintKey: 'dashboard.statDocumentsHint',
       icon: FileText,
       to: firstWs ? `/workspaces/${firstWs.id}/documents` : '/workspaces',
     },
     {
       labelKey: 'dashboard.statReviews',
-      value: '—',
+      value: pendingReviewsCount === null ? '—' : String(pendingReviewsCount),
       hintKey: 'dashboard.statReviewsHint',
       icon: Shield,
       to: firstWs ? `/workspaces/${firstWs.id}/reviews` : '/workspaces',
     },
     {
       labelKey: 'dashboard.statDrift',
-      value: '—',
+      value: openDriftsCount === null ? '—' : String(openDriftsCount),
       hintKey: 'dashboard.statDriftHint',
       icon: AlertTriangle,
       to: firstWs ? `/workspaces/${firstWs.id}/drift` : '/workspaces',

@@ -135,9 +135,21 @@ public class GithubRepositoryService {
         if (!repo.getWorkspaceId().equals(workspaceId)) {
             throw new NotFoundException("Repository not found in this workspace");
         }
-        // Real implementation would re-fetch from GitHub and refresh metadata.
-        // For the foundation phase we simply record the sync timestamp.
-        repo.setLastSyncedAt(OffsetDateTime.now());
+        // Real re-sync: fetch current metadata from GitHub and refresh
+        // description, default branch, visibility, and the timestamp.
+        GithubConnection conn = oauthService.requireForCurrentUser();
+        try {
+            GithubRepositorySummary fresh = githubClient.getRepository(
+                    conn.getAccessToken(), repo.getOwner(), repo.getName());
+            if (fresh.description() != null) repo.setDescription(fresh.description());
+            if (fresh.defaultBranch() != null) repo.setDefaultBranch(fresh.defaultBranch());
+            repo.setPrivate(fresh.isPrivate());
+            repo.setLastSyncedAt(OffsetDateTime.now());
+            log.info("Repository {} re-synced from GitHub", repo.getFullName());
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            oauthService.markConnectionStatus(conn.getUserId(), GithubConnection.Status.EXPIRED);
+            throw e;
+        }
         return repositoryRepository.save(repo);
     }
 
@@ -152,6 +164,20 @@ public class GithubRepositoryService {
                 r.id(), r.name(), r.fullName(), r.ownerLogin(),
                 r.defaultBranch(), r.htmlUrl(), r.description(),
                 r.isPrivate(), r.isArchived(), r.isDisabled());
+    }
+
+    @Transactional
+    public Repository setAutoUpdate(UUID workspaceId, UUID repositoryId, boolean enabled) {
+        requireMembership(workspaceId);
+        Repository repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new NotFoundException("Repository not found"));
+        if (!repo.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Repository not found in this workspace");
+        }
+        repo.setAutoUpdateEnabled(enabled);
+        Repository saved = repositoryRepository.save(repo);
+        log.info("Repository {} autoUpdateEnabled = {}", saved.getFullName(), enabled);
+        return saved;
     }
 
     /**

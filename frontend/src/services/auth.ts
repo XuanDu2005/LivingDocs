@@ -8,8 +8,13 @@ import apiClient from './api';
  * <p>Stored in {@link localStorage} so it survives page reloads. In a more
  * security-sensitive deployment you'd move it to an HttpOnly cookie set by the
  * backend; that's out of scope for the foundation.
+ *
+ * <p>The refresh token follows the same storage policy. Both are single-use
+ * — the backend rotates refresh tokens on every /auth/refresh call.
  */
 const TOKEN_KEY = 'livingdocs.auth.token';
+const REFRESH_TOKEN_KEY = 'livingdocs.auth.refreshToken';
+const REFRESH_EXPIRES_KEY = 'livingdocs.auth.refreshExpiresAt';
 const USER_KEY = 'livingdocs.auth.user';
 
 export interface AuthenticatedUser {
@@ -23,11 +28,6 @@ export interface AuthenticatedUser {
    * Active platform role codes (e.g. ADMIN, MANAGER, STAFF,
    * TECHNICAL_LEAD, DEVELOPER). Empty array means the user has no
    * platform role assignments yet.
-   *
-   * <p>Replaces the legacy single-value {@code role} field. The
-   * server-side token ({@code JWT_CLAIM_ROLES}) and {@code /users/me}
-   * response both carry the same set of codes so the sidebar and admin
-   * checks can be driven by {@code roles.includes('ADMIN')}.
    */
   roles?: string[];
   /** @deprecated Use {@link roles} (array) instead. Kept for backward compat. */
@@ -37,6 +37,8 @@ export interface AuthenticatedUser {
 export interface AuthSuccess {
   token: string;
   expiresAt: string;
+  refreshToken: string;
+  refreshExpiresAt: string;
   user: AuthenticatedUser;
 }
 
@@ -114,6 +116,24 @@ export const authStorage = {
   clearToken(): void {
     localStorage.removeItem(TOKEN_KEY);
   },
+  getRefreshToken(): string | null {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  },
+  setRefreshToken(token: string, expiresAt?: string): void {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    if (expiresAt) {
+      localStorage.setItem(REFRESH_EXPIRES_KEY, expiresAt);
+    } else {
+      localStorage.removeItem(REFRESH_EXPIRES_KEY);
+    }
+  },
+  clearRefreshToken(): void {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_EXPIRES_KEY);
+  },
+  getRefreshExpiresAt(): string | null {
+    return localStorage.getItem(REFRESH_EXPIRES_KEY);
+  },
   getUser(): AuthenticatedUser | null {
     const raw = localStorage.getItem(USER_KEY);
     if (!raw) return null;
@@ -129,11 +149,53 @@ export const authStorage = {
   clearUser(): void {
     localStorage.removeItem(USER_KEY);
   },
+  clearAll(): void {
+    this.clearToken();
+    this.clearRefreshToken();
+    this.clearUser();
+  },
 };
 
+// ── Refresh-on-401 ────────────────────────────────────────────────────────────
+
+let refreshInFlight: Promise<string | null> | null = null;
+
 /**
- * Install an interceptor on the shared apiClient that injects the bearer
- * token when one is available.
+ * Attempt to rotate the refresh token. Returns the new access token on
+ * success, or {@code null} if the refresh token is missing/invalid (which
+ * means the user must re-authenticate).
+ */
+async function tryRefresh(): Promise<string | null> {
+  const rt = authStorage.getRefreshToken();
+  if (!rt) return null;
+  try {
+    // Use a bare Axios call (not the intercepted apiClient) to avoid recursion
+    // if the /auth/refresh endpoint itself somehow returns 401.
+    const baseURL = (apiClient.defaults.baseURL || '').replace(/\/$/, '');
+    const res = await fetch(`${baseURL}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: rt }),
+    });
+    if (!res.ok) {
+      authStorage.clearAll();
+      return null;
+    }
+    const body = (await res.json()) as AuthSuccess;
+    authStorage.setToken(body.token);
+    authStorage.setRefreshToken(body.refreshToken, body.refreshExpiresAt);
+    authStorage.setUser(body.user);
+    return body.token;
+  } catch {
+    authStorage.clearAll();
+    return null;
+  }
+}
+
+/**
+ * Install interceptors on the shared apiClient that:
+ *   1. inject the bearer token when one is available;
+ *   2. on a 401, attempt a single refresh-and-retry before giving up.
  */
 export function installAuthInterceptor(client: AxiosInstance = apiClient): void {
   client.interceptors.request.use((config) => {
@@ -146,12 +208,20 @@ export function installAuthInterceptor(client: AxiosInstance = apiClient): void 
 
   client.interceptors.response.use(
     (response) => response,
-    (err: AxiosError) => {
-      if (err.response?.status === 401) {
-        // Token expired or revoked — clear local credentials. The AuthContext
-        // listens to storage changes via its own subscriber so it can react.
-        authStorage.clearToken();
-        authStorage.clearUser();
+    async (err: AxiosError) => {
+      const original = err.config as (typeof err.config & { _retry?: boolean }) | undefined;
+      if (err.response?.status === 401 && original && !original._retry) {
+        original._retry = true;
+        // De-dupe concurrent refresh attempts
+        if (!refreshInFlight) refreshInFlight = tryRefresh();
+        const newToken = await refreshInFlight;
+        refreshInFlight = null;
+        if (newToken) {
+          original.headers = original.headers ?? {};
+          (original.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
+          return client.request(original);
+        }
+        // Refresh failed — credentials cleared inside tryRefresh
       }
       return Promise.reject(err);
     },

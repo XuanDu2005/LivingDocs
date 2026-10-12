@@ -52,6 +52,17 @@ export interface DocumentVersion {
   status: VersionStatus;
   confidenceScore: number | null;
   createdAt: string;
+  triggerCommit?: TriggerCommitSummary | null;
+}
+
+export interface TriggerCommitSummary {
+  id: string | null;
+  sha: string;
+  shortSha: string;
+  message: string | null;
+  authorName: string | null;
+  authoredAt: string | null;
+  url: string | null;
 }
 
 export interface DocumentVersionSummary {
@@ -61,6 +72,7 @@ export interface DocumentVersionSummary {
   actorRole: ActorRole;
   actorUserId: string | null;
   sourceCommitSha: string | null;
+  sourceCommitShort: string | null;
   sourcePrId: string | null;
   status: VersionStatus;
   confidenceScore: number | null;
@@ -135,6 +147,21 @@ export const documentsApi = {
     return apiClient
       .get<{ unifiedDiff: string }>(
         `/documents/${documentId}/diff?from=${from}&to=${to}`,
+      )
+      .then((r) => r.data);
+  },
+  /** Shortcut: compare the most recent AI-authored version against the most recent published version. */
+  diffAgainstPublished(documentId: string) {
+    return apiClient
+      .get<{ unifiedDiff: string }>(
+        `/documents/${documentId}/diff?comparedTo=published`,
+      )
+      .then((r) => r.data);
+  },
+  triggerCommit(documentId: string, versionNumber: number) {
+    return apiClient
+      .get<TriggerCommitSummary | null>(
+        `/documents/${documentId}/versions/${versionNumber}/trigger-commit`,
       )
       .then((r) => r.data);
   },

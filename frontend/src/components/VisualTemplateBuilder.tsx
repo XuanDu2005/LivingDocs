@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -17,6 +18,7 @@ export interface VisualTemplateBuilderProps {
  * page is kept in sync so the user can switch modes at will.
  */
 export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderProps) {
+  const { t } = useTranslation();
   const update = useCallback(
     (mutator: (b: TemplateBody) => TemplateBody) => onChange(mutator(body)),
     [body, onChange],
@@ -106,7 +108,7 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
           id="builder-titleHint"
           value={body.titleHint ?? ''}
           onChange={(e) => update((b) => ({ ...b, titleHint: e.target.value }))}
-          placeholder="e.g. Module Guide — {{moduleName}}"
+          placeholder={t('templates.builder.titleHintPlaceholder', 'e.g. Module Guide — {{moduleName}}')}
         />
       </div>
 
@@ -205,23 +207,23 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
                         >
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_2fr_auto]">
                             <div className="space-y-1">
-                              <Label htmlFor={`ph-key-${sIdx}-${pIdx}`} className="text-xs">Key</Label>
+                              <Label htmlFor={`ph-key-${sIdx}-${pIdx}`} className="text-xs">{t('templates.builder.keyLabel', 'Key')}</Label>
                               <Input
                                 id={`ph-key-${sIdx}-${pIdx}`}
                                 value={ph.key}
                                 onChange={(e) => patchPlaceholder(sIdx, pIdx, { key: e.target.value })}
                                 className="font-mono text-xs h-8"
-                                placeholder="summary"
+                                placeholder={t('templates.builder.keyPlaceholder', 'summary')}
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label htmlFor={`ph-prompt-${sIdx}-${pIdx}`} className="text-xs">Prompt</Label>
+                              <Label htmlFor={`ph-prompt-${sIdx}-${pIdx}`} className="text-xs">{t('templates.builder.promptLabel', 'Prompt')}</Label>
                               <Input
                                 id={`ph-prompt-${sIdx}-${pIdx}`}
                                 value={ph.prompt}
                                 onChange={(e) => patchPlaceholder(sIdx, pIdx, { prompt: e.target.value })}
                                 className="h-8"
-                                placeholder="What the AI should write here"
+                                placeholder={t('templates.builder.promptPlaceholder', 'What the AI should write here')}
                               />
                             </div>
                             <div className="flex items-end">
@@ -236,7 +238,7 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
                           </div>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <div className="space-y-1">
-                              <Label htmlFor={`ph-max-${sIdx}-${pIdx}`} className="text-xs">Max words</Label>
+                              <Label htmlFor={`ph-max-${sIdx}-${pIdx}`} className="text-xs">{t('templates.builder.maxWordsLabel', 'Max words')}</Label>
                               <Input
                                 id={`ph-max-${sIdx}-${pIdx}`}
                                 type="number" min={1} max={5000}
@@ -246,17 +248,17 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
                                   patchPlaceholder(sIdx, pIdx, { maxWords: v });
                                 }}
                                 className="h-8 text-xs"
-                                placeholder="optional"
+                                placeholder={t('templates.builder.maxWordsPlaceholder', 'optional')}
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label htmlFor={`ph-binding-${sIdx}-${pIdx}`} className="text-xs">AST binding</Label>
+                              <Label htmlFor={`ph-binding-${sIdx}-${pIdx}`} className="text-xs">{t('templates.builder.astBindingLabel', 'AST binding')}</Label>
                               <Input
                                 id={`ph-binding-${sIdx}-${pIdx}`}
                                 value={ph.binding ?? ''}
                                 onChange={(e) => patchPlaceholder(sIdx, pIdx, { binding: e.target.value || undefined })}
                                 className="h-8 text-xs font-mono"
-                                placeholder="code.route"
+                                placeholder={t('templates.builder.astBindingPlaceholder', 'code.route')}
                               />
                             </div>
                             <label className="flex items-center gap-2 pt-5 text-xs">

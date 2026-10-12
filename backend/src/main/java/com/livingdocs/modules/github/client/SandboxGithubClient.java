@@ -154,4 +154,44 @@ public class SandboxGithubClient implements GithubClient {
                 "Repository fetched by URL (sandbox)",
                 repoName.contains("private"));
     }
+
+    @Override
+    public List<GithubCommit> listCommits(String accessToken, String owner, String repo, int perPage, OffsetDateTime since) {
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime floor = since != null ? since : now.minusDays(30);
+        return List.of(
+                new GithubCommit(
+                        "abc1234567890abcdef1234567890abcdef12345",
+                        "feat: add V21 commit ingestion migration",
+                        "Alice",
+                        "alice@example.test",
+                        now.minusHours(2), now.minusHours(2),
+                        "https://github.example/" + owner + "/" + repo + "/commit/abc12345"),
+                new GithubCommit(
+                        "def2345678901bcdef2345678901bcdef2345678",
+                        "fix: handle null pointer in webhook handler",
+                        "Bob",
+                        "bob@example.test",
+                        now.minusDays(1), now.minusDays(1),
+                        "https://github.example/" + owner + "/" + repo + "/commit/def23456"),
+                new GithubCommit(
+                        "789abcdef0123456789abcdef0123456789abcde",
+                        "chore: bump dependencies",
+                        "Carol",
+                        "carol@example.test",
+                        now.minusDays(2), now.minusDays(2),
+                        "https://github.example/" + owner + "/" + repo + "/commit/789abcde")
+        ).stream().filter(c -> c.authoredAt().isAfter(floor) || c.authoredAt().isEqual(floor)).toList();
+    }
+
+    @Override
+    public GithubRepositorySummary getRepository(String accessToken, String owner, String repo) {
+        return repo(
+                (long) Math.abs((owner + repo).hashCode()) % 10000 + 1000,
+                repo,
+                owner + "/" + repo,
+                "main",
+                "Repository refreshed at " + OffsetDateTime.now(),
+                false);
+    }
 }

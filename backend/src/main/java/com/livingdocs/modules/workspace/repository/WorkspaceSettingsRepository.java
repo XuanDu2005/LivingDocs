@@ -4,9 +4,12 @@ import com.livingdocs.modules.workspace.model.WorkspaceSettings;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public interface WorkspaceSettingsRepository extends JpaRepository<WorkspaceSettings, UUID> {
+
+    Optional<WorkspaceSettings> findByWorkspaceId(UUID workspaceId);
 
     /**
      * Read the raw JSONB {@code extra} payload straight from PostgreSQL

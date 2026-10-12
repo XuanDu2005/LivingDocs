@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Play, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Card, CardContent } from '../components/ui/card';
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
@@ -89,6 +89,15 @@ export default function DriftAlertsPage() {
   const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
   const [resolveResolution, setResolveResolution] = useState<DriftResolution>('FIXED');
 
+  // Trigger scan state
+  const [scanOpen, setScanOpen] = useState<boolean>(false);
+  const [scanRepositoryId, setScanRepositoryId] = useState<string>('');
+  const [scanDocumentId, setScanDocumentId] = useState<string>('');
+  const [scanning, setScanning] = useState<boolean>(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
+  const [scanOptions, setScanOptions] = useState<{ repositories: { id: string; fullName: string }[]; documents: { id: string; title: string }[] }>({ repositories: [], documents: [] });
+  const [scanOptionsLoading, setScanOptionsLoading] = useState<boolean>(false);
+
   const load = async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -120,6 +129,59 @@ export default function DriftAlertsPage() {
     }
   }
 
+  async function openScanDialog() {
+    if (!workspaceId) return;
+    setScanOpen(true);
+    setScanResult(null);
+    setScanRepositoryId('');
+    setScanDocumentId('');
+    if (scanOptions.repositories.length === 0 && scanOptions.documents.length === 0) {
+      setScanOptionsLoading(true);
+      try {
+        // Lazy import to avoid circular deps
+        const [{ githubApi }, { documentsApi }] = await Promise.all([
+          import('../services/github'),
+          import('../services/documents'),
+        ]);
+        const [repos, docs] = await Promise.all([
+          githubApi.listRepositories(workspaceId).catch(() => []),
+          documentsApi.list(workspaceId).catch(() => []),
+        ]);
+        setScanOptions({
+          repositories: repos.map((r) => ({ id: r.id, fullName: r.fullName })),
+          documents: docs.map((d) => ({ id: d.id, title: d.title })),
+        });
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setScanOptionsLoading(false);
+      }
+    }
+  }
+
+  async function handleTriggerScan() {
+    if (!workspaceId || !scanRepositoryId || !scanDocumentId) return;
+    setScanning(true);
+    setScanResult(null);
+    try {
+      // Empty file diffs — backend will use the latest code entity snapshot to detect drift
+      const result = await driftApi.detect(workspaceId, {
+        repositoryId: scanRepositoryId,
+        documentId: scanDocumentId,
+        filesBefore: [],
+        filesAfter: [],
+      });
+      setScanResult(
+        t('drift.scanComplete', { count: result.ingested, defaultValue: `Scan complete. ${result.ingested} new alert(s) ingested.` }),
+      );
+      await load();
+    } catch (err) {
+      setScanResult(describeError(err));
+    } finally {
+      setScanning(false);
+    }
+  }
+
   if (!workspaceId) return <EmptyState title={t('common.back')} />;
 
   const criticalCount = alerts.filter((a) => a.severity === 'CRITICAL').length;
@@ -135,11 +197,67 @@ export default function DriftAlertsPage() {
         </Link>
       </Button>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{t('drift.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('drift.subtitle')}</p>
         </div>
+        <Dialog open={scanOpen} onOpenChange={(o) => { if (!o) { setScanOpen(false); setScanResult(null); } }}>
+          <DialogTrigger asChild>
+            <Button onClick={() => void openScanDialog()}>
+              <Play className="mr-1 h-4 w-4" /> {t('drift.triggerScan', 'Trigger scan')}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('drift.triggerScanTitle', 'Manually trigger drift analysis')}</DialogTitle>
+              <DialogDescription>
+                {t('drift.triggerScanDesc', 'Run the AI against the latest code entities. This may take a minute and counts toward AI usage.')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {scanOptionsLoading ? (
+                <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">{t('drift.scanRepo', 'Repository')}</label>
+                    <Select value={scanRepositoryId} onValueChange={setScanRepositoryId}>
+                      <SelectTrigger><SelectValue placeholder={t('drift.scanRepoPlaceholder', 'Select a repository')} /></SelectTrigger>
+                      <SelectContent>
+                        {scanOptions.repositories.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>{r.fullName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">{t('drift.scanDoc', 'Document')}</label>
+                    <Select value={scanDocumentId} onValueChange={setScanDocumentId}>
+                      <SelectTrigger><SelectValue placeholder={t('drift.scanDocPlaceholder', 'Select a document')} /></SelectTrigger>
+                      <SelectContent>
+                        {scanOptions.documents.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              {scanResult && (
+                <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm text-primary">
+                  {scanResult}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <DialogClose asChild><Button variant="outline" disabled={scanning}>{t('common.cancel')}</Button></DialogClose>
+              <Button onClick={() => void handleTriggerScan()} disabled={scanning || !scanRepositoryId || !scanDocumentId}>
+                {scanning ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {t('drift.scanning', 'Scanning…')}</> : t('drift.runScan', 'Run scan')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

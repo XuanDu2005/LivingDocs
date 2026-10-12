@@ -86,3 +86,19 @@ export async function startLinkProvider(provider: 'google' | 'github'): Promise<
   const { data } = await apiClient.post<{ url: string; state: string }>(`/auth/oauth/${provider}/link/start`);
   return data;
 }
+
+/**
+ * Server-side logout: revoke the supplied refresh token so it can no longer
+ * be exchanged for new access tokens. The local credential store is cleared
+ * by the caller (AuthContext).
+ */
+export async function serverLogout(refreshToken: string): Promise<void> {
+  await apiClient.post<void>('/auth/logout', { refreshToken });
+}
+
+/**
+ * Revoke every refresh token belonging to the current user.
+ */
+export async function serverLogoutAll(): Promise<void> {
+  await apiClient.post<void>('/auth/logout-all');
+}

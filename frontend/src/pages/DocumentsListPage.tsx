@@ -181,8 +181,23 @@ export default function DocumentsListPage() {
                   <TableCell><Badge variant={STATUS_VARIANT[d.status]}>{t(STATUS_LABEL_KEY[d.status])}</Badge></TableCell>
                   <TableCell>
                     {d.autoUpdateEnabled
-                      ? <Badge variant="info">{t('documents.auto')}</Badge>
-                      : <span className="text-xs text-muted-foreground">{t('documents.manual')}</span>}
+                      ? (
+                        <Badge
+                          variant="info"
+                          title={t('documents.autoUpdateOnHint', 'AI will auto-update this document when the linked source code changes. Click to disable.')}
+                          className="cursor-help"
+                        >
+                          {t('documents.auto')}
+                        </Badge>
+                      )
+                      : (
+                        <span
+                          className="text-xs text-muted-foreground cursor-help"
+                          title={t('documents.autoUpdateOffHint', 'Auto-update is disabled. The document will not be modified when source code changes.')}
+                        >
+                          {t('documents.manual')}
+                        </span>
+                      )}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {format(new Date(d.updatedAt), 'MMM d, yyyy')}

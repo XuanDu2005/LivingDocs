@@ -263,7 +263,7 @@ export default function TemplatesPage() {
                     value={slug}
                     onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                     required
-                    placeholder="my-template"
+                    placeholder={t('templates.fieldSlugPlaceholder', 'my-template')}
                   />
                 </div>
               ) : <div />}
@@ -423,8 +423,8 @@ export default function TemplatesPage() {
               <Card>
                 <CardContent className="pt-6">
                   <EmptyState
-                    title="No workspace templates"
-                    description="Create a template to scaffold new documents."
+                    title={t('templates.emptyWorkspaceTitle', 'No workspace templates')}
+                    description={t('templates.emptyWorkspaceDesc', 'Create a template to scaffold new documents.')}
                     action={
                       <Button onClick={() => openCreate()}>
                         <Plus className="mr-1 h-4 w-4" /> New template
@@ -500,8 +500,8 @@ export default function TemplatesPage() {
               <Card>
                 <CardContent className="pt-6">
                   <EmptyState
-                    title="No global templates"
-                    description="Global templates will appear here once added by the platform."
+                    title={t('templates.emptyGlobalTitle', 'No global templates')}
+                    description={t('templates.emptyGlobalDesc', 'Global templates will appear here once added by the platform.')}
                   />
                 </CardContent>
               </Card>
