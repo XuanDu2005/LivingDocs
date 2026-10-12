@@ -138,6 +138,25 @@ public class OAuthService {
     }
 
     /**
+     * Force-link an OAuth identity to the currently authenticated user.
+     * If the identity is already linked to a different account, we
+     * steal it: we delete the old row, then insert a new one bound to
+     * the current user. This is the "merge" flow used when the user
+     * explicitly requests the link from the profile page.
+     */
+    @Transactional
+    public UserOAuthIdentity linkIdentityToCurrentUserForce(UUID userId, OAuthUserInfo info) {
+        Optional<UserOAuthIdentity> clash = identityRepository
+                .findByProviderAndProviderUserId(info.provider(), info.providerUserId());
+        if (clash.isPresent() && clash.get().getUserId().equals(userId)) {
+            return clash.get();
+        }
+        clash.ifPresent(existing -> identityRepository.delete(existing));
+        // Refresh display name / avatar / email from the fresh info.
+        return linkIdentity(userId, info);
+    }
+
+    /**
      * Unlink the given provider from the given user. Returns the number of
      * rows actually removed (0 if nothing was linked).
      */

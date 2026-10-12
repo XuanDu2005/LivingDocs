@@ -19,6 +19,7 @@ import {
   Activity,
   AlertTriangle,
   GitBranch,
+  Github,
   Stethoscope,
   ScrollText,
   Megaphone,
@@ -53,17 +54,22 @@ interface NavGroup {
   items: NavItem[];
 }
 
-/** Items shown to every authenticated user. */
+/** Items shown to every authenticated user.
+ *
+ * IMPORTANT: links that are scoped to a specific workspace
+ * (documents, reviews, drift, knowledge, health, …) must NOT live
+ * here — putting them here makes them all point to the bare
+ * `/workspaces` route, and `NavLink` will then highlight *every*
+ * one of them at once when the user is inside a workspace
+ * (`/workspaces/:id/…` starts with `/workspaces`). The per-workspace
+ * versions of these items are built by {@link buildWorkspaceItems}
+ * and rendered in the "This workspace" section instead.
+ */
 const WORKSPACE_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.home', to: '/', icon: BookOpen },
   { labelKey: 'nav.dashboard', to: '/dashboard', icon: LayoutDashboard, authOnly: true },
   { labelKey: 'nav.workspaces', to: '/workspaces', icon: Users, authOnly: true },
-  { labelKey: 'nav.documents', to: '/workspaces', icon: FileText, authOnly: true },
-  { labelKey: 'nav.reviews', to: '/workspaces', icon: Shield, authOnly: true },
-  { labelKey: 'nav.drift', to: '/workspaces', icon: AlertTriangle, authOnly: true },
-  { labelKey: 'nav.knowledge', to: '/workspaces', icon: Library, authOnly: true },
   { labelKey: 'nav.aiSettings', to: '/ai-settings', icon: Sparkles, authOnly: true },
-  { labelKey: 'nav.health', to: '/workspaces', icon: Stethoscope, authOnly: true },
 ];
 
 /**
@@ -121,6 +127,7 @@ function buildWorkspaceItems(workspaceId?: string) {
   if (!workspaceId) return [];
   return [
     { labelKey: 'nav.documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
+    { labelKey: 'nav.repositories', to: `/workspaces/${workspaceId}/repositories`, icon: Github },
     { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
     { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
     { labelKey: 'workspace_templates_title', to: `/workspaces/${workspaceId}/templates`, icon: Sparkles },

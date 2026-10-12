@@ -7,13 +7,16 @@ import com.livingdocs.modules.github.model.GithubConnection;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.UUID;
 
@@ -39,9 +42,12 @@ import java.util.UUID;
 public class GithubOAuthController {
 
     private final GithubOAuthService oauthService;
+    private final String frontendUrl;
 
-    public GithubOAuthController(GithubOAuthService oauthService) {
+    public GithubOAuthController(GithubOAuthService oauthService,
+                                 @Value("${app.frontend.url:http://localhost:5173}") String frontendUrl) {
         this.oauthService = oauthService;
+        this.frontendUrl = frontendUrl;
     }
 
     @GetMapping("/oauth/authorize-url")
@@ -57,10 +63,24 @@ public class GithubOAuthController {
 
     @GetMapping("/oauth/callback")
     @Operation(summary = "OAuth callback (browser redirect from GitHub)")
-    public ResponseEntity<GithubCallbackResponse> callback(
+    public RedirectView callback(
+            @RequestParam("code") String code,
+            @RequestParam("state") String state) {
+        // Redirect to the frontend callback page, passing the code and state as query params.
+        // The frontend will validate the state and complete the OAuth flow.
+        String redirectUrl = frontendUrl + "/github/callback?code=" + code + "&state=" + state;
+        return new RedirectView(redirectUrl);
+    }
+
+    /**
+     * Internal endpoint for the frontend callback page to exchange the OAuth code.
+     */
+    @PostMapping("/oauth/complete")
+    @Operation(summary = "Complete OAuth flow (called by frontend callback page)")
+    public ResponseEntity<GithubCallbackResponse> complete(
             @RequestParam("code") String code,
             @RequestParam("state") String state,
-            @RequestParam(value = "expectedState", required = false) String expectedState) {
+            @RequestParam("expectedState") String expectedState) {
         GithubConnection connection = oauthService.completeCallback(code, state, expectedState);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(GithubCallbackResponse.success(connection.getGithubLogin(), connection.getGithubUserId()));

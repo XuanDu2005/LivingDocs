@@ -61,7 +61,7 @@ public class RestGithubClient implements GithubClient {
         }
         try {
             String body = webClient.post()
-                    .uri("/login/oauth/access_token")
+                    .uri("https://github.com/login/oauth/access_token")
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .body(BodyInserters.fromFormData(form))
                     .retrieve()

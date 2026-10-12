@@ -1,6 +1,6 @@
 import { Route, Routes as RRoutes } from 'react-router-dom';
 
-import { GuestRoute, ProtectedRoute } from '../components/ProtectedRoute';
+import { GuestRoute, ProtectedRoute, AuthCallbackRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
@@ -33,6 +33,7 @@ import LoginPage from '../pages/LoginPage';
 import NewDocumentPage from '../pages/NewDocumentPage';
 import NotFoundPage from '../pages/NotFoundPage';
 import OAuthCallbackPage from '../pages/OAuthCallbackPage';
+import RepositoryPage from '../pages/RepositoryPage';
 import ProfilePage from '../pages/ProfilePage';
 import RegisterPage from '../pages/RegisterPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
@@ -104,9 +105,9 @@ export function AppRoutes() {
         <Route
           path="/auth/callback"
           element={
-            <GuestRoute>
+            <AuthCallbackRoute>
               <OAuthCallbackPage />
-            </GuestRoute>
+            </AuthCallbackRoute>
           }
         />
 
@@ -188,6 +189,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <KnowledgeBasePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/repositories"
+          element={
+            <ProtectedRoute>
+              <RepositoryPage />
             </ProtectedRoute>
           }
         />

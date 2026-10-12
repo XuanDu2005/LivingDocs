@@ -61,7 +61,8 @@ public class GithubOAuthService {
                 .append("&redirect_uri=").append(urlEncode(properties.getOauth().getRedirectUri()))
                 .append("&scope=").append(urlEncode(properties.getOauth().getScopes()))
                 .append("&state=").append(urlEncode(state))
-                .append("&allow_signup=true");
+                .append("&allow_signup=true")
+                .append("&prompt=select_account");
         return new AuthorizeUrl(url.toString(), state);
     }
 

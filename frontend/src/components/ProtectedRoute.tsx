@@ -58,3 +58,21 @@ export function GuestRoute({ children }: GuestRouteProps) {
 
   return <>{children}</>;
 }
+
+/**
+ * Route wrapper for the OAuth callback page. Allows both authenticated
+ * and guest visitors because:
+ *  - The "login / register" flow lands here for new visitors.
+ *  - The "link provider" flow (from /profile) lands here for users
+ *    who are already signed in, with `?linked=` or `?error=` in the
+ *    query string.
+ */
+export function AuthCallbackRoute({ children }: GuestRouteProps) {
+  const { initializing } = useAuth();
+
+  if (initializing) {
+    return <LoadingState message="Loading session…" />;
+  }
+
+  return <>{children}</>;
+}
