@@ -67,7 +67,8 @@
     "adminAnalytics": "Phân tích",
     "workspaceNotificationPolicies": "Chính sách thông báo",
     "integrations": "Tích hợp bên ngoài",
-    "overview": "Tổng quan"
+    "overview": "Tổng quan",
+    "repositories": "Kho mã nguồn"
   },
   "auth": {
     "divider": "hoặc",

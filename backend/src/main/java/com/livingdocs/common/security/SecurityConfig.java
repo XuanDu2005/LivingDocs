@@ -85,6 +85,7 @@ public class SecurityConfig {
                         // Webhook endpoint is authenticated via HMAC signature, not JWT.
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/github/oauth/callback").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/github/oauth/complete").permitAll()
                         // Integrations module: each provider verifies the request with its
                         // own mechanism (HMAC, shared token, signed timestamp), not JWT.
                         .requestMatchers(HttpMethod.POST,

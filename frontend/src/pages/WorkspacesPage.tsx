@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Users as UsersIcon } from 'lucide-react';
+import { Plus, Users as UsersIcon, Github } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -80,10 +80,27 @@ export default function WorkspacesPage() {
       setOpen(false);
       await refresh();
     } catch (err) {
-      setCreateError(describeError(err));
+      // If the slug is already taken, suggest a "-2" variant and let the
+      // user retry without retyping the whole form. The previous form
+      // was never reset on error, which trapped users in a 409 loop.
+      const msg = describeError(err);
+      setCreateError(msg);
+      if (/slug/i.test(msg) && /exist|conflict|409/i.test(msg)) {
+        const next = `${slug}-2`;
+        setSlug(next);
+        setSlugTouched(true);
+      }
     } finally {
       setCreating(false);
     }
+  }
+
+  function resetForm() {
+    setName('');
+    setSlug('');
+    setDescription('');
+    setSlugTouched(false);
+    setCreateError(null);
   }
 
   return (
@@ -92,7 +109,7 @@ export default function WorkspacesPage() {
         title={t('workspaces.title')}
         subtitle={t('workspaces.subtitle', { name: user?.displayName ?? user?.email ?? '' })}
         action={
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-1 h-4 w-4" />
@@ -128,7 +145,7 @@ export default function WorkspacesPage() {
                   </div>
                 )}
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  <Button type="button" variant="outline" onClick={() => { setOpen(false); resetForm(); }}>
                     {t('common.cancel')}
                   </Button>
                   <Button type="submit" disabled={creating}>
@@ -178,9 +195,16 @@ export default function WorkspacesPage() {
               )}
             </CardHeader>
             <CardContent>
-              <Button variant="outline" size="sm" asChild>
-                <Link to={`/workspaces/${w.id}`}>{t('workspaces.openWorkspace')}</Link>
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" asChild>
+                  <Link to={`/workspaces/${w.id}/repositories`}>
+                    <Github className="mr-1 h-4 w-4" /> {t('workspaces.openRepositories', 'Open repositories')}
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={`/workspaces/${w.id}`}>{t('workspaces.openWorkspace')}</Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}

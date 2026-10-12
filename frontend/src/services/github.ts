@@ -83,7 +83,7 @@ export const githubApi = {
   },
 
   async completeCallback(code: string, state: string, expectedState: string): Promise<void> {
-    await apiClient.get('/github/oauth/callback', {
+    await apiClient.post('/github/oauth/complete', null, {
       params: { code, state, expectedState },
     });
   },

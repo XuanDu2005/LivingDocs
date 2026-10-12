@@ -33,6 +33,7 @@ import LoginPage from '../pages/LoginPage';
 import NewDocumentPage from '../pages/NewDocumentPage';
 import NotFoundPage from '../pages/NotFoundPage';
 import OAuthCallbackPage from '../pages/OAuthCallbackPage';
+import RepositoryPage from '../pages/RepositoryPage';
 import ProfilePage from '../pages/ProfilePage';
 import RegisterPage from '../pages/RegisterPage';
 import ResetPasswordPage from '../pages/ResetPasswordPage';
@@ -188,6 +189,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <KnowledgeBasePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/repositories"
+          element={
+            <ProtectedRoute>
+              <RepositoryPage />
             </ProtectedRoute>
           }
         />
