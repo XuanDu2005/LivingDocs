@@ -27,8 +27,8 @@ public record DocumentVersionResponse(
         UUID templateId,
         VersionStatus status,
         Float confidenceScore,
-        OffsetDateTime createdAt
-) {
+        OffsetDateTime createdAt,
+        CommitSummaryDto triggerCommit) {
     public static DocumentVersionResponse from(DocumentVersion v) {
         return new DocumentVersionResponse(
                 v.getId(),
@@ -43,7 +43,27 @@ public record DocumentVersionResponse(
                 v.getTemplateId(),
                 v.getStatus(),
                 v.getConfidenceScore(),
-                v.getCreatedAt()
+                v.getCreatedAt(),
+                null
+        );
+    }
+
+    public static DocumentVersionResponse from(DocumentVersion v, CommitSummaryDto triggerCommit) {
+        return new DocumentVersionResponse(
+                v.getId(),
+                v.getDocumentId(),
+                v.getVersionNumber(),
+                v.getBodyMarkdown(),
+                v.getChangeSummary(),
+                v.getActorRole(),
+                v.getActorUserId(),
+                v.getSourceCommitSha(),
+                v.getSourcePrId(),
+                v.getTemplateId(),
+                v.getStatus(),
+                v.getConfidenceScore(),
+                v.getCreatedAt(),
+                triggerCommit
         );
     }
 }

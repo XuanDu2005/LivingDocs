@@ -4,7 +4,7 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Bot, Check, Eye, History, Link2, Plus, RotateCcw, Shield, Upload } from 'lucide-react';
+import { ArrowLeft, Bot, Check, Eye, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -30,6 +30,7 @@ import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
 import { describeError } from '../services/auth';
+import { templatesApi, DocTemplate } from '../services/templates';
 import { format } from 'date-fns';
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
   PENDING: 'warning',
@@ -158,6 +159,22 @@ export default function DocumentDetailPage() {
   const [newSummary, setNewSummary] = useState<string>('');
   const [creatingVersion, setCreatingVersion] = useState<boolean>(false);
 
+  // Grounding evidence state
+  const [groundingFor, setGroundingFor] = useState<{ versionId: string; sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[] } | null>(null);
+  const [groundingLoading, setGroundingLoading] = useState<boolean>(false);
+
+  // Trigger commit dialog
+  const [commitFor, setCommitFor] = useState<{ versionNumber: number; commit: import('../services/documents').TriggerCommitSummary } | null>(null);
+  const [commitLoading, setCommitLoading] = useState<boolean>(false);
+
+  // Template selector + preview state
+  const [templates, setTemplates] = useState<DocTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('MODULE_GUIDE');
+  const [previewOpen, setPreviewOpen] = useState<boolean>(false);
+  const [previewText, setPreviewText] = useState<string>('');
+  const [previewConfidence, setPreviewConfidence] = useState<number>(0);
+  const [previewing, setPreviewing] = useState<boolean>(false);
+
   async function handleCreateVersion() {
     if (!workspaceId || !documentId || !newBody.trim()) return;
     setCreatingVersion(true);
@@ -223,6 +240,11 @@ export default function DocumentDetailPage() {
   }, [load]);
 
   useEffect(() => {
+    void loadTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
+  useEffect(() => {
     if (tab === 'drift') void loadDrift();
     if (tab === 'links') void loadLinks();
   }, [tab, loadDrift, loadLinks]);
@@ -277,6 +299,51 @@ export default function DocumentDetailPage() {
     }
   }
 
+  async function handleCompareAiVsPublished() {
+    if (!workspaceId || !documentId) return;
+    setDiffLoading(true);
+    try {
+      const d = await documentsApi.diffAgainstPublished(documentId);
+      setDiffText(d.unifiedDiff);
+    } catch (err) {
+      setDiffText(`// ${describeError(err)}`);
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
+  async function handleShowGrounding(versionId: string) {
+    if (!workspaceId || !documentId) return;
+    setGroundingLoading(true);
+    setGroundingFor({ versionId, sources: [] });
+    try {
+      const data = await aiApi.fetchGrounding(workspaceId, documentId, versionId);
+      setGroundingFor({ versionId, sources: data.sources || [] });
+    } catch (err) {
+      setGroundingFor({ versionId, sources: [] });
+    } finally {
+      setGroundingLoading(false);
+    }
+  }
+
+  async function handleShowTriggerCommit(versionNumber: number) {
+    if (!documentId) return;
+    setCommitLoading(true);
+    setCommitFor({ versionNumber, commit: { sha: '', shortSha: '', message: null, authorName: null, authoredAt: null, url: null, id: null } });
+    try {
+      const data = await documentsApi.triggerCommit(documentId, versionNumber);
+      if (data) {
+        setCommitFor({ versionNumber, commit: data });
+      } else {
+        setCommitFor(null);
+      }
+    } catch (err) {
+      setCommitFor(null);
+    } finally {
+      setCommitLoading(false);
+    }
+  }
+
   async function handlePublishVersion(versionNumber: number) {
     if (!workspaceId || !documentId) return;
     try {
@@ -303,12 +370,49 @@ export default function DocumentDetailPage() {
     setGenerating(true);
     setGenError(null);
     try {
-      await aiApi.generate(workspaceId, documentId, []);
+      await aiApi.generate(workspaceId, documentId, [], selectedTemplate);
       await load();
     } catch (err) {
       setGenError(describeError(err));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handlePreviewGenerate() {
+    if (!workspaceId || !documentId) return;
+    setPreviewing(true);
+    setGenError(null);
+    setPreviewText('');
+    setPreviewConfidence(0);
+    setPreviewOpen(true);
+    try {
+      const result = await aiApi.previewGenerate(workspaceId, documentId, [], selectedTemplate);
+      setPreviewText(result.markdown);
+      setPreviewConfidence(result.confidenceScore);
+    } catch (err) {
+      setGenError(describeError(err));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function loadTemplates() {
+    if (!workspaceId) return;
+    try {
+      const data = await templatesApi.list(workspaceId);
+      const all = [...(data.workspaceTemplates || []), ...(data.globalTemplates || [])];
+      setTemplates(all);
+      // Default to current document's template if it matches; otherwise first available.
+      if (doc?.templateId) {
+        const match = all.find((t) => t.id === doc.templateId);
+        if (match) setSelectedTemplate(match.slug || match.name);
+      } else if (all.length > 0) {
+        const def = all.find((t) => t.isDefault) || all[0];
+        setSelectedTemplate(def.slug || def.name);
+      }
+    } catch {
+      // non-critical
     }
   }
 
@@ -457,6 +561,27 @@ export default function DocumentDetailPage() {
           </div>
           {/* --------------------------------------- */}
         <div className="flex gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1">
+            <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+              <SelectTrigger className="h-9 w-[170px] text-xs">
+                <SelectValue placeholder={t('documentDetail.templatePlaceholder', 'Template')} />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.length === 0 ? (
+                  <SelectItem value="MODULE_GUIDE">MODULE_GUIDE</SelectItem>
+                ) : (
+                  templates.map((t) => (
+                    <SelectItem key={t.id} value={t.slug || t.name}>
+                      {t.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => void handlePreviewGenerate()} disabled={previewing || generating}>
+            <Eye className="mr-1 h-4 w-4" /> {previewing ? t('documentDetail.previewing', 'Previewing…') : t('documentDetail.preview', 'Preview')}
+          </Button>
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
@@ -562,6 +687,16 @@ export default function DocumentDetailPage() {
                       {v.changeSummary && (
                         <div className="mt-1 truncate text-muted-foreground">{v.changeSummary}</div>
                       )}
+                      {v.actorRole === 'AI' && v.sourceCommitShort && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void handleShowTriggerCommit(v.versionNumber); }}
+                          className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono text-blue-600 dark:text-blue-400 hover:underline"
+                          title="Click to view the commit that triggered this auto-update"
+                        >
+                          <Bot className="h-2.5 w-2.5" /> triggered by {v.sourceCommitShort}
+                        </button>
+                      )}
                       <div className="flex gap-1 mt-1.5">
                         {v.status !== 'PUBLISHED' && (
                           <Button
@@ -581,6 +716,17 @@ export default function DocumentDetailPage() {
                         >
                           <RotateCcw className="h-3 w-3 mr-0.5" /> Rollback
                         </Button>
+                        {v.actorRole === 'AI' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs px-1.5"
+                            onClick={(e) => { e.stopPropagation(); void handleShowGrounding(v.id); }}
+                            title="View grounding evidence — source code references used by the AI"
+                          >
+                            <Sparkles className="h-3 w-3 mr-0.5" /> Grounding
+                          </Button>
+                        )}
                       </div>
                     </button>
                   ))
@@ -600,6 +746,9 @@ export default function DocumentDetailPage() {
                     {saveSuccess && <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" /> Saved</span>}
                     <Button size="sm" variant="outline" onClick={() => void handleViewDiff()} disabled={diffLoading}>
                       <Eye className="mr-1 h-4 w-4" /> View diff
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void handleCompareAiVsPublished()} disabled={diffLoading} title="Compare the most recent AI version against the most recent published version">
+                      <Sparkles className="mr-1 h-4 w-4" /> AI vs Published
                     </Button>
                   </div>
                 </div>
@@ -875,6 +1024,147 @@ export default function DocumentDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Grounding evidence dialog */}
+      {groundingFor && (
+        <Dialog open={!!groundingFor} onOpenChange={() => setGroundingFor(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> Grounding evidence
+              </DialogTitle>
+              <DialogDescription>
+                {groundingLoading
+                  ? 'Loading…'
+                  : groundingFor.sources.length === 0
+                    ? 'No grounding evidence is stored for this version. Older versions created before the grounding feature shipped do not have this data.'
+                    : `The AI referenced ${groundingFor.sources.length} code entity/entities when generating this version.`}
+              </DialogDescription>
+            </DialogHeader>
+            {!groundingLoading && groundingFor.sources.length > 0 && (
+              <div className="max-h-96 overflow-auto space-y-2">
+                {groundingFor.sources.map((s, i) => (
+                  <div key={i} className="rounded border bg-muted/30 p-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="info">{s.kind}</Badge>
+                      <code className="text-xs font-mono text-blue-600 dark:text-blue-400 truncate">{s.qualifiedName}</code>
+                    </div>
+                    {s.file && (
+                      <div className="mt-1 text-xs text-muted-foreground font-mono truncate">
+                        {s.file}{s.lines && s.lines.length > 0 ? `:${s.lines[0]}-${s.lines[s.lines.length - 1]}` : ''}
+                      </div>
+                    )}
+                    {s.signature && (
+                      <pre className="mt-1 text-[11px] font-mono text-foreground/80 whitespace-pre-wrap break-words">
+                        {s.signature}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <DialogFooter>
+              <DialogClose asChild><Button variant="outline">Close</Button></DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+      {/* Preview dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4" /> {t('documentDetail.previewTitle', 'AI preview')}
+            </DialogTitle>
+            <DialogDescription>
+              {previewing
+                ? t('documentDetail.previewing', 'Previewing…')
+                : t('documentDetail.previewDesc', 'This is a preview generated by the AI. No version will be persisted until you click "Generate with AI".')}
+            </DialogDescription>
+          </DialogHeader>
+          {previewing ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> {t('documentDetail.previewing', 'Previewing…')}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="info">{Math.round(previewConfidence * 100)}% confidence</Badge>
+                <span>·</span>
+                <span>template: {selectedTemplate}</span>
+              </div>
+              <pre className="font-mono text-xs whitespace-pre-wrap bg-muted/40 rounded p-3 overflow-auto max-h-96">
+                {previewText || '(no content)'}
+              </pre>
+            </>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={() => { setPreviewOpen(false); void handleGenerateWithAI(); }} disabled={previewing || !previewText}>
+              <Bot className="mr-1 h-4 w-4" /> {t('documentDetail.generateAi', 'Generate with AI')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Trigger commit dialog */}
+      <Dialog open={!!commitFor} onOpenChange={() => setCommitFor(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="h-4 w-4" /> Trigger commit
+            </DialogTitle>
+            <DialogDescription>
+              {commitLoading
+                ? 'Loading…'
+                : commitFor
+                  ? `Version v${commitFor.versionNumber} was auto-generated from the following commit.`
+                  : 'No trigger commit information available.'}
+            </DialogDescription>
+          </DialogHeader>
+          {commitFor && (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-xs">SHA:</span>
+                <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{commitFor.commit.shortSha || '—'}</code>
+              </div>
+              {commitFor.commit.message && (
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Message</div>
+                  <pre className="text-xs whitespace-pre-wrap bg-muted/40 rounded p-2">{commitFor.commit.message}</pre>
+                </div>
+              )}
+              {commitFor.commit.authorName && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Author:</span>
+                  <span className="text-xs">{commitFor.commit.authorName}</span>
+                </div>
+              )}
+              {commitFor.commit.authoredAt && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Date:</span>
+                  <span className="text-xs">{format(new Date(commitFor.commit.authoredAt), 'MMM d, yyyy HH:mm')}</span>
+                </div>
+              )}
+              {commitFor.commit.url && (
+                <a
+                  href={commitFor.commit.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                >
+                  View on GitHub →
+                </a>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">Close</Button></DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

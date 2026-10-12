@@ -1,6 +1,7 @@
 package com.livingdocs.modules.version.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.modules.version.dto.CommitSummaryDto;
 import com.livingdocs.modules.version.dto.DocumentVersionDiffResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionSummary;
@@ -44,11 +45,27 @@ public class DocumentVersionController {
         return versionService.get(CurrentUser.requireId(), documentId, versionNumber);
     }
 
+    @GetMapping("/documents/{documentId}/versions/{versionNumber}/trigger-commit")
+    @Operation(summary = "Return the commit that triggered this AI version, if any")
+    public CommitSummaryDto triggerCommit(@PathVariable UUID documentId,
+                                            @PathVariable Integer versionNumber) {
+        return versionService.getTriggerCommit(CurrentUser.requireId(), documentId, versionNumber);
+    }
+
     @GetMapping("/documents/{documentId}/diff")
     @Operation(summary = "Diff two versions of a document")
     public DocumentVersionDiffResponse diff(@PathVariable UUID documentId,
-                                            @RequestParam("from") Integer from,
-                                            @RequestParam("to") Integer to) {
+                                            @RequestParam(value = "from", required = false) Integer from,
+                                            @RequestParam(value = "to", required = false) Integer to,
+                                            @RequestParam(value = "comparedTo", required = false) String comparedTo) {
+        // Special-case: "compare latest AI auto-updated version against the currently published version"
+        if ("published".equalsIgnoreCase(comparedTo)) {
+            return versionService.diffAgainstPublished(CurrentUser.requireId(), documentId);
+        }
+        if (from == null || to == null) {
+            throw new com.livingdocs.common.exception.BadRequestException(
+                    "Provide both 'from' and 'to' version numbers, or 'comparedTo=published'");
+        }
         return versionService.diff(CurrentUser.requireId(), documentId, from, to);
     }
 

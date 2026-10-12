@@ -2,6 +2,7 @@ package com.livingdocs.modules.auth.service;
 
 import com.livingdocs.common.exception.EmailNotVerifiedException;
 import com.livingdocs.common.security.JwtService;
+import com.livingdocs.common.security.SecurityUtils;
 import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.auth.controller.AuthController.RegistrationPendingResponse;
 import com.livingdocs.modules.auth.dto.AuthResponse;
@@ -11,10 +12,12 @@ import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.EmailVerificationCode;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -28,17 +31,20 @@ public class AuthService {
     private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final JwtService jwtService;
     private final EmailVerificationService emailVerificationService;
+    private final RefreshTokenService refreshTokenService;
     private final int verificationTtlMinutes;
 
     public AuthService(UserService userService,
                        UserRoleAssignmentRepository roleAssignmentRepository,
                        JwtService jwtService,
                        EmailVerificationService emailVerificationService,
+                       RefreshTokenService refreshTokenService,
                        @Value("${app.auth.email-verification.ttl-minutes:15}") int verificationTtlMinutes) {
         this.userService = userService;
         this.roleAssignmentRepository = roleAssignmentRepository;
         this.jwtService = jwtService;
         this.emailVerificationService = emailVerificationService;
+        this.refreshTokenService = refreshTokenService;
         this.verificationTtlMinutes = verificationTtlMinutes;
     }
 
@@ -64,6 +70,16 @@ public class AuthService {
         return issue(user);
     }
 
+    /** Same as {@link #login} but records user-agent and IP on the refresh token. */
+    @Transactional(readOnly = true)
+    public AuthResponse loginWithContext(LoginRequest req, HttpServletRequest httpReq) {
+        User user = userService.authenticate(req.email(), req.password());
+        if (!user.isEmailVerified()) {
+            throw new EmailNotVerifiedException(user.getEmail());
+        }
+        return issue(user, SecurityUtils.userAgent(httpReq), SecurityUtils.ipAddress(httpReq));
+    }
+
     /**
      * Confirm a verification code and, on success, return a fresh JWT so
      * the client can navigate straight to the dashboard.
@@ -74,12 +90,26 @@ public class AuthService {
         return issue(user);
     }
 
+    /** Same as {@link #verifyEmail} but records user-agent and IP on the refresh token. */
+    @Transactional
+    public AuthResponse verifyEmailWithContext(String email, String code, EmailVerificationCode.Purpose purpose, HttpServletRequest httpReq) {
+        User user = emailVerificationService.verify(email, code, purpose);
+        return issue(user, SecurityUtils.userAgent(httpReq), SecurityUtils.ipAddress(httpReq));
+    }
+
     private AuthResponse issue(User user) {
+        return issue(user, null, null);
+    }
+
+    private AuthResponse issue(User user, String userAgent, String ipAddress) {
         List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(user.getId());
         JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail(), roleCodes);
+        RefreshTokenService.Issued refresh = refreshTokenService.issue(user.getId(), userAgent, ipAddress);
         return new AuthResponse(
                 issued.token(),
-                issued.expiresAt().atOffset(java.time.ZoneOffset.UTC),
+                issued.expiresAt().atOffset(ZoneOffset.UTC),
+                refresh.rawToken(),
+                refresh.expiresAt(),
                 UserResponse.from(user, roleCodes)
         );
     }

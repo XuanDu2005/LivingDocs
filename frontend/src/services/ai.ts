@@ -44,4 +44,36 @@ export const aiApi = {
       )
       .then((r) => r.data);
   },
+  /** Fetch the grounding evidence (source code references) for a specific AI-generated version. */
+  fetchGrounding(
+    workspaceId: string,
+    documentId: string,
+    versionId: string,
+  ) {
+    return apiClient
+      .get<{ sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[] }>(
+        `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/grounding`,
+      )
+      .then((r) => r.data);
+  },
+  /** Preview an AI generation without persisting a new version. */
+  previewGenerate(
+    workspaceId: string,
+    documentId: string,
+    files: { path: string; content: string }[],
+    template = 'MODULE_GUIDE',
+  ) {
+    return apiClient
+      .post<{
+        markdown: string;
+        confidenceScore: number;
+        sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[];
+        template: string;
+        generatedAt: string;
+      }>(
+        `/workspaces/${workspaceId}/documents/${documentId}/preview-generate?template=${template}`,
+        files,
+      )
+      .then((r) => r.data);
+  },
 };

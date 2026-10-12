@@ -67,6 +67,9 @@ public class Repository {
     @Column(name = "last_synced_at")
     private OffsetDateTime lastSyncedAt;
 
+    @Column(name = "auto_update_enabled", nullable = false)
+    private boolean autoUpdateEnabled = true;
+
     public enum Status {
         CONNECTED, ARCHIVED, ERROR, DISCONNECTED
     }
@@ -105,9 +108,12 @@ public class Repository {
     public UUID getConnectedBy() { return connectedBy; }
     public OffsetDateTime getConnectedAt() { return connectedAt; }
     public OffsetDateTime getLastSyncedAt() { return lastSyncedAt; }
+    public boolean isAutoUpdateEnabled() { return autoUpdateEnabled; }
 
     public void setStatus(Status status) { this.status = status; }
     public void setDefaultBranch(String defaultBranch) { this.defaultBranch = defaultBranch; }
     public void setDescription(String description) { this.description = description; }
+    public void setPrivate(boolean isPrivate) { this.isPrivate = isPrivate; }
     public void setLastSyncedAt(OffsetDateTime lastSyncedAt) { this.lastSyncedAt = lastSyncedAt; }
+    public void setAutoUpdateEnabled(boolean autoUpdateEnabled) { this.autoUpdateEnabled = autoUpdateEnabled; }
 }

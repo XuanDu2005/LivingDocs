@@ -80,12 +80,14 @@ public class AiDocumentationService {
             log.warn("AI generation unavailable; aborting generateForDocument");
             return null;
         }
+        String groundingJson = _sourcesToJson(resp);
         DocumentVersion version = versionService.createAiVersion(
                 actorId, documentId,
                 resp.markdown(),
                 "AI-generated from " + sourceFiles.size() + " source file(s)",
                 null, null,
-                (float) Math.max(0.0, Math.min(1.0, resp.confidence())));
+                (float) Math.max(0.0, Math.min(1.0, resp.confidence())),
+                groundingJson);
         reviewService.markPendingForStaffReview(documentId, version.getId());
         return version;
     }
@@ -134,6 +136,21 @@ public class AiDocumentationService {
     }
 
     /**
+     * Run AI generation on a document and return the proposed body without
+     * persisting a version. Used by the "Preview before submitting" UI flow.
+     */
+    @Transactional(readOnly = true)
+    public AiDtos.GenerateResponse previewForDocument(UUID actorId, UUID documentId,
+                                                       List<AiDtos.SourceFile> sourceFiles,
+                                                       String template) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        workspaceService.requireMember(actorId, document.getWorkspaceId());
+        return aiClient.generate(
+                document.getWorkspaceId(), sourceFiles, template, null, null);
+    }
+
+    /**
      * Request AI to automatically rewrite or update a document.
      * (Regenerate on demand).
      */
@@ -161,8 +178,9 @@ public class AiDocumentationService {
                 resp.markdown(),
                 "Manual AI Regeneration triggered by user",
                 null, null,
-                (float) Math.max(0.0, Math.min(1.0, resp.confidence())));
-        
+                (float) Math.max(0.0, Math.min(1.0, resp.confidence())),
+                _sourcesToJson(resp));
+
         reviewService.markPendingForStaffReview(documentId, version.getId());
         return version;
     }
@@ -173,6 +191,18 @@ public class AiDocumentationService {
 
     private String _currentBodyFor(UUID documentId) {
         return versionService.findLatestBody(documentId).orElse("");
+    }
+
+    private static String _sourcesToJson(AiDtos.GenerateResponse resp) {
+        if (resp == null || resp.sources() == null || resp.sources().isEmpty()) {
+            return null;
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(resp.sources());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String _evidenceToJson(Map<String, Object> evidence) {

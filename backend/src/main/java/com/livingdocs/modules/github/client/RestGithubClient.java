@@ -3,6 +3,8 @@ package com.livingdocs.modules.github.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.modules.github.config.GithubProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -35,6 +37,8 @@ import java.util.List;
 @Component
 @ConditionalOnProperty(prefix = "github", name = "sandbox", havingValue = "false")
 public class RestGithubClient implements GithubClient {
+
+    private static final Logger log = LoggerFactory.getLogger(RestGithubClient.class);
 
     private final GithubProperties properties;
     private final WebClient webClient;
@@ -257,5 +261,88 @@ public class RestGithubClient implements GithubClient {
             return null;
         }
         return OffsetDateTime.parse(text, DateTimeFormatter.ISO_DATE_TIME);
+    }
+
+    // ── Commits ───────────────────────────────────────────────────────────
+
+    @Override
+    public List<GithubCommit> listCommits(String accessToken, String owner, String repo,
+                                          int perPage, OffsetDateTime since) {
+        try {
+            StringBuilder uri = new StringBuilder("/repos/").append(owner).append('/').append(repo)
+                    .append("/commits?per_page=").append(Math.min(Math.max(perPage, 1), 100));
+            if (since != null) {
+                uri.append("&since=").append(since.format(DateTimeFormatter.ISO_DATE_TIME));
+            }
+            JsonNode arr = webClient.get()
+                    .uri(uri.toString())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(20));
+            if (arr == null || !arr.isArray()) return List.of();
+            List<GithubCommit> out = new ArrayList<>();
+            for (JsonNode c : arr) {
+                JsonNode commit = c.path("commit");
+                JsonNode author = commit.path("author");
+                String sha = c.path("sha").asText();
+                out.add(new GithubCommit(
+                        sha,
+                        commit.path("message").asText(),
+                        author.path("name").asText(null),
+                        author.path("email").asText(null),
+                        parseDate(author.path("date").asText(null)),
+                        parseDate(commit.path("committer").path("date").asText(null)),
+                        "https://github.com/" + owner + "/" + repo + "/commit/" + sha
+                ));
+            }
+            return out;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("listCommits failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public GithubRepositorySummary getRepository(String accessToken, String owner, String repo) {
+        try {
+            JsonNode r = webClient.get()
+                    .uri("/repos/{owner}/{repo}", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (r == null) throw new GithubClientException("Empty response from /repos");
+            return new GithubRepositorySummary(
+                    r.path("id").asLong(),
+                    r.path("name").asText(),
+                    r.path("full_name").asText(),
+                    r.path("owner").path("login").asText(),
+                    r.path("default_branch").asText("main"),
+                    r.path("html_url").asText(),
+                    r.path("description").asText(null),
+                    r.path("private").asBoolean(false),
+                    r.path("archived").asBoolean(false),
+                    r.path("fork").asBoolean(false)
+            );
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubClientException("getRepository failed: " + e.getMessage(), e);
+        }
     }
 }

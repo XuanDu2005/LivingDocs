@@ -70,7 +70,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/verify-email",
                                                           "/api/v1/auth/resend-verification",
                                                           "/api/v1/auth/forgot-password",
-                                                          "/api/v1/auth/reset-password").permitAll()
+                                                          "/api/v1/auth/reset-password",
+                                                          "/api/v1/auth/refresh",
+                                                          "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/*/start",
                                                        "/api/v1/auth/oauth/*/callback",
                                                        "/api/v1/auth/oauth/*/sandbox-start").permitAll()

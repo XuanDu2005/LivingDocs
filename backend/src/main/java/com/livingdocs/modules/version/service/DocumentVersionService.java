@@ -4,6 +4,9 @@ import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.github.model.Commit;
+import com.livingdocs.modules.github.repository.CommitRepository;
+import com.livingdocs.modules.version.dto.CommitSummaryDto;
 import com.livingdocs.modules.version.dto.DocumentVersionDiffResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionSummary;
@@ -43,13 +46,16 @@ public class DocumentVersionService {
     private final DocumentVersionRepository versionRepository;
     private final DocumentRepository documentRepository;
     private final WorkspaceService workspaceService;
+    private final CommitRepository commitRepository;
 
     public DocumentVersionService(DocumentVersionRepository versionRepository,
                                   DocumentRepository documentRepository,
-                                  WorkspaceService workspaceService) {
+                                  WorkspaceService workspaceService,
+                                  CommitRepository commitRepository) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
+        this.commitRepository = commitRepository;
     }
 
     /**
@@ -86,6 +92,22 @@ public class DocumentVersionService {
                                            String sourceCommitSha,
                                            UUID sourcePrId,
                                            Float confidenceScore) {
+        return createAiVersion(actorUserId, documentId, bodyMarkdown, changeSummary,
+                sourceCommitSha, sourcePrId, confidenceScore, null);
+    }
+
+    /**
+     * Append a new AI-generated version with grounding evidence persisted.
+     */
+    @Transactional
+    public DocumentVersion createAiVersion(UUID actorUserId,
+                                           UUID documentId,
+                                           String bodyMarkdown,
+                                           String changeSummary,
+                                           String sourceCommitSha,
+                                           UUID sourcePrId,
+                                           Float confidenceScore,
+                                           String groundingJson) {
         Document document = loadAndAuthorize(actorUserId, documentId);
         int next = nextVersionNumber(documentId);
         DocumentVersion version = new DocumentVersion(
@@ -94,6 +116,7 @@ public class DocumentVersionService {
                 sourceCommitSha, sourcePrId, document.getTemplateId(),
                 VersionStatus.PENDING, confidenceScore
         );
+        version.setGroundingJson(groundingJson);
         DocumentVersion saved = versionRepository.save(version);
         log.info("AI version created: document={} version={} confidence={}",
                 documentId, next, confidenceScore);
@@ -105,8 +128,13 @@ public class DocumentVersionService {
         loadAndAuthorize(actorId, documentId);
         return versionRepository.findAllByDocumentIdOrderByVersionNumberDesc(documentId)
                 .stream()
-                .map(DocumentVersionSummary::from)
+                .map(v -> DocumentVersionSummary.from(v, shortCommit(v.getSourceCommitSha())))
                 .toList();
+    }
+
+    private String shortCommit(String sha) {
+        if (sha == null || sha.isBlank()) return null;
+        return sha.length() > 7 ? sha.substring(0, 7) : sha;
     }
 
     /**
@@ -125,7 +153,37 @@ public class DocumentVersionService {
         loadAndAuthorize(actorId, documentId);
         DocumentVersion v = versionRepository.findByDocumentIdAndVersionNumber(documentId, versionNumber)
                 .orElseThrow(() -> new NotFoundException("Version not found"));
-        return DocumentVersionResponse.from(v);
+        return DocumentVersionResponse.from(v, resolveTriggerCommit(v));
+    }
+
+    /**
+     * Look up the full commit that triggered an AI version, by SHA. Returns
+     * null if no commit matches (e.g. for human edits or older versions
+     * that pre-date commit ingestion).
+     */
+    @Transactional(readOnly = true)
+    public CommitSummaryDto getTriggerCommit(UUID actorId, UUID documentId, Integer versionNumber) {
+        loadAndAuthorize(actorId, documentId);
+        DocumentVersion v = versionRepository.findByDocumentIdAndVersionNumber(documentId, versionNumber)
+                .orElseThrow(() -> new NotFoundException("Version not found"));
+        return resolveTriggerCommit(v);
+    }
+
+    private CommitSummaryDto resolveTriggerCommit(DocumentVersion v) {
+        if (v.getSourceCommitSha() == null || v.getSourceCommitSha().isBlank()) {
+            return null;
+        }
+        Commit commit = commitRepository.findFirstBySha(v.getSourceCommitSha()).orElse(null);
+        if (commit == null) {
+            // No commit row persisted — synthesise a minimal summary from the SHA so the UI
+            // can still render "Triggered by commit abc1234" without a follow-up call.
+            String sha = v.getSourceCommitSha();
+            return new CommitSummaryDto(
+                    null, sha, sha.length() > 7 ? sha.substring(0, 7) : sha,
+                    null, null, null, null
+            );
+        }
+        return CommitSummaryDto.from(commit);
     }
 
     /**
@@ -197,6 +255,30 @@ public class DocumentVersionService {
                 .orElseThrow(() -> new NotFoundException("To version not found"));
         String diff = computeUnifiedDiff(from.getBodyMarkdown(), to.getBodyMarkdown());
         return DocumentVersionDiffResponse.of(from, to, diff);
+    }
+
+    /**
+     * Compare the most recent AI-authored version against the most recent
+     * published version of a document. Used by the "Compare AI vs published"
+     * shortcut in the UI.
+     */
+    @Transactional(readOnly = true)
+    public DocumentVersionDiffResponse diffAgainstPublished(UUID actorId, UUID documentId) {
+        loadAndAuthorize(actorId, documentId);
+        // Find the latest AI-authored version (status any — pending/in_review/approved/published all count)
+        DocumentVersion latestAi = versionRepository
+                .findAllByDocumentIdOrderByVersionNumberDesc(documentId).stream()
+                .filter(v -> v.getActorRole() == ActorRole.AI)
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("No AI-authored version found for this document"));
+        // Find the most recent PUBLISHED version
+        DocumentVersion published = versionRepository
+                .findAllByDocumentIdOrderByVersionNumberDesc(documentId).stream()
+                .filter(v -> v.getStatus() == VersionStatus.PUBLISHED)
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("No published version found for this document"));
+        String diff = computeUnifiedDiff(published.getBodyMarkdown(), latestAi.getBodyMarkdown());
+        return DocumentVersionDiffResponse.of(published, latestAi, diff);
     }
 
     // -----------------------------------------------------------------

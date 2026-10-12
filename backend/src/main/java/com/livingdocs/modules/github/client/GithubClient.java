@@ -44,4 +44,17 @@ public interface GithubClient {
      * @throws GithubClientException if the repo is not found or not accessible
      */
     GithubRepositorySummary fetchRepositoryByUrl(String accessToken, String url);
+
+    /**
+     * Lists commits for the given repository, newest first.
+     *
+     * @param since optional filter — only commits with {@code authored_at > since}
+     */
+    List<GithubCommit> listCommits(String accessToken, String owner, String repo, int perPage, java.time.OffsetDateTime since);
+
+    /**
+     * Fetches full metadata for a single repository (refreshes description,
+     * default branch, visibility, etc.). Used by the real re-sync.
+     */
+    GithubRepositorySummary getRepository(String accessToken, String owner, String repo);
 }

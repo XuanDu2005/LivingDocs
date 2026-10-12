@@ -55,6 +55,7 @@ export interface Repository {
   connectedBy: string;
   connectedAt: string;
   lastSyncedAt: string | null;
+  autoUpdateEnabled: boolean;
 }
 
 export interface PullRequest {
@@ -158,4 +159,43 @@ export const githubApi = {
     );
     return res.data;
   },
+
+  async ingestCommits(workspaceId: string, repositoryId: string, perPage = 30) {
+    const res = await apiClient.post<{ ingested: number; commits: Commit[] }>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/commits/ingest?perPage=${perPage}`,
+    );
+    return res.data;
+  },
+
+  async listCommits(workspaceId: string, repositoryId: string, limit = 50): Promise<Commit[]> {
+    const res = await apiClient.get<Commit[]>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/commits?limit=${limit}`,
+    );
+    return res.data;
+  },
+
+  async setRepositoryAutoUpdate(
+    workspaceId: string,
+    repositoryId: string,
+    enabled: boolean,
+  ): Promise<Repository> {
+    const res = await apiClient.put<Repository>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/auto-update?enabled=${enabled}`,
+    );
+    return res.data;
+  },
 };
+
+export interface Commit {
+  id: string;
+  repositoryId: string;
+  sha: string;
+  shortSha: string;
+  message: string | null;
+  authorName: string | null;
+  authorEmail: string | null;
+  authoredAt: string;
+  committedAt: string | null;
+  url: string | null;
+  branch: string | null;
+}

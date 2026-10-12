@@ -19,5 +19,6 @@ public record RepositoryResponse(
         String status,
         String connectedBy,
         String connectedAt,
-        String lastSyncedAt) {
+        String lastSyncedAt,
+        boolean autoUpdateEnabled) {
 }

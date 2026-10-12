@@ -32,6 +32,7 @@ import KnowledgeBasePage from '../pages/KnowledgeBasePage';
 import LoginPage from '../pages/LoginPage';
 import NewDocumentPage from '../pages/NewDocumentPage';
 import NotFoundPage from '../pages/NotFoundPage';
+import NotificationPreferencesPage from '../pages/NotificationPreferencesPage';
 import OAuthCallbackPage from '../pages/OAuthCallbackPage';
 import RepositoryPage from '../pages/RepositoryPage';
 import ProfilePage from '../pages/ProfilePage';
@@ -125,6 +126,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <ProfilePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile/notifications"
+          element={
+            <ProtectedRoute>
+              <NotificationPreferencesPage />
             </ProtectedRoute>
           }
         />

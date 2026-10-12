@@ -13,6 +13,7 @@ import {
   login as loginRequest,
   register as registerRequest,
   verifyEmail as verifyEmailRequest,
+  serverLogout,
   LoginPayload,
   RegisterPayload,
   VerifyEmailPayload,
@@ -42,8 +43,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     Boolean(authStorage.getToken()),
   );
 
-  const persist = useCallback((token: string, nextUser: AuthenticatedUser) => {
+  const persist = useCallback((token: string, nextUser: AuthenticatedUser, refreshToken?: string, refreshExpiresAt?: string) => {
     authStorage.setToken(token);
+    if (refreshToken) {
+      authStorage.setRefreshToken(refreshToken, refreshExpiresAt);
+    }
     authStorage.setUser(nextUser);
     setUser(nextUser);
   }, []);
@@ -95,7 +99,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = useCallback(
     async (payload: LoginPayload) => {
       const result = await loginRequest(payload);
-      persist(result.token, result.user);
+      persist(result.token, result.user, result.refreshToken, result.refreshExpiresAt);
     },
     [persist],
   );
@@ -113,14 +117,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const verifyEmail = useCallback(
     async (payload: VerifyEmailPayload) => {
       const result = await verifyEmailRequest(payload);
-      persist(result.token, result.user);
+      persist(result.token, result.user, result.refreshToken, result.refreshExpiresAt);
     },
     [persist],
   );
 
-  const logout = useCallback(() => {
-    authStorage.clearToken();
-    authStorage.clearUser();
+  const logout = useCallback(async () => {
+    const refreshToken = authStorage.getRefreshToken();
+    // Best-effort: ask the server to revoke the refresh token. Ignore failures
+    // (e.g. offline) and always clear local state.
+    try {
+      if (refreshToken) {
+        await serverLogout(refreshToken);
+      }
+    } catch {
+      // non-fatal
+    }
+    authStorage.clearAll();
     setUser(null);
   }, []);
 

@@ -1,13 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Check, LogOut, User } from 'lucide-react';
+import { Bell, Check, LogOut, User } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+    Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '../components/ui/card';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { LinkedAccountsCard } from '../components/auth/LinkedAccountsCard';
@@ -51,8 +51,8 @@ export default function ProfilePage() {
     }
   }
 
-  function handleSignOut() {
-    logout();
+  async function handleSignOut() {
+    await logout();
     navigate('/login', { replace: true });
   }
 
@@ -114,6 +114,26 @@ export default function ProfilePage() {
               {submitting ? t('common.actions.saving') : t('profile.saveChanges')}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium flex items-center gap-2">
+                <Bell className="h-4 w-4" /> {t('profile.notificationSettings', 'Notification settings')}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t('profile.notificationSettingsDesc', 'Choose how and when LivingDocs notifies you.')}
+              </div>
+            </div>
+            <Button variant="outline" asChild>
+              <Link to="/profile/notifications">
+                {t('common.manage', 'Manage')}
+              </Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
-import { ShieldAlert, FileCode, Wand2 } from 'lucide-react';
+import { ShieldAlert, FileCode, Wand2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import { LoadingState } from './ui/states';
+import { describeError } from '../services/auth';
 
 interface CoverageGapsPanelProps {
   workspaceId: string;
@@ -21,8 +24,11 @@ interface GapEntity {
 
 export default function CoverageGapsPanel({ workspaceId, repositoryId }: CoverageGapsPanelProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [gaps, setGaps] = useState<GapEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchGaps = async () => {
@@ -41,6 +47,77 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
       fetchGaps();
     }
   }, [workspaceId, repositoryId]);
+
+  // Build a stable slug from a code entity (e.g. "ClassName::methodName" -> "classname-methodname")
+  function buildSlug(entity: GapEntity): string {
+    const base = entity.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    return base.slice(0, 80) || 'entity';
+  }
+
+  // Build a documentation body prompt based on the code entity
+  function buildInitialBody(entity: GapEntity): string {
+    return [
+      `# ${entity.name}`,
+      '',
+      `> Auto-generated stub for **${entity.kind}** at \`${entity.file_path}\`.`,
+      '',
+      entity.signature ? `## Signature\n\n\`\`\`\n${entity.signature}\n\`\`\`\n` : '',
+      '## Overview',
+      '',
+      '_Pending AI generation — click "Generate with AI" to fill in._',
+    ].join('\n');
+  }
+
+  async function handleGenerate(gap: GapEntity) {
+    if (!workspaceId || !repositoryId) return;
+    setGeneratingId(gap.id);
+    setError(null);
+    try {
+      // 1. Create a new document pre-filled with the entity info
+      const title = gap.name;
+      const slug = buildSlug(gap) + '-' + Date.now().toString(36);
+      const initialBody = buildInitialBody(gap);
+      const docType = 'AUTO_' + (gap.kind || 'CODE').toUpperCase();
+
+      const created = await apiClient
+        .post<{ id: string }>(`/workspaces/${workspaceId}/documents`, {
+          title,
+          slug,
+          docType,
+          summary: `Auto-created from coverage gap at ${gap.file_path}`,
+          repositoryId,
+          autoUpdateEnabled: true,
+          initialBody,
+        })
+        .then((r) => r.data);
+
+      // 2. Trigger AI generation for the new document
+      await apiClient.post(
+        `/workspaces/${workspaceId}/documents/${created.id}/generate`,
+        { sourceFiles: [] },
+      );
+
+      // 3. Link the code entity to the new document so the gap is filled
+      try {
+        await apiClient.post(
+          `/workspaces/${workspaceId}/documents/${created.id}/links`,
+          { codeEntityId: gap.id, linkKind: 'AUTO', confidence: 1.0 },
+        );
+      } catch {
+        // Non-fatal: doc was created even if link failed
+      }
+
+      // 4. Navigate to the new document so the user can review the AI draft
+      navigate(`/workspaces/${workspaceId}/documents/${created.id}`);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setGeneratingId(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -78,6 +155,11 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
         </p>
       </CardHeader>
       <CardContent className="p-0">
+        {error && (
+          <div className="m-3 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
         <ul className="divide-y divide-gray-100 dark:divide-gray-800 max-h-[350px] overflow-y-auto">
           {gaps.map((gap) => (
             <li key={gap.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors flex items-start gap-3">
@@ -96,9 +178,25 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
                   </div>
                 )}
               </div>
-              <button className="shrink-0 flex items-center text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1.5 rounded dark:bg-orange-900/40 dark:text-orange-400 dark:hover:bg-orange-900/60 transition-colors">
-                <Wand2 className="w-3 h-3 mr-1" /> {t('coverage.generateDoc', 'Tạo Doc bằng AI')}
-              </button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 text-orange-700 border-orange-200 hover:bg-orange-100 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-900/40"
+                onClick={() => void handleGenerate(gap)}
+                disabled={generatingId !== null}
+              >
+                {generatingId === gap.id ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    {t('coverage.generating', 'Đang tạo...')}
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-3 h-3 mr-1" />
+                    {t('coverage.generateDoc', 'Tạo Doc bằng AI')}
+                  </>
+                )}
+              </Button>
             </li>
           ))}
         </ul>
