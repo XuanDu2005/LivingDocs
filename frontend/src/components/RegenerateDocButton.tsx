@@ -2,6 +2,7 @@ import { useState } from 'react';
 import apiClient from '../services/api';
 import { RefreshCw, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/button';
+import { useTranslation } from 'react-i18next';
 
 interface RegenerateDocButtonProps {
   workspaceId: string;
@@ -9,6 +10,9 @@ interface RegenerateDocButtonProps {
 }
 
 export default function RegenerateDocButton({ workspaceId, documentId }: RegenerateDocButtonProps) {
+  // KHAI BÁO ĐÚNG CHUẨN: Nằm ngay đầu tiên bên trong component chính
+  const { t } = useTranslation();
+  
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -19,7 +23,6 @@ export default function RegenerateDocButton({ workspaceId, documentId }: Regener
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
-        // Tải lại trang để bảng Lịch sử phiên bản (Version History) hiện bản nháp mới
         window.location.reload(); 
       }, 2000);
     } catch (error) {
@@ -38,11 +41,11 @@ export default function RegenerateDocButton({ workspaceId, documentId }: Regener
       className="border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-400 dark:hover:bg-blue-900/30 shadow-sm"
     >
       {loading ? (
-        <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Đang nhờ AI viết lại...</>
+        <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> {t('documentDetail.regenerateDocLoading', 'Đang chờ AI viết lại...')}</>
       ) : success ? (
-        <><CheckCircle2 className="w-4 h-4 mr-2 text-green-500" /> Đã tạo bản nháp mới!</>
+        <><CheckCircle2 className="w-4 h-4 mr-2 text-green-500" /> {t('documentDetail.regenerateDocSuccess', 'Đã tạo bản nháp mới!')}</>
       ) : (
-        <><RefreshCw className="w-4 h-4 mr-2" /> AI Cập nhật lại tài liệu</>
+        <><RefreshCw className="w-4 h-4 mr-2" /> {t('documentDetail.regenerateDoc', 'AI Cập nhật lại tài liệu')}</>
       )}
     </Button>
   );
