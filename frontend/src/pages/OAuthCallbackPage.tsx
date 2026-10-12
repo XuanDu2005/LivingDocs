@@ -36,6 +36,7 @@ export default function OAuthCallbackPage() {
     ran.current = true;
     const token = params.get('token');
     const error = params.get('error');
+    const linked = params.get('linked');
     const next = params.get('next') ?? '/dashboard';
     const provider = params.get('provider');
 
@@ -43,6 +44,15 @@ export default function OAuthCallbackPage() {
       setStatus('error');
       setErrorCode(error);
       setErrorMessage(params.get('message'));
+      return;
+    }
+    if (linked) {
+      // The "link" flow does NOT return a JWT — it just signals success.
+      // Forward the user back to the profile page so the LinkedAccountsCard
+      // can pick up ?linked=... and show the success message.
+      setStatus('success');
+      const target = `/profile?linked=${encodeURIComponent(linked)}`;
+      window.setTimeout(() => navigate(target, { replace: true }), 600);
       return;
     }
     if (!token) {

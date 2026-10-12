@@ -93,15 +93,16 @@ public class AccountLinkController {
     }
 
     @PostMapping("/{provider}/link/start")
-    @Operation(summary = "Start the link flow — 302 to the provider")
+    @Operation(summary = "Start the link flow — returns the provider authorize URL")
     public ResponseEntity<Map<String, String>> startLink(@PathVariable String provider) {
         UUID userId = CurrentUser.requireId();
         OAuthProvider p = OAuthProvider.fromWire(provider);
         OAuthState state = stateService.issue(OAuthState.Action.LINK, p, userId, null);
         String url = adapterFactory.get(p).buildAuthorizationUrl(state.getStateKey());
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .header("Location", url)
-                .body(Map.of("url", url, "state", state.getStateKey()));
+        // Return 200 OK with the URL in the body. The front-end performs
+        // a top-level navigation (window.location.href = url) to the
+        // provider, so we don't need to send a 302 here.
+        return ResponseEntity.ok(Map.of("url", url, "state", state.getStateKey()));
     }
 
     @GetMapping("/{provider}/link/callback")
@@ -129,17 +130,14 @@ public class AccountLinkController {
         }
         try {
             OAuthUserInfo info = oauthService.exchangeAndFetch(p, code);
-            oauthService.linkIdentityToCurrentUser(userId, info);
+            // Use "force" semantics: if the provider identity is already
+            // linked to a different LivingDocs user, reassign it to the
+            // current one. The user explicitly requested the link from
+            // the profile page, so the merge is intentional.
+            oauthService.linkIdentityToCurrentUserForce(userId, info);
             log.info("Linked {} identity to user {}", p, userId);
             return ResponseEntity.status(HttpStatus.FOUND)
                     .header("Location", "/auth/callback?linked=" + p.wireValue())
-                    .build();
-        } catch (ConflictException ce) {
-            // Provider already linked to a different account. The front-end
-            // shows a "merge" modal; we just signal it via a query code.
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", "/auth/callback?error=merge_required&provider="
-                            + p.wireValue())
                     .build();
         } catch (Exception e) {
             log.error("Link callback failed for {}", p, e);

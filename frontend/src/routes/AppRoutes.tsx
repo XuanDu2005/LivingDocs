@@ -1,6 +1,6 @@
 import { Route, Routes as RRoutes } from 'react-router-dom';
 
-import { GuestRoute, ProtectedRoute } from '../components/ProtectedRoute';
+import { GuestRoute, ProtectedRoute, AuthCallbackRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
 import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
@@ -105,9 +105,9 @@ export function AppRoutes() {
         <Route
           path="/auth/callback"
           element={
-            <GuestRoute>
+            <AuthCallbackRoute>
               <OAuthCallbackPage />
-            </GuestRoute>
+            </AuthCallbackRoute>
           }
         />
 

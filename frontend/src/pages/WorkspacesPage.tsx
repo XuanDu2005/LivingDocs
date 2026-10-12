@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
+import { GithubConnectionCard } from '../components/GithubConnectionCard';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 import {
@@ -160,6 +161,12 @@ export default function WorkspacesPage() {
 
       {error && <ErrorState message={error} />}
       {loading && <LoadingState message={t('workspaces.loading')} />}
+
+      {!loading && !error && (
+        <div className="mb-6">
+          <GithubConnectionCard />
+        </div>
+      )}
 
       {!loading && !error && workspaces.length === 0 && (
         <EmptyState
