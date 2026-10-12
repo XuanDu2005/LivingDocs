@@ -2,12 +2,15 @@ package com.livingdocs.modules.admin.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /**
  * Singleton row that holds the platform-wide defaults for documentation
@@ -25,6 +28,7 @@ public class PlatformSettings {
     @Column(name = "id", nullable = false)
     private int id = SINGLETON_ID;
 
+    // Auto-update triggers applied to a new workspace.
     @Column(name = "default_auto_update_on_commit", nullable = false)
     private boolean defaultAutoUpdateOnCommit = false;
 
@@ -45,6 +49,18 @@ public class PlatformSettings {
 
     @Column(name = "default_ai_confidence_threshold", nullable = false)
     private float defaultAiConfidenceThreshold = 0.70f;
+
+    // V17: documentation-generation defaults
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_output_format", nullable = false, length = 16)
+    private DocOutputFormat defaultOutputFormat = DocOutputFormat.MARKDOWN;
+
+    @Column(name = "default_template_id")
+    private UUID defaultTemplateId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "default_generation_trigger", nullable = false, length = 24)
+    private GenerationTrigger defaultGenerationTrigger = GenerationTrigger.ON_PULL_REQUEST;
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
@@ -72,6 +88,9 @@ public class PlatformSettings {
     public boolean isDefaultRequireManagerApproval() { return defaultRequireManagerApproval; }
     public String getDefaultMergePolicyCritical() { return defaultMergePolicyCritical; }
     public float getDefaultAiConfidenceThreshold() { return defaultAiConfidenceThreshold; }
+    public DocOutputFormat getDefaultOutputFormat() { return defaultOutputFormat; }
+    public UUID getDefaultTemplateId() { return defaultTemplateId; }
+    public GenerationTrigger getDefaultGenerationTrigger() { return defaultGenerationTrigger; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 
     public void setDefaultAutoUpdateOnCommit(boolean v) { this.defaultAutoUpdateOnCommit = v; }
@@ -81,4 +100,7 @@ public class PlatformSettings {
     public void setDefaultRequireManagerApproval(boolean v) { this.defaultRequireManagerApproval = v; }
     public void setDefaultMergePolicyCritical(String v) { this.defaultMergePolicyCritical = v; }
     public void setDefaultAiConfidenceThreshold(float v) { this.defaultAiConfidenceThreshold = v; }
+    public void setDefaultOutputFormat(DocOutputFormat v) { this.defaultOutputFormat = v; }
+    public void setDefaultTemplateId(UUID v) { this.defaultTemplateId = v; }
+    public void setDefaultGenerationTrigger(GenerationTrigger v) { this.defaultGenerationTrigger = v; }
 }

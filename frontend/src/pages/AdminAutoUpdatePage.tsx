@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowLeft,
+  FileType,
   GitMerge,
   GitPullRequest,
   Loader2,
@@ -11,6 +12,7 @@ import {
   ShieldAlert,
   Sparkles,
   Workflow,
+  X,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -23,15 +25,36 @@ import { Input } from '../components/ui/input';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import {
+  DocOutputFormat,
+  GenerationTrigger,
   PlatformDocTypePolicy,
   PlatformSettings,
   UpdatePlatformDocTypePolicyPayload,
   UpdatePlatformSettingsPayload,
   platformSettingsApi,
 } from '../services/platformSettings';
+import { AdminDocTemplate, adminTemplatesApi } from '../services/adminTemplates';
 
 const DRIFT_THRESHOLDS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 const MERGE_POLICIES = ['WARN', 'BLOCK'] as const;
+const OUTPUT_FORMATS: DocOutputFormat[] = ['MARKDOWN', 'HTML', 'PDF'];
+const GENERATION_TRIGGERS: GenerationTrigger[] = [
+  'MANUAL', 'ON_COMMIT', 'ON_PULL_REQUEST', 'ON_MERGE', 'SCHEDULED',
+];
+
+const TRIGGER_LABELS: Record<GenerationTrigger, string> = {
+  MANUAL: 'Manual',
+  ON_COMMIT: 'On commit',
+  ON_PULL_REQUEST: 'On pull request',
+  ON_MERGE: 'On merge',
+  SCHEDULED: 'Scheduled',
+};
+
+const FORMAT_LABELS: Record<DocOutputFormat, string> = {
+  MARKDOWN: 'Markdown',
+  HTML: 'HTML',
+  PDF: 'PDF',
+};
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   MODULE_GUIDE: 'Module guide',
@@ -51,8 +74,9 @@ const DOC_TYPE_LABELS: Record<string, string> = {
  *
  * <p>This page exposes two distinct concerns:
  * <ul>
- *   <li>Trigger + drift + merge defaults — copied into new workspaces
- *       on creation.</li>
+ *   <li>Trigger + drift + merge + output-format + template-binding +
+ *       generation-trigger defaults — copied into new workspaces on
+ *       creation.</li>
  *   <li>Per-documentation-type workflow policy — whether generated
  *       docs of a given type are auto-applied or queued for review.</li>
  * </ul>
@@ -61,6 +85,7 @@ export default function AdminAutoUpdatePage() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [policies, setPolicies] = useState<PlatformDocTypePolicy[]>([]);
+  const [globalTemplates, setGlobalTemplates] = useState<AdminDocTemplate[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -75,17 +100,23 @@ export default function AdminAutoUpdatePage() {
   const [requireApproval, setRequireApproval] = useState<boolean>(true);
   const [mergePolicy, setMergePolicy] = useState<string>('WARN');
   const [confidence, setConfidence] = useState<number>(0.70);
+  // V17: doc-generation defaults
+  const [outputFormat, setOutputFormat] = useState<DocOutputFormat>('MARKDOWN');
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [genTrigger, setGenTrigger] = useState<GenerationTrigger>('ON_PULL_REQUEST');
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [s, p] = await Promise.all([
+      const [s, p, tplRes] = await Promise.all([
         platformSettingsApi.get(),
         platformSettingsApi.listDocTypePolicies(),
+        adminTemplatesApi.list().catch(() => null),
       ]);
       setSettings(s);
       setPolicies(p);
+      setGlobalTemplates(tplRes?.globalTemplates ?? []);
       // Seed local form state.
       setAutoOnCommit(s.defaultAutoUpdateOnCommit);
       setAutoOnPr(s.defaultAutoUpdateOnPr);
@@ -94,6 +125,9 @@ export default function AdminAutoUpdatePage() {
       setRequireApproval(s.defaultRequireManagerApproval);
       setMergePolicy(s.defaultMergePolicyCritical);
       setConfidence(s.defaultAiConfidenceThreshold);
+      setOutputFormat(s.defaultOutputFormat);
+      setTemplateId(s.defaultTemplateId);
+      setGenTrigger(s.defaultGenerationTrigger);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -116,6 +150,9 @@ export default function AdminAutoUpdatePage() {
         defaultRequireManagerApproval: requireApproval,
         defaultMergePolicyCritical: mergePolicy,
         defaultAiConfidenceThreshold: confidence,
+        defaultOutputFormat: outputFormat,
+        defaultTemplateId: templateId,
+        defaultGenerationTrigger: genTrigger,
       };
       const updated = await platformSettingsApi.update(payload);
       setSettings(updated);
@@ -154,7 +191,24 @@ export default function AdminAutoUpdatePage() {
     || settings.defaultRequireManagerApproval !== requireApproval
     || settings.defaultMergePolicyCritical !== mergePolicy
     || Math.abs(settings.defaultAiConfidenceThreshold - confidence) > 0.001
+    || settings.defaultOutputFormat !== outputFormat
+    || (settings.defaultTemplateId ?? null) !== (templateId ?? null)
+    || settings.defaultGenerationTrigger !== genTrigger
   );
+
+  // Build the "default-template" picker: latest version of every global
+  // template, labelled with its docType and version.
+  const templateOptions = (() => {
+    const byLatest = new Map<string, AdminDocTemplate>();
+    for (const tpl of globalTemplates) {
+      const existing = byLatest.get(tpl.slug);
+      if (!existing || existing.version < tpl.version) byLatest.set(tpl.slug, tpl);
+    }
+    return Array.from(byLatest.values()).sort((a, b) => {
+      if (a.docType === b.docType) return a.name.localeCompare(b.name);
+      return a.docType.localeCompare(b.docType);
+    });
+  })();
 
   return (
     <div className="space-y-6">
@@ -285,6 +339,81 @@ export default function AdminAutoUpdatePage() {
             <p className="text-xs text-muted-foreground">
               {t('adminAutoUpdate.confidenceThresholdHelp')}
             </p>
+          </div>
+
+          {/* V17: doc-generation defaults */}
+          <div className="space-y-3 rounded-md border p-3">
+            <div className="flex items-center gap-2">
+              <FileType className="h-4 w-4" />
+              <div className="text-sm font-medium">Documentation generation defaults</div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These values are copied into every newly-created workspace.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Default output format</label>
+                <Select
+                  value={outputFormat}
+                  onValueChange={(v) => setOutputFormat(v as DocOutputFormat)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {OUTPUT_FORMATS.map((f) => (
+                      <SelectItem key={f} value={f}>{FORMAT_LABELS[f]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Default generation trigger</label>
+                <Select
+                  value={genTrigger}
+                  onValueChange={(v) => setGenTrigger(v as GenerationTrigger)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {GENERATION_TRIGGERS.map((tr) => (
+                      <SelectItem key={tr} value={tr}>{TRIGGER_LABELS[tr]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Default template (optional)</label>
+              <div className="flex gap-2">
+                <Select
+                  value={templateId ?? '__none__'}
+                  onValueChange={(v) => setTemplateId(v === '__none__' ? null : v)}
+                >
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="(no default template)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">(no default template)</SelectItem>
+                    {templateOptions.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>
+                        {tpl.name} · {DOC_TYPE_LABELS[tpl.docType] ?? tpl.docType} · v{tpl.version}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {templateId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setTemplateId(null)}
+                    title="Clear default template"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                When a workspace is created it inherits this template binding unless
+                overridden. Leave empty to let workspaces pick their own default.
+              </p>
+            </div>
           </div>
 
           <div className="flex justify-end">

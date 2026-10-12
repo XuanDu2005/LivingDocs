@@ -6,6 +6,14 @@
  */
 import apiClient from './api';
 
+export type DocOutputFormat = 'MARKDOWN' | 'HTML' | 'PDF';
+export type GenerationTrigger =
+  | 'MANUAL'
+  | 'ON_COMMIT'
+  | 'ON_PULL_REQUEST'
+  | 'ON_MERGE'
+  | 'SCHEDULED';
+
 export interface PlatformSettings {
   defaultAutoUpdateOnCommit: boolean;
   defaultAutoUpdateOnPr: boolean;
@@ -14,6 +22,9 @@ export interface PlatformSettings {
   defaultRequireManagerApproval: boolean;
   defaultMergePolicyCritical: string;
   defaultAiConfidenceThreshold: number;
+  defaultOutputFormat: DocOutputFormat;
+  defaultTemplateId: string | null;
+  defaultGenerationTrigger: GenerationTrigger;
   updatedAt: string;
 }
 
@@ -31,6 +42,9 @@ export interface UpdatePlatformSettingsPayload {
   defaultRequireManagerApproval: boolean;
   defaultMergePolicyCritical: string;
   defaultAiConfidenceThreshold: number;
+  defaultOutputFormat: DocOutputFormat;
+  defaultTemplateId: string | null;
+  defaultGenerationTrigger: GenerationTrigger;
 }
 
 export interface UpdatePlatformDocTypePolicyPayload {

@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LivingDocs</title>
+    <script>
+      // Defensive: unregister any service worker left over from a previous
+      // deployment (PWA experiments, etc.) so the SPA can mount a single
+      // instance of <div id="root">. Stale SWs cache the old bundle and cause
+      // duplicate / overlapping renders on the knowledge base and other pages.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          for (const r of regs) r.unregister().catch(() => {});
+        });
+        if (window.caches && caches.keys) {
+          caches.keys().then((keys) => {
+            for (const k of keys) caches.delete(k).catch(() => {});
+          });
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
