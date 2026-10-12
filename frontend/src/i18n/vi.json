@@ -954,5 +954,18 @@
     "confirmPassword": "Xác nhận mật khẩu",
     "passwordMismatch": "Mật khẩu xác nhận không khớp.",
     "emailAlreadyRegistered": "Email này đã được đăng ký. Bạn có thể đăng nhập hoặc đặt lại mật khẩu."
+  },
+  "documentDetail": {
+    "generateAi": "Sinh bằng AI",
+    "addTag": "Thêm thẻ",
+    "newTagTitle": "Thêm thẻ mới",
+    "newTagDesc": "Tạo thẻ mới và gắn vào tài liệu này.",
+    "tagName": "Tên thẻ",
+    "tagNamePlaceholder": "VD: Quan trọng, Backend...",
+    "tagColor": "Màu sắc",
+    "saveTag": "Lưu thẻ",
+    "regenerateDocLoading": "Đang chờ AI viết lại...",
+    "regenerateDocSuccess": "Đã tạo bản nháp mới!",
+    "regenerateDoc": "AI Cập nhật lại tài liệu"
+    }
   }
-}
