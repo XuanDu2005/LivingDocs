@@ -1,3 +1,6 @@
+import RegenerateDocButton from '../components/RegenerateDocButton';
+import { tagsApi, DocumentTag } from '../services/tags';
+import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -28,8 +31,6 @@ import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
 import { describeError } from '../services/auth';
 import { format } from 'date-fns';
-import RegenerateDocButton from '../components/RegenerateDocButton';
-
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
   PENDING: 'warning',
   IN_REVIEW: 'info',
@@ -100,6 +101,43 @@ export default function DocumentDetailPage() {
   const [generating, setGenerating] = useState<boolean>(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [tab, setTab] = useState<string>('content');
+  const [docTags, setDocTags] = useState<DocumentTag[]>([]);
+
+  useEffect(() => {
+    if (workspaceId && documentId) {
+      tagsApi.getDocumentTags(workspaceId, documentId)
+        .then(data => setDocTags(data))
+        .catch(err => console.error("Lỗi tải tags:", err));
+    }
+  }, [workspaceId, documentId]);
+
+  async function handleAddNewTag() {
+    if (!workspaceId || !documentId || !newTagName.trim()) return;
+    setAddingTag(true);
+    try {
+      //API call to create a new tag
+      const newTag = await tagsApi.createTag(workspaceId, newTagName.trim(), newTagColor);
+      //API call to assign the new tag to the document
+      await tagsApi.assignTag(workspaceId, documentId, newTag.id);
+      // Update the local state to include the new tag
+      setDocTags((prev) => [...prev, newTag]);
+      // Reset the form and close the dialog
+      setShowAddTag(false);
+      setNewTagName('');
+      setNewTagColor('#3b82f6');
+    } catch (err) {
+      console.error("Lỗi thêm thẻ:", err);
+      alert("Lỗi khi thêm thẻ: " + describeError(err));
+    } finally {
+      setAddingTag(false);
+    }
+  }
+
+  /*    Tag Management   */
+  const [showAddTag, setShowAddTag] = useState<boolean>(false);
+  const [newTagName, setNewTagName] = useState<string>('');
+  const [newTagColor, setNewTagColor] = useState<string>('#3b82f6'); // Mặc định màu xanh dương
+  const [addingTag, setAddingTag] = useState<boolean>(false);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -356,6 +394,66 @@ export default function DocumentDetailPage() {
             </button>
           </div>
         </div>
+        {/* Tag Management */}
+          <div className="pt-3 flex items-center gap-2 flex-wrap min-h-[32px]">
+            <DocumentTags tags={docTags} />
+
+            <Dialog open={showAddTag} onOpenChange={setShowAddTag}>
+              <DialogTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-[24px] text-[11px] px-2 py-0 border-dashed font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Thêm thẻ
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader>
+                  <DialogTitle>Thêm thẻ mới</DialogTitle>
+                  <DialogDescription>
+                    Tạo thẻ mới và gắn vào tài liệu này.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="tagName" className="text-right">Tên thẻ</Label>
+                    <Input
+                      id="tagName"
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      className="col-span-3"
+                      placeholder="VD: Quan trọng, Backend..."
+                      maxLength={30}
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">Màu sắc</Label>
+                    <div className="col-span-3 flex items-center gap-3 flex-wrap">
+                      {['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7', '#64748B'].map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setNewTagColor(color)}
+                          className={`w-6 h-6 rounded-full cursor-pointer transition-all border border-gray-600 shadow-sm
+                            ${newTagColor === color ? 'ring-2 ring-offset-2 ring-primary scale-110' : 'hover:scale-110 opacity-80'}`}
+                          style={{ backgroundColor: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddTag(false)}>Hủy</Button>
+                  <Button onClick={() => void handleAddNewTag()} disabled={!newTagName.trim() || addingTag}>
+                    {addingTag ? 'Đang lưu...' : 'Lưu thẻ'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        {/* --------------------------------------- */}
         <div className="flex gap-2 flex-shrink-0">
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
