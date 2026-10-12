@@ -33,4 +33,23 @@ public interface DriftAlertRepository extends JpaRepository<DriftAlert, UUID> {
     long countByWorkspaceId(UUID workspaceId);
     long countByWorkspaceIdAndResolutionStatus(UUID workspaceId, DriftResolution status);
     long countByWorkspaceIdAndSeverity(UUID workspaceId, DriftSeverity severity);
+
+    /**
+     * Total drift alerts for a single repository, regardless of
+     * resolution state. Used by the admin repository browser.
+     */
+    long countByRepositoryId(UUID repositoryId);
+
+    /**
+     * Open (unresolved) drift count for a single repository. Used by
+     * the admin row builder.
+     */
+    long countByRepositoryIdAndResolutionStatus(UUID repositoryId, DriftResolution status);
+
+    /**
+     * Convenience alias.
+     */
+    default long countOpenByRepositoryId(UUID repositoryId) {
+        return countByRepositoryIdAndResolutionStatus(repositoryId, DriftResolution.OPEN);
+    }
 }

@@ -74,6 +74,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/*/start",
                                                        "/api/v1/auth/oauth/*/callback",
                                                        "/api/v1/auth/oauth/*/sandbox-start").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/providers").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/*/link/start").permitAll()
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/oauth/*/link").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
                         .requestMatchers(
                                 "/actuator/health",
@@ -85,6 +88,7 @@ public class SecurityConfig {
                         // Webhook endpoint is authenticated via HMAC signature, not JWT.
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/github/oauth/callback").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/github/oauth/complete").permitAll()
                         // Integrations module: each provider verifies the request with its
                         // own mechanism (HMAC, shared token, signed timestamp), not JWT.
                         .requestMatchers(HttpMethod.POST,

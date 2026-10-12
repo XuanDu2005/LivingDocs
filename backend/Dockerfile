@@ -6,9 +6,16 @@ WORKDIR /app
 COPY pom.xml ./
 RUN mvn -B -e -ntp dependency:go-offline
 
-# Build the application
+# Build the application. Pass FORCE_REBUILD as a build arg so we can
+# bump the cache key when controller layer changes without the
+# pom.xml changing.
+ARG FORCE_REBUILD=0
 COPY src ./src
-RUN mvn -B -e -ntp clean package -DskipTests
+RUN if [ "$FORCE_REBUILD" != "0" ]; then \
+      echo "force rebuild: $FORCE_REBUILD"; \
+      find /app/target -type f -delete 2>/dev/null || true; \
+    fi && \
+    mvn -B -e -ntp clean package -DskipTests
 
 # ---- Runtime ----
 FROM eclipse-temurin:21-jre

@@ -65,6 +65,8 @@ export default function ProfilePage() {
         </p>
       </div>
 
+      <LinkedAccountsCard />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -114,8 +116,6 @@ export default function ProfilePage() {
           </form>
         </CardContent>
       </Card>
-
-      <LinkedAccountsCard />
 
       <Card>
         <CardContent className="pt-6">

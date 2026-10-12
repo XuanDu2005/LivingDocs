@@ -1,11 +1,17 @@
 import apiClient from './api';
 import {
+  AdminAiPlatformSummary,
+  AdminAiUsageRow,
+  AdminRepository,
+  AdminRepositoryReindexResponse,
   AdminWorkspace,
   AssignRolesPayload,
   AuditRetentionPolicy,
+  DailyUsagePoint,
   Permission,
   Role,
   RolePermissionMatrix,
+  UpdateAdminLimitsPayload,
   UpdateRetentionPolicyPayload,
   UpdateRolePermissionsPayload,
   UserWithRoles,
@@ -101,5 +107,56 @@ export const adminApi = {
 
   deleteWorkspace: async (workspaceId: string): Promise<void> => {
     await apiClient.delete(`/admin/workspaces/${workspaceId}`);
+  },
+
+  // Cross-tenant repository browser
+  listAllRepositories: async (): Promise<AdminRepository[]> => {
+    const { data } = await apiClient.get<AdminRepository[]>('/admin/repositories');
+    return data;
+  },
+
+  forceReindexRepository: async (repositoryId: string): Promise<AdminRepositoryReindexResponse> => {
+    const { data } = await apiClient.post<AdminRepositoryReindexResponse>(
+      `/admin/repositories/${repositoryId}/reindex`,
+    );
+    return data;
+  },
+
+  unlinkRepository: async (repositoryId: string): Promise<void> => {
+    await apiClient.delete(`/admin/repositories/${repositoryId}`);
+  },
+
+  // AI usage
+  getPlatformSummary: async (): Promise<AdminAiPlatformSummary> => {
+    const { data } = await apiClient.get<AdminAiPlatformSummary>('/admin/ai-usage/summary');
+    return data;
+  },
+
+  getPlatformChart: async (): Promise<DailyUsagePoint[]> => {
+    const { data } = await apiClient.get<DailyUsagePoint[]>('/admin/ai-usage/chart');
+    return data;
+  },
+
+  getWorkspaceBreakdown: async (): Promise<AdminAiUsageRow[]> => {
+    const { data } = await apiClient.get<AdminAiUsageRow[]>('/admin/ai-usage/workspaces');
+    return data;
+  },
+
+  getWorkspaceAiChart: async (workspaceId: string): Promise<DailyUsagePoint[]> => {
+    const { data } = await apiClient.get<DailyUsagePoint[]>(
+      `/admin/ai-usage/workspaces/${workspaceId}/chart`,
+    );
+    return data;
+  },
+
+  updateWorkspaceLimits: async (
+    workspaceId: string,
+    payload: UpdateAdminLimitsPayload,
+  ): Promise<AdminAiUsageRow> => {
+    const { data } = await apiClient.put<AdminAiUsageRow>(
+      `/admin/ai-usage/workspaces/${workspaceId}/limits`,
+      payload,
+    );
+    return data;
   },
 };

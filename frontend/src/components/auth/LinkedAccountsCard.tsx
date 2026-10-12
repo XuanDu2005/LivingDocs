@@ -16,9 +16,9 @@ import { describeError } from '../../services/auth';
 import {
   LinkedProvider,
   listLinkedProviders,
+  startLinkProvider,
   unlinkProvider,
 } from '../../services/authApi';
-import { apiOrigin } from '../../lib/apiBase';
 
 const ALL_PROVIDERS: Array<{
   id: 'google' | 'github';
@@ -75,9 +75,11 @@ export function LinkedAccountsCard() {
       void refreshUser();
     } else if (err) {
       setError(
-        err === 'merge_required'
-          ? 'Tài khoản OAuth này đã liên kết với một người dùng LivingDocs khác.'
-          : describeError(new Error(err)),
+        err === 'invalid_state'
+          ? 'Phiên liên kết đã hết hạn. Vui lòng thử lại.'
+          : err === 'link_failed'
+            ? 'Không thể liên kết tài khoản. Vui lòng thử lại.'
+            : describeError(new Error(err)),
       );
       const next = new URLSearchParams(params);
       next.delete('error');
@@ -86,9 +88,20 @@ export function LinkedAccountsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
-  const handleLink = (provider: 'google' | 'github') => {
+  const handleLink = async (provider: 'google' | 'github') => {
     setBusyProvider(provider);
-    window.location.href = `${apiOrigin}/api/v1/auth/oauth/${provider}/link/start`;
+    setError(null);
+    try {
+      const { url } = await startLinkProvider(provider);
+      // Navigate the browser to the provider authorize URL.
+      // We do this with a full page navigation (not React Router) so
+      // GitHub / Google receive a top-level GET, which is what the
+      // providers expect.
+      window.location.href = url;
+    } catch (e) {
+      setError(describeError(e));
+      setBusyProvider(null);
+    }
   };
 
   const handleUnlink = async (provider: 'google' | 'github') => {
