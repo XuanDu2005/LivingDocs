@@ -8,7 +8,6 @@ import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.auth.model.OAuthState;
 import com.livingdocs.modules.auth.service.OAuthService;
 import com.livingdocs.modules.auth.service.OAuthStateService;
-import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.OAuthProvider;
 import com.livingdocs.modules.user.model.User;
 import io.swagger.v3.oas.annotations.Operation;
@@ -111,8 +110,23 @@ public class OAuthController {
                 .build();
     }
 
+    /**
+     * OAuth provider callback. This endpoint handles BOTH the
+     * sign-in / register flow AND the "link provider to existing
+     * account" flow. The difference is stored in {@link OAuthState#getAction()}.
+     *
+     * <ul>
+     *   <li>{@code LOGIN} / {@code REGISTER} — issue a JWT and 302 back
+     *       to the front-end with the token in the query string.</li>
+     *   <li>{@code LINK} — the user must already be authenticated
+     *       (carrying a valid JWT). The identity returned by the
+     *       provider is force-linked to the current user, then the
+     *       browser is 302-ed back to the profile page with
+     *       {@code ?linked=...}.</li>
+     * </ul>
+     */
     @GetMapping("/{provider}/callback")
-    @Operation(summary = "OAuth provider callback — resolves the user, issues a JWT, redirects to the front-end")
+    @Operation(summary = "OAuth provider callback — resolves the user (login/link), issues a JWT or links the identity, redirects to the front-end")
     public ResponseEntity<Void> callback(@PathVariable String provider,
                                          @RequestParam("code") String code,
                                          @RequestParam("state") String stateKey,
@@ -124,23 +138,54 @@ public class OAuthController {
             return redirectToError("invalid_state");
         }
         OAuthState state = stateOpt.get();
-        if (state.getAction() == OAuthState.Action.LINK) {
-            // LINK callbacks are handled by a separate, authenticated endpoint.
-            return redirectWith(state.getRedirectAfter(), "link_callback_misrouted", null, null);
-        }
         if (error != null) {
             return redirectToError(error);
         }
         try {
             OAuthUserInfo info = oauthService.exchangeAndFetch(p, code);
+
+            if (state.getAction() == OAuthState.Action.LINK) {
+                return handleLinkCallback(state, p, info);
+            }
+
+            // LOGIN / REGISTER
             User user = oauthService.resolveUser(info);
             List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(user.getId());
             JwtService.IssuedToken issued = jwtService.issue(user.getId(), user.getEmail(), roleCodes);
             return redirectWithToken(state.getRedirectAfter(), issued.token(), p.wireValue(),
                     String.valueOf(issued.expiresAt().getEpochSecond()));
         } catch (Exception e) {
-            log.error("OAuth callback failed for provider={}", provider, e);
+            log.error("OAuth callback failed for provider={} action={}", provider, state.getAction(), e);
             return redirectToError("exchange_failed");
+        }
+    }
+
+    /**
+     * Handle the LINK branch of the callback. The user id is read from
+     * the consumed {@link OAuthState} (it was bound to the state at
+     * {@code /link/start} time) rather than from the request's JWT
+     * principal, because top-level browser navigations through
+     * Google/GitHub do not carry the {@code Authorization} header.
+     * The identity is force-linked to that user, then the browser is
+     * redirected to the profile page with {@code ?linked=...}.
+     */
+    private ResponseEntity<Void> handleLinkCallback(OAuthState state, OAuthProvider p, OAuthUserInfo info) {
+        UUID linkUserId = state.getUserId();
+        if (linkUserId == null) {
+            // Should never happen — the LINK state always carries a userId,
+            // but we guard against a corrupt/legacy state row.
+            log.error("LINK callback state is missing userId (provider={})", p);
+            return redirectToError("link_session_missing");
+        }
+        try {
+            oauthService.linkIdentityToCurrentUserForce(linkUserId, info);
+            log.info("Linked {} identity to user {} via /callback", p, linkUserId);
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .header("Location", publicUrl + "/auth/callback?linked=" + enc(p.wireValue()))
+                    .build();
+        } catch (Exception e) {
+            log.error("Link callback failed for {}", p, e);
+            return redirectToError("link_failed");
         }
     }
 

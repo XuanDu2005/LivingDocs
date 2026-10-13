@@ -151,7 +151,13 @@ public class OAuthService {
         if (clash.isPresent() && clash.get().getUserId().equals(userId)) {
             return clash.get();
         }
-        clash.ifPresent(existing -> identityRepository.delete(existing));
+        if (clash.isPresent()) {
+            // Flush the DELETE before we INSERT to avoid a unique-key
+            // violation on (provider, provider_user_id) when the row
+            // is deleted in the same transaction.
+            identityRepository.delete(clash.get());
+            identityRepository.flush();
+        }
         // Refresh display name / avatar / email from the fresh info.
         return linkIdentity(userId, info);
     }

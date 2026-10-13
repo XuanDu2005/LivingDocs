@@ -32,6 +32,18 @@ export interface AuthenticatedUser {
   roles?: string[];
   /** @deprecated Use {@link roles} (array) instead. Kept for backward compat. */
   role?: 'MEMBER' | 'MANAGER' | 'ADMIN';
+  /**
+   * OAuth identities currently linked to this user (Google, GitHub).
+   * Populated by the backend in every {@code /users/me} response, so
+   * the front-end can render linked-account status anywhere without
+   * a separate round-trip and stays in sync across devices.
+   */
+  linkedProviders?: Array<{
+    provider: 'google' | 'github';
+    providerEmail: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }>;
 }
 
 export interface AuthSuccess {

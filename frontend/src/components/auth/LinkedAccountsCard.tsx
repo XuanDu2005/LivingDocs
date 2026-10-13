@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FaGithub, FaGoogle } from 'react-icons/fa';
 import { Link2, Loader2, Unlink } from 'lucide-react';
@@ -13,12 +13,7 @@ import {
 } from '../ui/card';
 import { useAuth } from '../../contexts/AuthContext';
 import { describeError } from '../../services/auth';
-import {
-  LinkedProvider,
-  listLinkedProviders,
-  startLinkProvider,
-  unlinkProvider,
-} from '../../services/authApi';
+import { startLinkProvider, unlinkProvider } from '../../services/authApi';
 
 const ALL_PROVIDERS: Array<{
   id: 'google' | 'github';
@@ -29,36 +24,37 @@ const ALL_PROVIDERS: Array<{
   { id: 'github', name: 'GitHub', icon: <FaGithub className="h-5 w-5" /> },
 ];
 
+export interface LinkedAccountsCardProps {
+  /**
+   * Layout variants:
+   *   - "card"  : full Card with header (default; used on Profile page)
+   *   - "inline": compact list of chips/buttons for dashboards / sidebars
+   *   - "menu"  : minimal button-only row for navbars
+   */
+  variant?: 'card' | 'inline' | 'menu';
+}
+
 /**
- * "Linked accounts" section in the profile page. Lists which OAuth
- * providers the user has connected, lets them connect new ones, and
+ * "Linked accounts" section. Renders the current OAuth providers
+ * connected to the signed-in user, lets them connect new ones, and
  * lets them unlink an existing provider.
+ *
+ * <p>Source of truth: {@code user.linkedProviders} from
+ * {@link useAuth}. Because the backend now includes this list in
+ * every {@code /users/me} response, the component automatically
+ * reflects any change made elsewhere in the app (or on another
+ * device, the next time the user refreshes or focuses the tab).
  */
-export function LinkedAccountsCard() {
-  const { refreshUser } = useAuth();
+export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps = {}) {
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [linked, setLinked] = useState<LinkedProvider[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await listLinkedProviders();
-      setLinked(data);
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const linked = user?.linkedProviders ?? [];
+  const linkedBy = (p: string) => linked.find((l) => l.provider === p);
 
   // React to ?linked= / ?error= from the OAuth callback.
   useEffect(() => {
@@ -66,12 +62,11 @@ export function LinkedAccountsCard() {
     const err = params.get('error');
     if (linkedProv) {
       setInfo(`Đã liên kết ${linkedProv} thành công.`);
-      // strip the query param so the message doesn't reappear on refresh
       const next = new URLSearchParams(params);
       next.delete('linked');
       next.delete('error');
       navigate({ search: next.toString() ? `?${next}` : '' }, { replace: true });
-      void load();
+      // Re-fetch so user.linkedProviders includes the new identity.
       void refreshUser();
     } else if (err) {
       setError(
@@ -93,10 +88,6 @@ export function LinkedAccountsCard() {
     setError(null);
     try {
       const { url } = await startLinkProvider(provider);
-      // Navigate the browser to the provider authorize URL.
-      // We do this with a full page navigation (not React Router) so
-      // GitHub / Google receive a top-level GET, which is what the
-      // providers expect.
       window.location.href = url;
     } catch (e) {
       setError(describeError(e));
@@ -111,7 +102,9 @@ export function LinkedAccountsCard() {
     try {
       await unlinkProvider(provider);
       setInfo(`Đã gỡ liên kết ${provider}.`);
-      await load();
+      // Re-fetch so user.linkedProviders no longer includes the
+      // freshly-unlinked identity.
+      await refreshUser();
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -119,7 +112,74 @@ export function LinkedAccountsCard() {
     }
   };
 
-  const linkedBy = (p: string) => linked.find((l) => l.provider === p);
+  // ----- render ---------------------------------------------------------
+
+  const body = (
+    <div className="space-y-3">
+      {ALL_PROVIDERS.map((p) => {
+        const connection = linkedBy(p.id);
+        const isLinked = Boolean(connection);
+        return (
+          <div
+            key={p.id}
+            className="flex items-center justify-between rounded-md border border-border p-3"
+          >
+            <div className="flex items-center gap-3">
+              <div className="text-foreground">{p.icon}</div>
+              <div>
+                <div className="font-medium">{p.name}</div>
+                {variant !== 'menu' && (
+                  <div className="text-xs text-muted-foreground">
+                    {connection
+                      ? connection.providerEmail ?? 'Đã liên kết'
+                      : 'Chưa liên kết'}
+                  </div>
+                )}
+              </div>
+            </div>
+            {isLinked ? (
+              <Button
+                variant="outline"
+                size={variant === 'menu' ? 'sm' : 'sm'}
+                disabled={busyProvider === p.id}
+                onClick={() => handleUnlink(p.id)}
+              >
+                {variant !== 'menu' && <Unlink className="mr-2 h-4 w-4" />}
+                Gỡ liên kết
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                disabled={busyProvider === p.id}
+                onClick={() => handleLink(p.id)}
+              >
+                {busyProvider === p.id ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Liên kết
+              </Button>
+            )}
+          </div>
+        );
+      })}
+
+      {error && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+      {info && (
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+          {info}
+        </div>
+      )}
+    </div>
+  );
+
+  if (variant === 'menu') {
+    return body;
+  }
 
   return (
     <Card>
@@ -128,73 +188,13 @@ export function LinkedAccountsCard() {
           <Link2 className="h-5 w-5" />
         </div>
         <CardTitle>Tài khoản đã liên kết</CardTitle>
-        <CardDescription>
-          Kết nối Google hoặc GitHub để đăng nhập nhanh hơn và xác thực email tự động.
-        </CardDescription>
+        {variant === 'card' && (
+          <CardDescription>
+            Kết nối Google hoặc GitHub để đăng nhập nhanh hơn và xác thực email tự động.
+          </CardDescription>
+        )}
       </CardHeader>
-      <CardContent className="space-y-3">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Đang tải…
-          </div>
-        ) : (
-          ALL_PROVIDERS.map((p) => {
-            const connection = linkedBy(p.id);
-            return (
-              <div
-                key={p.id}
-                className="flex items-center justify-between rounded-md border border-border p-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-foreground">{p.icon}</div>
-                  <div>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {connection
-                        ? connection.providerEmail ?? 'Đã liên kết'
-                        : 'Chưa liên kết'}
-                    </div>
-                  </div>
-                </div>
-                {connection ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busyProvider === p.id}
-                    onClick={() => handleUnlink(p.id)}
-                  >
-                    <Unlink className="mr-2 h-4 w-4" />
-                    Gỡ liên kết
-                  </Button>
-                ) : (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    disabled={busyProvider === p.id}
-                    onClick={() => handleLink(p.id)}
-                  >
-                    {busyProvider === p.id ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
-                    Liên kết
-                  </Button>
-                )}
-              </div>
-            );
-          })
-        )}
-
-        {error && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-        {info && (
-          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
-            {info}
-          </div>
-        )}
-      </CardContent>
+      <CardContent>{body}</CardContent>
     </Card>
   );
 }

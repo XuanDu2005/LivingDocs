@@ -96,6 +96,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
+  /**
+   * Cross-tab synchronisation. When one tab links / unlinks an OAuth
+   * provider, every other tab picks up the change on next focus or
+   * via the {@code storage} event. This keeps the linked-account UI
+   * in sync across all browser windows / tabs of the same app.
+   */
+  useEffect(() => {
+    const onStorage = (ev: StorageEvent) => {
+      if (ev.key === 'livingdocs.auth.user' && ev.newValue) {
+        try {
+          const next = JSON.parse(ev.newValue) as AuthenticatedUser;
+          setUser(next);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    const onFocus = () => {
+      if (authStorage.getToken()) {
+        void refreshUser();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refreshUser]);
+
   const login = useCallback(
     async (payload: LoginPayload) => {
       const result = await loginRequest(payload);

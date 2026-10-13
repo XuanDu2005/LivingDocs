@@ -27,6 +27,18 @@ public final class CurrentUser {
         return principal.getId();
     }
 
+    /**
+     * Return the authenticated user's database id, or {@code null} if no
+     * principal is bound to the current request. Useful for endpoints
+     * that have an "optional auth" semantics (e.g. OAuth callback that
+     * may be hit by a freshly-logged-in user OR by a user with no
+     * session at all).
+     */
+    public static UUID optionalId() {
+        AuthenticatedUser principal = current();
+        return principal == null ? null : principal.getId();
+    }
+
     public static AuthenticatedUser current() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {

@@ -2,6 +2,7 @@ package com.livingdocs.modules.user.controller;
 
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
+import com.livingdocs.modules.auth.service.LinkedProvidersMapper;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.dto.UserNotificationPreferenceDto;
 import com.livingdocs.modules.user.dto.UserResponse;
@@ -33,13 +34,16 @@ public class UserController {
     private final UserService userService;
     private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final UserNotificationPreferenceService preferenceService;
+    private final LinkedProvidersMapper linkedProvidersMapper;
 
     public UserController(UserService userService,
                           UserRoleAssignmentRepository roleAssignmentRepository,
-                          UserNotificationPreferenceService preferenceService) {
+                          UserNotificationPreferenceService preferenceService,
+                          LinkedProvidersMapper linkedProvidersMapper) {
         this.userService = userService;
         this.roleAssignmentRepository = roleAssignmentRepository;
         this.preferenceService = preferenceService;
+        this.linkedProvidersMapper = linkedProvidersMapper;
     }
 
     @GetMapping("/me")
@@ -48,7 +52,7 @@ public class UserController {
         UUID id = CurrentUser.requireId();
         User user = userService.getById(id);
         List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
-        return ResponseEntity.ok(UserResponse.from(user, roleCodes));
+        return ResponseEntity.ok(UserResponse.from(user, roleCodes, linkedProvidersMapper.forUser(id)));
     }
 
     @PutMapping("/me")
@@ -57,7 +61,7 @@ public class UserController {
         UUID id = CurrentUser.requireId();
         User updated = userService.updateProfile(id, req);
         List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
-        return ResponseEntity.ok(UserResponse.from(updated, roleCodes));
+        return ResponseEntity.ok(UserResponse.from(updated, roleCodes, linkedProvidersMapper.forUser(id)));
     }
 
     @GetMapping("/me/notification-preferences")

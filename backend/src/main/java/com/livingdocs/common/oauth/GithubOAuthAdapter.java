@@ -56,7 +56,11 @@ public class GithubOAuthAdapter implements OAuthProviderAdapter {
                 + "&redirect_uri=" + enc(cfg.getRedirectUri())
                 + "&scope=" + enc(scope)
                 + "&state=" + enc(state)
-                + "&allow_signup=true";
+                + "&allow_signup=true"
+                // Always show the account picker so the user can pick
+                // which GitHub account to link, instead of GitHub
+                // silently re-using the currently signed-in account.
+                + "&prompt=select_account";
     }
 
     @Override

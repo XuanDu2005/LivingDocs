@@ -1,10 +1,8 @@
 package com.livingdocs.modules.auth.controller;
 
-import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.oauth.OAuthAdapterFactory;
-import com.livingdocs.common.oauth.OAuthUserInfo;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.auth.dto.LinkedProvidersResponse;
 import com.livingdocs.modules.auth.model.OAuthState;
@@ -19,7 +17,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,10 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,17 +34,23 @@ import java.util.UUID;
  * Authenticated endpoints for managing OAuth providers linked to the
  * currently signed-in user.
  *
- * <p>The flow is:
+ * <p>The flow (single callback URL shared with the sign-in flow):
  * <ol>
- *   <li>{@code POST /oauth/{provider}/link/start} → returns the state
- *       (and 302s to the provider) — but the FE mostly just navigates
- *       to the URL returned.</li>
- *   <li>Provider 302s back to {@code GET /oauth/{provider}/link/callback},
- *       which is authenticated via the JWT cookie / Authorization header.</li>
- *   <li>The callback consumes the state, exchanges the code, and either
- *       links the identity or returns a "needs merge" payload that the
- *       front-end shows as a confirmation modal.</li>
+ *   <li>{@code POST /oauth/{provider}/link/start} — must be authenticated
+ *       (the JWT proves the user is signed in). Returns the provider's
+ *       authorize URL with a CSRF state whose {@code action = LINK}.</li>
+ *   <li>The provider 302s the browser back to
+ *       {@code GET /oauth/{provider}/callback} (the same endpoint used
+ *       for sign-in). The callback inspects {@link OAuthState#getAction()}
+ *       and, for {@code LINK}, uses the JWT principal from the request
+ *       to force-link the identity to the current user.</li>
+ *   <li>Success → {@code /auth/callback?linked=...}. Failure →
+ *       {@code /auth/callback?error=...}.</li>
  * </ol>
+ *
+ * <p>Note: the callback URL must match what is registered with the
+ * provider (i.e. {@code app.oauth.google.redirect-uri}), so a single
+ * redirect URI is reused for both flows.
  */
 @RestController
 @RequestMapping("/api/v1/auth/oauth")
@@ -103,48 +103,6 @@ public class AccountLinkController {
         // a top-level navigation (window.location.href = url) to the
         // provider, so we don't need to send a 302 here.
         return ResponseEntity.ok(Map.of("url", url, "state", state.getStateKey()));
-    }
-
-    @GetMapping("/{provider}/link/callback")
-    @Operation(summary = "Provider callback for the LINK flow — must be authenticated")
-    public ResponseEntity<Void> linkCallback(@PathVariable String provider,
-                                             @RequestParam("code") String code,
-                                             @RequestParam("state") String stateKey,
-                                             @RequestParam(name = "error", required = false) String error) {
-        UUID userId = CurrentUser.requireId();
-        OAuthProvider p = OAuthProvider.fromWire(provider);
-        var stateOpt = stateService.consume(stateKey);
-        if (stateOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", "/auth/callback?error=invalid_state")
-                    .build();
-        }
-        OAuthState state = stateOpt.get();
-        if (state.getUserId() == null || !state.getUserId().equals(userId)) {
-            throw new BadRequestException("OAuth state does not belong to the current user");
-        }
-        if (error != null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", "/auth/callback?error=" + URLEncoder.encode(error, StandardCharsets.UTF_8))
-                    .build();
-        }
-        try {
-            OAuthUserInfo info = oauthService.exchangeAndFetch(p, code);
-            // Use "force" semantics: if the provider identity is already
-            // linked to a different LivingDocs user, reassign it to the
-            // current one. The user explicitly requested the link from
-            // the profile page, so the merge is intentional.
-            oauthService.linkIdentityToCurrentUserForce(userId, info);
-            log.info("Linked {} identity to user {}", p, userId);
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", "/auth/callback?linked=" + p.wireValue())
-                    .build();
-        } catch (Exception e) {
-            log.error("Link callback failed for {}", p, e);
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", "/auth/callback?error=link_failed")
-                    .build();
-        }
     }
 
     @PostMapping("/{provider}/link/confirm-merge")
