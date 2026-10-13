@@ -18,10 +18,25 @@ import { startLinkProvider, unlinkProvider } from '../../services/authApi';
 const ALL_PROVIDERS: Array<{
   id: 'google' | 'github';
   name: string;
+  shortLabel: string;
   icon: React.ReactNode;
+  hint: string;
 }> = [
-  { id: 'google', name: 'Google', icon: <FaGoogle className="h-5 w-5" /> },
-  { id: 'github', name: 'GitHub', icon: <FaGithub className="h-5 w-5" /> },
+  {
+    id: 'google',
+    name: 'Google',
+    shortLabel: 'Google',
+    icon: <FaGoogle className="h-5 w-5" />,
+    hint: 'Liên kết Google để đăng nhập nhanh.',
+  },
+  {
+    id: 'github',
+    name: 'GitHub',
+    shortLabel: 'GitHub',
+    icon: <FaGithub className="h-5 w-5" />,
+    hint:
+      'Liên kết GitHub để đăng nhập nhanh. Khi gỡ liên kết tại đây, kết nối GitHub cho repository cũng sẽ tự động bị gỡ.',
+  },
 ];
 
 export interface LinkedAccountsCardProps {
@@ -96,7 +111,11 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
   };
 
   const handleUnlink = async (provider: 'google' | 'github') => {
-    if (!window.confirm(`Gỡ liên kết ${provider} khỏi tài khoản?`)) return;
+    const confirmMessage =
+      provider === 'github'
+        ? 'Gỡ liên kết GitHub?\n\nKết nối GitHub cho repository trong workspace cũng sẽ bị gỡ theo. Bạn sẽ cần liên kết lại để truy cập repo.'
+        : `Gỡ liên kết ${provider} khỏi tài khoản?`;
+    if (!window.confirm(confirmMessage)) return;
     setBusyProvider(provider);
     setError(null);
     try {
@@ -127,12 +146,12 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
             <div className="flex items-center gap-3">
               <div className="text-foreground">{p.icon}</div>
               <div>
-                <div className="font-medium">{p.name}</div>
+                <div className="font-medium">{p.shortLabel}</div>
                 {variant !== 'menu' && (
                   <div className="text-xs text-muted-foreground">
                     {connection
                       ? connection.providerEmail ?? 'Đã liên kết'
-                      : 'Chưa liên kết'}
+                      : p.hint}
                   </div>
                 )}
               </div>

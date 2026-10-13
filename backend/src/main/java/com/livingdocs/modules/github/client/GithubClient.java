@@ -57,4 +57,26 @@ public interface GithubClient {
      * default branch, visibility, etc.). Used by the real re-sync.
      */
     GithubRepositorySummary getRepository(String accessToken, String owner, String repo);
+
+    /**
+     * Registers a webhook on the given repository so GitHub will
+     * deliver {@code push}, {@code pull_request} and {@code ping} events
+     * to the platform. Returns the resulting webhook id, or {@code null}
+     * if the client could not register one (e.g. the stub backend
+     * cannot reach the real GitHub API).
+     *
+     * <p>The {@code targetUrl} should be the publicly reachable URL of
+     * {@code POST /api/v1/github/webhook} (configured via
+     * {@code app.public-url}). The shared secret from
+     * {@code github.webhook.secret} is used to compute the
+     * HMAC-SHA256 signature GitHub expects in {@code X-Hub-Signature-256}.
+     */
+    Long createWebhook(String accessToken, String owner, String repo,
+                       String targetUrl, String secret, List<String> events);
+
+    /**
+     * Removes a previously-registered webhook by id. No-op if the id
+     * is {@code null} or unknown.
+     */
+    void deleteWebhook(String accessToken, String owner, String repo, Long hookId);
 }

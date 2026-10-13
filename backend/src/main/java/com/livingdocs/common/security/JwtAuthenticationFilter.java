@@ -52,40 +52,55 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        String header = request.getHeader(AppConstants.AUTH_HEADER);
-        if (header != null && header.startsWith(AppConstants.AUTH_SCHEME)) {
-            String token = header.substring(AppConstants.AUTH_SCHEME.length()).trim();
-            if (!token.isEmpty()) {
-                try {
-                    Claims claims = jwtService.parse(token);
-                    UUID userId = UUID.fromString(claims.getSubject());
-                    String email = claims.get(AppConstants.JWT_CLAIM_EMAIL, String.class);
+        String token = extractToken(request);
+        if (token != null && !token.isEmpty()) {
+            try {
+                Claims claims = jwtService.parse(token);
+                UUID userId = UUID.fromString(claims.getSubject());
+                String email = claims.get(AppConstants.JWT_CLAIM_EMAIL, String.class);
 
-                    boolean enabled = userRepository.findById(userId)
-                            .map(u -> u.isEnabled())
-                            .orElse(true);
-                    // Prefer roles embedded in the JWT (cheap); fall back to
-                    // a DB lookup when the claim is missing (e.g. tokens
-                    // issued before this code shipped).
-                    List<String> roleCodes = extractRoleCodes(claims);
-                    if (roleCodes.isEmpty()) {
-                        roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
-                    }
-
-                    AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", enabled, roleCodes);
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                            principal, null, principal.getAuthorities());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                    SecurityContext context = securityContextHolderStrategy.getContext();
-                    context.setAuthentication(auth);
-                    securityContextHolderStrategy.setContext(context);
-                } catch (UnauthorizedException | IllegalArgumentException ex) {
-                    securityContextHolderStrategy.clearContext();
+                boolean enabled = userRepository.findById(userId)
+                        .map(u -> u.isEnabled())
+                        .orElse(true);
+                // Prefer roles embedded in the JWT (cheap); fall back to
+                // a DB lookup when the claim is missing (e.g. tokens
+                // issued before this code shipped).
+                List<String> roleCodes = extractRoleCodes(claims);
+                if (roleCodes.isEmpty()) {
+                    roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
                 }
+
+                AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", enabled, roleCodes);
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        principal, null, principal.getAuthorities());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                SecurityContext context = securityContextHolderStrategy.getContext();
+                context.setAuthentication(auth);
+                securityContextHolderStrategy.setContext(context);
+            } catch (UnauthorizedException | IllegalArgumentException ex) {
+                securityContextHolderStrategy.clearContext();
             }
         }
         chain.doFilter(request, response);
+    }
+
+    /**
+     * Pull the JWT from either the standard {@code Authorization}
+     * header or, for the SSE endpoint, a {@code ?token=} query string
+     * parameter. The browser's {@code EventSource} cannot set custom
+     * headers, so SSE clients pass the token in the URL.
+     */
+    private static String extractToken(HttpServletRequest request) {
+        String header = request.getHeader(AppConstants.AUTH_HEADER);
+        if (header != null && header.startsWith(AppConstants.AUTH_SCHEME)) {
+            return header.substring(AppConstants.AUTH_SCHEME.length()).trim();
+        }
+        String path = request.getRequestURI();
+        if (path != null && path.endsWith("/notifications/stream")) {
+            return request.getParameter("token");
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")

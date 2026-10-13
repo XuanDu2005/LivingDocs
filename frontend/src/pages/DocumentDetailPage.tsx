@@ -416,6 +416,24 @@ export default function DocumentDetailPage() {
     }
   }
 
+  // Auto-pick the workspace's default template once both the document
+  // and the template catalogue have loaded. The user can still change
+  // the dropdown afterwards — this just removes an unnecessary click
+  // for the common case.
+  useEffect(() => {
+    if (!workspaceId || !doc) return;
+    if (templates.length === 0) return;
+    if (doc.templateId) {
+      const match = templates.find((t) => t.id === doc.templateId);
+      if (match) {
+        setSelectedTemplate(match.slug || match.name);
+        return;
+      }
+    }
+    const def = templates.find((t) => t.isDefault) ?? templates[0];
+    if (def) setSelectedTemplate(def.slug || def.name);
+  }, [templates, doc, workspaceId]);
+
   async function handleResolveDrift(alertId: string) {
     if (!workspaceId) return;
     try {
@@ -738,8 +756,23 @@ export default function DocumentDetailPage() {
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">
+                  <CardTitle className="text-sm flex items-center gap-2">
                     {selectedVersion ? `v${selectedVersion.versionNumber} body` : t('documentDetail.documentBody')}
+                    {selectedVersion?.confidenceScore !== null && selectedVersion?.confidenceScore !== undefined && (
+                      <Badge
+                        variant={
+                          (selectedVersion.confidenceScore ?? 0) >= 0.7
+                            ? 'success'
+                            : (selectedVersion.confidenceScore ?? 0) >= 0.4
+                              ? 'warning'
+                              : 'destructive'
+                        }
+                        className="text-[10px]"
+                        title="AI confidence score for this version"
+                      >
+                        {Math.round((selectedVersion.confidenceScore ?? 0) * 100)}% confidence
+                      </Badge>
+                    )}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     {saving && <span className="text-xs text-muted-foreground animate-pulse">Saving…</span>}

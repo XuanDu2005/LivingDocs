@@ -77,7 +77,8 @@
     "overview": "Tổng quan",
     "repositories": "Kho mã nguồn",
     "analytics": "Phân tích",
-    "languages": "Ngôn ngữ lập trình"
+    "languages": "Ngôn ngữ lập trình",
+    "workspaceSettings": "Cài đặt"
   },
   "auth": {
     "divider": "hoặc",
@@ -247,7 +248,40 @@
     "step1": "Kết nối repository GitHub trong workspace để bật phân tích code entity.",
     "step2": "Sinh bản nháp đầu tiên từ pull request bằng",
     "aiAssist": "AI assist.",
-    "step3": "Luân chuyển qua đánh giá và quan sát cảnh báo trôi dạt theo thời gian thực."
+    "step3": "Luân chuyển qua đánh giá và quan sát cảnh báo trôi dạt theo thời gian thực.",
+    "newDocument": "Tài liệu mới",
+    "newWorkspace": "Workspace mới",
+    "qaNewDoc": "Tạo tài liệu",
+    "qaNewDocDesc": "Tạo mới hoặc sinh bản nháp AI",
+    "qaConnectRepo": "Kết nối repository",
+    "qaConnectRepoDesc": "Liên kết một repository GitHub",
+    "qaSearch": "Tìm trong knowledge",
+    "qaSearchDesc": "Tìm kiếm ngữ nghĩa qua docs và code",
+    "qaDrift": "Xử lý drift",
+    "qaDriftDesc": "Xem và xử lý cảnh báo drift",
+    "activity": "Hoạt động gần đây",
+    "activityDesc": "Từ {{name}}",
+    "activityDescEmpty": "Chọn workspace để xem hoạt động",
+    "recentDocs": "Tài liệu gần đây",
+    "recentDocsEmpty": "Chưa có tài liệu nào",
+    "recentDrift": "Cảnh báo drift mở",
+    "recentDriftEmpty": "Không có drift mở",
+    "recentReviews": "Đánh giá đang chờ",
+    "recentReviewsEmpty": "Không có gì đang chờ",
+    "suggestions": "Gợi ý",
+    "sugFirstDoc": "Tạo tài liệu đầu tiên",
+    "sugFirstDocDesc": "Chọn mẫu và sinh bản nháp AI chỉ với một cú click.",
+    "sugReviews": "{{count}} đánh giá đang chờ",
+    "sugReviewsDesc": "Duyệt hoặc yêu cầu sửa các phiên bản đang chờ.",
+    "sugDrift": "{{count}} cảnh báo drift",
+    "sugDriftDesc": "Mã có thể đã thay đổi mà tài liệu chưa cập nhật.",
+    "sugHealth": "Backend không ở trạng thái UP",
+    "sugHealthDesc": "Một số dữ liệu có thể cũ cho tới khi dịch vụ phục hồi.",
+    "sugAllGood": "Mọi thứ đang ổn",
+    "sugAllGoodDesc": "{{name}} không cần hành động nào",
+    "browseAll": "Xem tất cả workspace",
+    "healthTitle": "Sức khoẻ dịch vụ",
+    "healthDesc": "Lấy từ health endpoint của nền tảng."
   },
   "workspaces": {
     "title": "Workspace",
@@ -604,7 +638,18 @@
     "close": "Đóng",
     "openLink": "Mở",
     "empty": "Bạn đã đọc hết rồi.",
-    "totalCount": "{{count}} thông báo"
+    "totalCount": "{{count}} thông báo",
+    "kindLabels": {
+      "ADMIN_BROADCAST": "Thông báo từ admin",
+      "DRIFT_DETECTED": "Phát hiện trôi dạt",
+      "SCM_PR_EVENT": "Pull request",
+      "SCM_PUSH": "Commit mới",
+      "SCM_ISSUE_EVENT": "Vấn đề",
+      "SCM_RELEASE": "Bản phát hành",
+      "JIRA_ISSUE_EVENT": "Vấn đề Jira",
+      "REVIEW_ASSIGNED": "Được giao đánh giá",
+      "INDEXING_DONE": "Lập chỉ mục xong"
+    }
   },
   "adminWorkspaces": {
     "title": "Quản trị · Workspace",
@@ -966,6 +1011,75 @@
     "confirmPassword": "Xác nhận mật khẩu",
     "passwordMismatch": "Mật khẩu xác nhận không khớp.",
     "emailAlreadyRegistered": "Email này đã được đăng ký. Bạn có thể đăng nhập hoặc đặt lại mật khẩu."
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Chào mừng đến với LivingDocs",
+      "subtitle": "Thiết lập nhanh trong 4 bước.",
+      "getStarted": "Bắt đầu",
+      "skip": "Bỏ qua",
+      "hello": "Chào {{name}}",
+      "intro": "LivingDocs giữ tài liệu đồng bộ với mã nguồn. Chúng tôi sẽ cùng bạn hoàn tất 4 bước cơ bản để tạo tài liệu đầu tiên.",
+      "step1": "Tạo workspace để gom tài liệu.",
+      "step2": "Kết nối GitHub để nhập repository.",
+      "step3": "Chọn repository đầu tiên để làm tài liệu.",
+      "step4": "Sinh tài liệu AI đầu tiên của bạn."
+    },
+    "workspace": {
+      "title": "Tạo workspace của bạn",
+      "subtitle": "Workspace gom repository, tài liệu và đánh giá.",
+      "nameLabel": "Tên workspace",
+      "namePlaceholder": "VD: LivingDocs",
+      "slugLabel": "Slug",
+      "slugHint": "Dùng trong URL — tự sinh từ tên.",
+      "descLabel": "Mô tả (tuỳ chọn)",
+      "descPlaceholder": "Workspace này dùng để làm gì?",
+      "creating": "Đang tạo…",
+      "create": "Tạo workspace",
+      "back": "Quay lại"
+    },
+    "github": {
+      "title": "Kết nối GitHub",
+      "subtitle": "Liên kết GitHub để nhập repository và lắng nghe sự kiện mã.",
+      "checking": "Đang kiểm tra GitHub…",
+      "connectedAs": "Đã kết nối với @{{login}}",
+      "connectDesc": "Liên kết GitHub để nhập repository và để LivingDocs lắng nghe sự kiện push và pull request.",
+      "connect": "Kết nối GitHub",
+      "redirecting": "Đang chuyển hướng…",
+      "next": "Tiếp tục",
+      "skip": "Bỏ qua",
+      "back": "Quay lại"
+    },
+    "repo": {
+      "title": "Chọn repository đầu tiên",
+      "subtitle": "Kết nối một repository GitHub để bắt đầu viết tài liệu.",
+      "searchPlaceholder": "Tìm trong các repository GitHub của bạn…",
+      "loading": "Đang tải repository…",
+      "empty": "Không tìm thấy repository. Bạn có thể thêm sau từ trang Repositories.",
+      "back": "Quay lại",
+      "skip": "Bỏ qua"
+    },
+    "done": {
+      "title": "Xong rồi!",
+      "subtitle": "Workspace của bạn đã sẵn sàng.",
+      "body": "Workspace đã sẵn sàng. Tạo một tài liệu mới để sinh bản nháp AI đầu tiên.",
+      "close": "Đóng",
+      "goToDashboard": "Đi tới Dashboard",
+      "seeLater": "Bạn luôn có thể quay lại từ mục Documents."
+    }
+  },
+  "workspaceSwitcher": {
+    "create": "Workspace mới",
+    "pick": "Chọn workspace",
+    "label": "Workspaces",
+    "manage": "Quản lý workspaces"
+  },
+  "workspaceSettings": {
+    "title": "Cài đặt workspace",
+    "subtitle": "AI, ngôn ngữ và chính sách thông báo của workspace này.",
+    "tabAi": "AI",
+    "tabLanguages": "Ngôn ngữ",
+    "tabNotifications": "Thông báo"
   },
   "documentDetail": {
     "generateAi": "Sinh bằng AI",

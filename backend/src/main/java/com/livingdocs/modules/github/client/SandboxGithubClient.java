@@ -1,6 +1,8 @@
 package com.livingdocs.modules.github.client;
 
 import com.livingdocs.modules.github.config.GithubProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +21,8 @@ import java.util.List;
 @Component
 @ConditionalOnProperty(prefix = "github", name = "sandbox", havingValue = "true", matchIfMissing = true)
 public class SandboxGithubClient implements GithubClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SandboxGithubClient.class);
 
     private final GithubProperties properties;
 
@@ -193,5 +197,24 @@ public class SandboxGithubClient implements GithubClient {
                 "main",
                 "Repository refreshed at " + OffsetDateTime.now(),
                 false);
+    }
+
+    /**
+     * Sandbox does not talk to a real GitHub instance, so there is no
+     * webhook to register. Return a deterministic fake id so the
+     * connection flow completes cleanly during local development.
+     */
+    @Override
+    public Long createWebhook(String accessToken, String owner, String repo,
+                             String targetUrl, String secret, List<String> events) {
+        long id = 900_000L + (long) Math.abs((owner + "/" + repo).hashCode()) % 100_000L;
+        log.info("Sandbox: would register webhook {} on {}/{} -> {}",
+                id, owner, repo, targetUrl);
+        return id;
+    }
+
+    @Override
+    public void deleteWebhook(String accessToken, String owner, String repo, Long hookId) {
+        log.info("Sandbox: would delete webhook {} on {}/{}", hookId, owner, repo);
     }
 }

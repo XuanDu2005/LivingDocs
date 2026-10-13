@@ -118,6 +118,12 @@ public class GithubOAuthService {
         return connectionRepository.findByUserId(userId);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<GithubConnection> findForUser(UUID userId) {
+        if (userId == null) return Optional.empty();
+        return connectionRepository.findByUserId(userId);
+    }
+
     @Transactional
     public void disconnectCurrentUser() {
         UUID userId = CurrentUser.requireId();

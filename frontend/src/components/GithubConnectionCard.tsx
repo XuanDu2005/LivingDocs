@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Github, Loader2, Unlink } from 'lucide-react';
+import { Github, Loader2, Unlink, ShieldCheck } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import {
@@ -19,14 +19,23 @@ import {
 } from './ui/dialog';
 import { githubApi, GithubConnection } from '../services/github';
 import { describeError } from '../services/auth';
+import { listLinkedProviders } from '../services/authApi';
 
 /**
  * Shows the current GitHub connection status for the logged-in user and lets
  * them start the OAuth flow or revoke the existing connection so they can
  * link a different GitHub account.
+ *
+ * <p>After V_N+1, the "login" and "repository" flows share a single
+ * user-level link: if the user already linked GitHub from the profile page
+ * (which writes a row in {@code user_oauth_identities}) but has not yet
+ * upgraded the scope to access repositories (which writes a row in
+ * {@code github_connections}), we surface a "Cấp quyền truy cập repo"
+ * button instead of a full re-link flow.
  */
 export function GithubConnectionCard() {
   const [connection, setConnection] = useState<GithubConnection | null>(null);
+  const [loginLinked, setLoginLinked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -38,8 +47,12 @@ export function GithubConnectionCard() {
     setLoading(true);
     setError(null);
     try {
-      const conn = await githubApi.getConnection();
+      const [conn, providers] = await Promise.all([
+        githubApi.getConnection().catch(() => null),
+        listLinkedProviders().catch(() => [] as Array<{ provider: string }>),
+      ]);
       setConnection(conn);
+      setLoginLinked(providers.some((p: { provider: string }) => p.provider === 'github'));
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -89,7 +102,9 @@ export function GithubConnectionCard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Github className="h-5 w-5" />
-            <CardTitle className="text-base">GitHub</CardTitle>
+            <CardTitle className="text-base">
+              GitHub <span className="text-xs font-normal text-muted-foreground">(Repository)</span>
+            </CardTitle>
           </div>
           {loading ? (
             <Badge variant="muted">Checking…</Badge>
@@ -102,8 +117,9 @@ export function GithubConnectionCard() {
           )}
         </div>
         <CardDescription>
-          Link a GitHub account so you can browse its repositories and ingest
-          pull requests into this workspace.
+          Liên kết GitHub cho <strong>repository</strong>: dùng để duyệt repo và
+          đồng bộ pull request vào workspace. Nếu bạn đã liên kết GitHub ở
+          phần Tài khoản thì chỉ cần bấm “Cấp quyền truy cập repo” một lần.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -191,6 +207,33 @@ export function GithubConnectionCard() {
                 </DialogContent>
               </Dialog>
             </div>
+          </div>
+        ) : loginLinked ? (
+          // User already linked GitHub from the profile page but the
+          // repository-connection row hasn't been created yet (different
+          // scope). Offer a one-click upgrade.
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              GitHub đã được liên kết ở phần Tài khoản.
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Cấp thêm quyền truy cập repository để có thể đồng bộ repo vào
+              workspace.
+            </p>
+            <Button onClick={onConnect} disabled={connecting} size="sm">
+              {connecting ? (
+                <>
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  Redirecting…
+                </>
+              ) : (
+                <>
+                  <Github className="mr-1 h-4 w-4" />
+                  Cấp quyền truy cập repo
+                </>
+              )}
+            </Button>
           </div>
         ) : (
           <Button onClick={onConnect} disabled={connecting} size="sm">

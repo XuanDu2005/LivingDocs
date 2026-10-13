@@ -70,6 +70,14 @@ public class Repository {
     @Column(name = "auto_update_enabled", nullable = false)
     private boolean autoUpdateEnabled = true;
 
+    /**
+     * GitHub webhook id we registered for this repository, so we can
+     * delete it on disconnect. {@code null} for rows that predate
+     * auto-registration or whose registration failed.
+     */
+    @Column(name = "webhook_id")
+    private Long webhookId;
+
     public enum Status {
         CONNECTED, ARCHIVED, ERROR, DISCONNECTED
     }
@@ -109,6 +117,7 @@ public class Repository {
     public OffsetDateTime getConnectedAt() { return connectedAt; }
     public OffsetDateTime getLastSyncedAt() { return lastSyncedAt; }
     public boolean isAutoUpdateEnabled() { return autoUpdateEnabled; }
+    public Long getWebhookId() { return webhookId; }
 
     public void setStatus(Status status) { this.status = status; }
     public void setDefaultBranch(String defaultBranch) { this.defaultBranch = defaultBranch; }
@@ -116,4 +125,5 @@ public class Repository {
     public void setPrivate(boolean isPrivate) { this.isPrivate = isPrivate; }
     public void setLastSyncedAt(OffsetDateTime lastSyncedAt) { this.lastSyncedAt = lastSyncedAt; }
     public void setAutoUpdateEnabled(boolean autoUpdateEnabled) { this.autoUpdateEnabled = autoUpdateEnabled; }
+    public void setWebhookId(Long webhookId) { this.webhookId = webhookId; }
 }
