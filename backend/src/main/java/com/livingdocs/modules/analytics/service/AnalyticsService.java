@@ -93,9 +93,9 @@ public class AnalyticsService {
     }
 
     private List<DailyCount> getDriftTrends(UUID workspaceId, LocalDate start, LocalDate end) {
-        String sql = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt " +
+        String sql = "SELECT DATE(detected_at) AS day, COUNT(*) AS cnt " +
                 "FROM drift_alerts WHERE workspace_id = :ws " +
-                "AND created_at >= :start GROUP BY DATE(created_at) ORDER BY day";
+                "AND detected_at >= :start GROUP BY DATE(detected_at) ORDER BY day";
         try {
             Query q = entityManager.createNativeQuery(sql);
             q.setParameter("ws", workspaceId);

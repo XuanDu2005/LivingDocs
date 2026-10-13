@@ -965,7 +965,7 @@
     "docStatusTitle": "Document status breakdown",
     "driftSeverityTitle": "Open drift severity breakdown"
   },
-"documentDetail": {
+  "documentDetail": {
     "generateAi": "Generate with AI",
     "addTag": "Add Tag",
     "newTagTitle": "Add New Tag",
@@ -1065,6 +1065,14 @@
     "githubNotConnectedTitle": "GitHub account not connected",
     "githubNotConnectedDesc": "Connect your GitHub account to browse and add repositories. You will be redirected to GitHub to grant access.",
     "manageConnections": "Manage connections"
+  },
+  "webhook": {
+    "title": "Webhook Configuration",
+    "addBtn": "Add Webhook",
+    "nameLabel": "Channel Name (e.g. Slack Dev Team)",
+    "urlLabel": "Webhook URL",
+    "saveBtn": "Save Configuration",
+    "emptyState": "No Webhooks configured yet.",
+    "successMsg": "Webhook saved successfully!"
   }
-
 }

@@ -25,6 +25,7 @@ import {
   PROVIDER_LABELS,
   STATUS_LABELS,
 } from '../types/integrations';
+import { WebhookModal } from '../components/WebhookModal';
 
 const SCOPED_PROVIDERS: IntegrationProvider[] = ['GITHUB', 'GITLAB', 'JIRA'];
 
@@ -53,6 +54,7 @@ export default function WorkspaceIntegrationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState<boolean>(false);
   const [editingProvider, setEditingProvider] = useState<IntegrationProvider | null>(null);
+  const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
 
   async function load() {
     if (!workspaceId) return;
@@ -89,13 +91,24 @@ export default function WorkspaceIntegrationsPage() {
         </Link>
       </Button>
 
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Plug className="h-5 w-5" /> {t('integrations.workspaceTitle')}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {t('integrations.workspaceSubtitle')}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Plug className="h-5 w-5" /> {t('integrations.workspaceTitle')}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {t('integrations.workspaceSubtitle')}
+          </p>
+        </div>
+        {!forbidden && (
+          <Button 
+            onClick={() => setIsWebhookModalOpen(true)} 
+            variant="outline" 
+            className="shrink-0"
+          >
+            ⚙️ {t("webhook.title")}
+          </Button>
+        )}
       </div>
 
       {forbidden && (
@@ -192,6 +205,11 @@ export default function WorkspaceIntegrationsPage() {
           setEditingProvider(null);
           await load();
         }}
+      />
+      <WebhookModal
+        isOpen={isWebhookModalOpen}
+        onClose={() => setIsWebhookModalOpen(false)}
+        workspaceId={workspaceId}
       />
     </div>
   );

@@ -979,5 +979,14 @@
     "regenerateDocLoading": "Đang chờ AI viết lại...",
     "regenerateDocSuccess": "Đã tạo bản nháp mới!",
     "regenerateDoc": "AI Cập nhật lại tài liệu"
-    }
+    },
+    "webhook": {
+    "title": "Cấu hình Webhook",
+    "addBtn": "Thêm Webhook",
+    "nameLabel": "Tên kênh (VD: Slack Dev Team)",
+    "urlLabel": "Đường dẫn Webhook (URL)",
+    "saveBtn": "Lưu cấu hình",
+    "emptyState": "Chưa có Webhook nào được cấu hình.",
+    "successMsg": "Lưu Webhook thành công!"
+  }
   }
