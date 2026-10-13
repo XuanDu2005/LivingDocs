@@ -70,15 +70,16 @@
     "adminAnalytics": "Analytics",
     "workspaceNotificationPolicies": "Notification policies",
     "workspaceGroupContent": "Documentation",
-    "workspaceGroupConnections": "Connections",
+    "workspaceGroupWorkflow": "Review & drift",
+    "workspaceGroupConnections": "Code & integrations",
     "workspaceGroupAI": "AI & knowledge",
     "workspaceGroupInsights": "Insights",
-    "workspaceGroupSettings": "Settings",
+    "workspaceGroupSettings": "Workspace settings",
     "integrations": "Integrations",
     "overview": "Overview",
     "repositories": "Repositories",
     "analytics": "Analytics",
-    "languages": "Languages"
+    "languages": "Programming languages"
   },
   "auth": {
     "divider": "or",
@@ -1019,7 +1020,6 @@
     "regenerateDocSuccess": "New draft created!",
     "regenerateDoc": "AI Update Document"
   },
-}
   "adminAiUsage": {
     "title": "Admin · AI Usage",
     "subtitle": "Platform-wide AI token consumption, budget limits, and per-workspace rate control.",
