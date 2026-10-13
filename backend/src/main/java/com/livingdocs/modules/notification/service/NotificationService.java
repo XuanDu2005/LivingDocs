@@ -1,10 +1,12 @@
 package com.livingdocs.modules.notification.service;
 
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.modules.notification.event.NotificationCreatedEvent;
 import com.livingdocs.modules.notification.model.Notification;
 import com.livingdocs.modules.notification.repository.NotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,17 +33,22 @@ public class NotificationService {
 
     private final NotificationRepository repository;
     private final NotificationPolicyService policyService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public NotificationService(NotificationRepository repository,
-                               NotificationPolicyService policyService) {
+                               NotificationPolicyService policyService,
+                               ApplicationEventPublisher eventPublisher) {
         this.repository = repository;
         this.policyService = policyService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
     public Notification send(UUID userId, String kind, String title, String body, String link) {
         Notification n = new Notification(userId, kind, title, body, link);
-        return repository.save(n);
+        Notification saved = repository.save(n);
+        eventPublisher.publishEvent(new NotificationCreatedEvent(saved));
+        return saved;
     }
 
     /**
@@ -63,8 +70,17 @@ public class NotificationService {
         for (UUID userId : unique) {
             rows.add(new Notification(userId, kind, title, body, link));
         }
-        repository.saveAll(rows);
-        return rows.size();
+        List<Notification> saved = repository.saveAll(rows);
+        // Fan-out AFTER save so the SSE listener picks up rows that
+        // already have id + created_at populated. We do this even
+        // outside a transaction commit (the listener is @Async) — the
+        // worst case is a duplicate "new" event for a row that ends
+        // up rolled back, which the bell will reconcile on the next
+        // poll cycle.
+        for (Notification n : saved) {
+            eventPublisher.publishEvent(new NotificationCreatedEvent(n));
+        }
+        return saved.size();
     }
 
     /**

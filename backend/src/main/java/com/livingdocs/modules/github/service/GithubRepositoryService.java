@@ -7,6 +7,7 @@ import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubRepositorySummary;
+import com.livingdocs.modules.github.config.GithubProperties;
 import com.livingdocs.modules.github.dto.GithubRepositoryCatalogItem;
 import com.livingdocs.modules.github.model.GithubConnection;
 import com.livingdocs.modules.github.model.Repository;
@@ -16,11 +17,13 @@ import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -42,17 +45,25 @@ public class GithubRepositoryService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final GithubOAuthService oauthService;
     private final GithubClient githubClient;
+    private final GithubProperties githubProperties;
+    private final String appPublicUrl;
 
     public GithubRepositoryService(RepositoryRepository repositoryRepository,
                                    WorkspaceRepository workspaceRepository,
                                    WorkspaceMemberRepository workspaceMemberRepository,
                                    GithubOAuthService oauthService,
-                                   GithubClient githubClient) {
+                                   GithubClient githubClient,
+                                   GithubProperties githubProperties,
+                                   @Value("${app.public-url:http://localhost:8080}") String appPublicUrl) {
         this.repositoryRepository = repositoryRepository;
         this.workspaceRepository = workspaceRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.oauthService = oauthService;
         this.githubClient = githubClient;
+        this.githubProperties = githubProperties;
+        this.appPublicUrl = appPublicUrl.endsWith("/")
+                ? appPublicUrl.substring(0, appPublicUrl.length() - 1)
+                : appPublicUrl;
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +88,21 @@ public class GithubRepositoryService {
         if (workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, userId).isEmpty()) {
             throw new ForbiddenException("You are not a member of this workspace");
         }
-        if (repositoryRepository.findByGithubId(githubId).isPresent()) {
+        Optional<Repository> existing = repositoryRepository.findByGithubId(githubId);
+        if (existing.isPresent()) {
+            Repository row = existing.get();
+            if (row.getStatus() == Repository.Status.DISCONNECTED
+                    && row.getWorkspaceId().equals(workspaceId)) {
+                // Repo was previously disconnected from this same workspace — re-attach it.
+                log.info("Re-attaching previously disconnected repository {} to workspace {}",
+                        row.getFullName(), workspaceId);
+                row.setStatus(Repository.Status.CONNECTED);
+                row.setLastSyncedAt(OffsetDateTime.now());
+                Repository reattached = repositoryRepository.save(row);
+                // Best-effort: register a webhook again.
+                tryRegisterWebhook(reattached, userId);
+                return reattached;
+            }
             throw new ConflictException("This repository is already connected to a workspace");
         }
         workspaceRepository.findById(workspaceId)
@@ -105,7 +130,37 @@ public class GithubRepositoryService {
         Repository saved = repositoryRepository.save(repo);
         log.info("Repository {} connected to workspace {} by user {}",
                 saved.getFullName(), workspaceId, userId);
+        tryRegisterWebhook(saved, userId);
         return saved;
+    }
+
+    private void tryRegisterWebhook(Repository saved, UUID userId) {
+        // Best-effort: register a webhook on GitHub so future pushes are
+        // delivered to POST /api/v1/github/webhook. We swallow failures
+        // (sandbox mode cannot reach GitHub, OAuth scope might be
+        // missing, etc.) so the user can still see the repo connected.
+        try {
+            GithubConnection conn = oauthService.findForUser(userId).orElse(null);
+            if (conn == null) {
+                log.debug("Skipping webhook registration for {}: no GitHub connection for user {}",
+                        saved.getFullName(), userId);
+                return;
+            }
+            Long hookId = githubClient.createWebhook(
+                    conn.getAccessToken(),
+                    saved.getOwner(),
+                    saved.getName(),
+                    appPublicUrl + "/api/v1/github/webhook",
+                    githubProperties.getWebhook().getSecret(),
+                    List.of("push", "pull_request", "ping"));
+            if (hookId != null) {
+                saved.setWebhookId(hookId);
+                repositoryRepository.save(saved);
+            }
+        } catch (Exception ex) {
+            log.warn("Could not register GitHub webhook for {}: {}",
+                    saved.getFullName(), ex.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -122,6 +177,22 @@ public class GithubRepositoryService {
         if (!repo.getWorkspaceId().equals(workspaceId)) {
             throw new NotFoundException("Repository not found in this workspace");
         }
+        // Best-effort: delete the GitHub webhook so we stop receiving
+        // events for this repo. Failures are logged inside
+        // deleteWebhook() and must not block the user-facing disconnect.
+        if (repo.getWebhookId() != null) {
+            try {
+                GithubConnection conn = oauthService.findForCurrentUser().orElse(null);
+                if (conn != null) {
+                    githubClient.deleteWebhook(conn.getAccessToken(),
+                            repo.getOwner(), repo.getName(), repo.getWebhookId());
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to delete GitHub webhook for {}: {}",
+                        repo.getFullName(), ex.getMessage());
+            }
+            repo.setWebhookId(null);
+        }
         repo.setStatus(Repository.Status.DISCONNECTED);
         repositoryRepository.save(repo);
         log.info("Repository {} disconnected from workspace {}", repo.getFullName(), workspaceId);
@@ -134,6 +205,18 @@ public class GithubRepositoryService {
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
         if (!repo.getWorkspaceId().equals(workspaceId)) {
             throw new NotFoundException("Repository not found in this workspace");
+        }
+        // If the repo is currently DISCONNECTED, treat this sync call as
+        // a reconnection request: flip status to CONNECTED and register
+        // a fresh webhook. This way the user can recover a repo without
+        // having to remove and re-add it.
+        if (repo.getStatus() == Repository.Status.DISCONNECTED) {
+            UUID userId = CurrentUser.requireId();
+            repo.setStatus(Repository.Status.CONNECTED);
+            repo.setLastSyncedAt(OffsetDateTime.now());
+            log.info("Repository {} reconnected via sync by user {}", repo.getFullName(), userId);
+            tryRegisterWebhook(repo, userId);
+            return repositoryRepository.save(repo);
         }
         // Real re-sync: fetch current metadata from GitHub and refresh
         // description, default branch, visibility, and the timestamp.

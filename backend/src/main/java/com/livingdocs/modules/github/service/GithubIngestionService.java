@@ -12,6 +12,10 @@ import com.livingdocs.modules.github.model.WebhookEvent;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.notification.model.NotificationKinds;
+import com.livingdocs.modules.notification.service.NotificationService;
+import com.livingdocs.modules.workspace.model.WorkspaceMember;
+import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Translates raw GitHub webhook payloads and pull-request listings
@@ -39,19 +44,25 @@ public class GithubIngestionService {
     private final GithubClient githubClient;
     private final ObjectMapper objectMapper;
     private final WorkspaceSettingsRepository workspaceSettingsRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final NotificationService notificationService;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
                                   CommitRepository commitRepository,
                                   GithubClient githubClient,
                                   ObjectMapper objectMapper,
-                                  WorkspaceSettingsRepository workspaceSettingsRepository) {
+                                  WorkspaceSettingsRepository workspaceSettingsRepository,
+                                  WorkspaceMemberRepository workspaceMemberRepository,
+                                  NotificationService notificationService) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
         this.githubClient = githubClient;
         this.objectMapper = objectMapper;
         this.workspaceSettingsRepository = workspaceSettingsRepository;
+        this.workspaceMemberRepository = workspaceMemberRepository;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -158,6 +169,48 @@ public class GithubIngestionService {
     }
 
     /**
+     * Fan out a single "new commits pushed" notification to every
+     * member of the workspace that owns this repository. The policy
+     * check is delegated to {@link NotificationService} so admins or
+     * workspace managers can disable {@code SCM_PUSH} from the
+     * notification-policies page without code changes.
+     */
+    private void notifyWorkspaceOfPush(Repository repo, String branch, int newCount,
+                                       String headSha, String pusherName) {
+        UUID workspaceId = repo.getWorkspaceId();
+        List<WorkspaceMember> members = workspaceMemberRepository.findAllByWorkspaceId(workspaceId);
+        if (members.isEmpty()) {
+            return;
+        }
+        List<UUID> userIds = members.stream()
+                .map(WorkspaceMember::getUserId)
+                .collect(Collectors.toList());
+
+        String repoLabel = repo.getFullName();
+        String branchLabel = branch.isBlank() ? "" : " to " + branch;
+        String title = "New commit" + (newCount == 1 ? "" : "s") + " in " + repoLabel;
+        String body;
+        if (newCount == 1 && headSha != null && !headSha.isBlank()) {
+            String shortSha = headSha.length() > 7 ? headSha.substring(0, 7) : headSha;
+            String pusher = pusherName == null || pusherName.isBlank() ? "" : " by " + pusherName;
+            body = shortSha + branchLabel + pusher;
+        } else {
+            body = newCount + " new commit" + (newCount == 1 ? "" : "s") + branchLabel;
+        }
+        String link = "/workspaces/" + workspaceId + "/repositories";
+        try {
+            int sent = notificationService.sendBatch(workspaceId, userIds,
+                    NotificationKinds.SCM_PUSH, title, body, link);
+            log.info("Sent {} SCM_PUSH notification(s) for repo {} (workspace={})",
+                    sent, repoLabel, workspaceId);
+        } catch (Exception ex) {
+            // Notification failure must not break webhook ingestion.
+            log.warn("Failed to send SCM_PUSH notifications for repo {}: {}",
+                    repoLabel, ex.getMessage());
+        }
+    }
+
+    /**
      * Handle a "push" event: persist the new commits and (best-effort)
      * trigger AI auto-update for documents linked to the affected repo.
      */
@@ -172,10 +225,16 @@ public class GithubIngestionService {
         }
         Repository repo = repoOpt.get();
 
-        // 1. Persist any new commits carried by the event payload
+        // 1. Persist any new commits carried by the event payload.
+        //    We only count commits that are actually inserted (i.e. did
+        //    NOT already exist in the DB). Re-deliveries of the same
+        //    webhook, or replayed SHAs, must not spam notifications.
         JsonNode commits = payload.path("commits");
         String branch = payload.path("ref").asText("").replaceFirst("^refs/heads/", "");
+        String pusherName = payload.path("pusher").path("name").asText(null);
+        String headSha = payload.path("after").asText(null);
         List<String> shas = new ArrayList<>();
+        int newlyInserted = 0;
         if (commits.isArray()) {
             for (JsonNode c : commits) {
                 String sha = c.path("id").asText();
@@ -197,11 +256,21 @@ public class GithubIngestionService {
                         branch
                 );
                 commitRepository.save(row);
+                newlyInserted++;
             }
         }
-        log.info("Push webhook ingested {} commit(s) for repo {}", shas.size(), repo.getFullName());
+        log.info("Push webhook ingested {} commit(s) for repo {} ({} new)", shas.size(), repo.getFullName(), newlyInserted);
 
-        // 2. Best-effort: trigger AI auto-update if the workspace settings
+        // 2. Notify every workspace member that a new commit landed.
+        //    We respect the per-workspace NotificationPolicy for SCM_PUSH
+        //    (a user/manager can disable it from the workspace settings
+        //    page). If no new commits were inserted, skip — re-deliveries
+        //    of the same webhook should not generate notifications.
+        if (newlyInserted > 0) {
+            notifyWorkspaceOfPush(repo, branch, newlyInserted, headSha, pusherName);
+        }
+
+        // 3. Best-effort: trigger AI auto-update if the workspace settings
         //    and the per-repository toggle are both enabled. We do not
         //    re-fetch file diffs here (that requires the GitHub contents
         //    API) — we just create a new PENDING version that the user

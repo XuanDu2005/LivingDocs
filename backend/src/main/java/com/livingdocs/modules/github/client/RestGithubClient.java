@@ -345,4 +345,128 @@ public class RestGithubClient implements GithubClient {
             throw new GithubClientException("getRepository failed: " + e.getMessage(), e);
         }
     }
+
+    // ── Webhook management ───────────────────────────────────────────────
+
+    @Override
+    public Long createWebhook(String accessToken, String owner, String repo,
+                              String targetUrl, String secret, List<String> events) {
+        if (targetUrl == null || targetUrl.isBlank()) {
+            throw new GithubClientException("Webhook target URL is required");
+        }
+        if (secret == null || secret.isBlank()) {
+            throw new GithubClientException("Webhook secret is required");
+        }
+        List<String> safeEvents = (events == null || events.isEmpty())
+                ? List.of("push", "pull_request", "ping")
+                : events;
+        String json = String.format(
+                "{\"name\":\"web\",\"active\":true,\"events\":%s," +
+                "\"config\":{\"url\":%s,\"content_type\":\"json\",\"secret\":%s,\"insecure_ssl\":\"0\"}}",
+                toJsonArray(safeEvents),
+                jsonString(targetUrl),
+                jsonString(secret));
+        try {
+            JsonNode created = webClient.post()
+                    .uri("/repos/{owner}/{repo}/hooks", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(json)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        if (ex.getStatusCode().value() == 404) {
+                            throw new GithubClientException(
+                                    "Cannot register webhook: repo " + owner + "/" + repo + " not found");
+                        }
+                        if (ex.getStatusCode().value() == 422) {
+                            throw new GithubClientException(
+                                    "GitHub rejected webhook registration (likely already exists or insufficient scope): "
+                                            + ex.getResponseBodyAsString());
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (created == null) {
+                throw new GithubClientException("Empty response from POST /hooks");
+            }
+            long id = created.path("id").asLong();
+            log.info("Registered GitHub webhook id={} on {}/{} -> {}",
+                    id, owner, repo, targetUrl);
+            return id;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (GithubClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubClientException("createWebhook failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteWebhook(String accessToken, String owner, String repo, Long hookId) {
+        if (hookId == null) return;
+        try {
+            webClient.delete()
+                    .uri("/repos/{owner}/{repo}/hooks/{hookId}", owner, repo, hookId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 404) {
+                            // Already gone — treat as success.
+                            log.info("Webhook {} already absent on {}/{}", hookId, owner, repo);
+                            return Mono.empty();
+                        }
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(10));
+            log.info("Deleted GitHub webhook id={} on {}/{}", hookId, owner, repo);
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            // Don't fail the user-facing disconnect on webhook cleanup failure —
+            // the repository row is already marked DISCONNECTED. Log and move on.
+            log.warn("Failed to delete GitHub webhook {} on {}/{}: {}",
+                    hookId, owner, repo, e.getMessage());
+        }
+    }
+
+    private static String toJsonArray(List<String> values) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(jsonString(values.get(i)));
+        }
+        return sb.append(']').toString();
+    }
+
+    private static String jsonString(String value) {
+        if (value == null) return "null";
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.append('"').toString();
+    }
 }

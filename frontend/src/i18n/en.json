@@ -79,7 +79,8 @@
     "overview": "Overview",
     "repositories": "Repositories",
     "analytics": "Analytics",
-    "languages": "Programming languages"
+    "languages": "Programming languages",
+    "workspaceSettings": "Settings"
   },
   "auth": {
     "divider": "or",
@@ -609,7 +610,18 @@
     "close": "Close",
     "openLink": "Open",
     "empty": "You're all caught up.",
-    "totalCount": "{{count}} notifications"
+    "totalCount": "{{count}} notifications",
+    "kindLabels": {
+      "ADMIN_BROADCAST": "Admin announcement",
+      "DRIFT_DETECTED": "Drift detected",
+      "SCM_PR_EVENT": "Pull request",
+      "SCM_PUSH": "New commit",
+      "SCM_ISSUE_EVENT": "Issue",
+      "SCM_RELEASE": "Release",
+      "JIRA_ISSUE_EVENT": "Jira issue",
+      "REVIEW_ASSIGNED": "Review assigned",
+      "INDEXING_DONE": "Indexing complete"
+    }
   },
   "adminWorkspaces": {
     "title": "Admin · Workspaces",
@@ -1060,6 +1072,110 @@
     "unlimited": "Unlimited",
     "saving": "Saving…",
     "saveLimits": "Save limits"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Welcome to LivingDocs",
+      "subtitle": "Let's get you set up in 4 quick steps.",
+      "getStarted": "Get started",
+      "skip": "Skip for now",
+      "hello": "Hi {{name}}",
+      "intro": "LivingDocs keeps your documentation in sync with your code. We'll set up the basics in 4 quick steps so you can generate your first document.",
+      "step1": "Create a workspace to group your docs.",
+      "step2": "Connect GitHub to import repositories.",
+      "step3": "Pick the first repository to document.",
+      "step4": "Generate your first AI-assisted document."
+    },
+    "workspace": {
+      "title": "Create your workspace",
+      "subtitle": "Workspaces group your repositories, documents and reviews.",
+      "nameLabel": "Workspace name",
+      "namePlaceholder": "e.g. LivingDocs",
+      "slugLabel": "Slug",
+      "slugHint": "Used in URLs — auto-generated from the name.",
+      "descLabel": "Description (optional)",
+      "descPlaceholder": "What lives in this workspace?",
+      "creating": "Creating…",
+      "create": "Create workspace",
+      "back": "Back"
+    },
+    "github": {
+      "title": "Connect GitHub",
+      "subtitle": "Link GitHub to import repositories and listen for code events.",
+      "checking": "Checking GitHub status…",
+      "connectedAs": "Connected as @{{login}}",
+      "connectDesc": "Link GitHub to import repositories and let LivingDocs listen for push and pull request events.",
+      "connect": "Connect GitHub",
+      "redirecting": "Redirecting…",
+      "next": "Next",
+      "skip": "Skip for now",
+      "back": "Back"
+    },
+    "repo": {
+      "title": "Pick your first repository",
+      "subtitle": "Connect a GitHub repository to start documenting it.",
+      "searchPlaceholder": "Search your GitHub repositories…",
+      "loading": "Loading repositories…",
+      "empty": "No repositories found. You can add one later from the Repositories page.",
+      "back": "Back",
+      "skip": "Skip for now"
+    },
+    "done": {
+      "title": "You're all set!",
+      "subtitle": "Your workspace is ready.",
+      "body": "Your workspace is ready. Create a new document to generate your first AI-assisted draft.",
+      "close": "Close",
+      "goToDashboard": "Go to dashboard",
+      "seeLater": "You can always revisit this from Documents."
+    }
+  },
+  "workspaceSwitcher": {
+    "create": "New workspace",
+    "pick": "Pick workspace",
+    "label": "Workspaces",
+    "manage": "Manage workspaces"
+  },
+  "workspaceSettings": {
+    "title": "Workspace settings",
+    "subtitle": "AI provider, languages, and notification policy for this workspace.",
+    "tabAi": "AI",
+    "tabLanguages": "Languages",
+    "tabNotifications": "Notifications"
+  },
+  "dashboard": {
+    "newDocument": "New document",
+    "newWorkspace": "New workspace",
+    "qaNewDoc": "Create document",
+    "qaNewDocDesc": "Start a new document or AI draft",
+    "qaConnectRepo": "Connect repository",
+    "qaConnectRepoDesc": "Link a GitHub repository",
+    "qaSearch": "Search knowledge",
+    "qaSearchDesc": "Semantic search across docs and code",
+    "qaDrift": "Review drift",
+    "qaDriftDesc": "Triage open drift alerts",
+    "activity": "Recent activity",
+    "activityDesc": "From {{name}}",
+    "activityDescEmpty": "Pick a workspace to see activity",
+    "recentDocs": "Recent documents",
+    "recentDocsEmpty": "No documents yet",
+    "recentDrift": "Open drift alerts",
+    "recentDriftEmpty": "No open drift",
+    "recentReviews": "Pending reviews",
+    "recentReviewsEmpty": "Nothing pending",
+    "suggestions": "Suggestions",
+    "sugFirstDoc": "Create your first document",
+    "sugFirstDocDesc": "Pick a template and generate an AI draft in one click.",
+    "sugReviews": "{{count}} review(s) waiting",
+    "sugReviewsDesc": "Approve or request changes on pending versions.",
+    "sugDrift": "{{count}} drift alert(s)",
+    "sugDriftDesc": "Code may have changed without the docs following.",
+    "sugHealth": "Backend reported a non-UP status",
+    "sugHealthDesc": "Some data may be stale until the service recovers.",
+    "sugAllGood": "You're all caught up",
+    "sugAllGoodDesc": "No action needed for {{name}}",
+    "browseAll": "Browse all workspaces",
+    "healthTitle": "Service health",
+    "healthDesc": "Powered by the platform health endpoint."
   },
   "repository": {
     "title": "Repositories",
