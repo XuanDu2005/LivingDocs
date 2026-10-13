@@ -146,6 +146,10 @@ function friendlyErrorMessage(code: string | null, fallback: string | null): str
       return 'Tài khoản OAuth này đã được liên kết với một tài khoản LivingDocs khác. Vui lòng đăng nhập với tài khoản đó hoặc liên hệ hỗ trợ.';
     case 'link_failed':
       return 'Không thể liên kết tài khoản. Vui lòng thử lại sau.';
+    case 'link_callback_misrouted':
+      return 'Phiên liên kết không hợp lệ. Vui lòng thử lại từ trang hồ sơ.';
+    case 'link_session_missing':
+      return 'Phiên đăng nhập đã hết hạn trong khi liên kết. Vui lòng đăng nhập lại rồi thử liên kết.';
     case 'exchange_failed':
       return 'Nhà cung cấp từ chối trao đổi mã. Vui lòng thử lại.';
     case 'missing_token':

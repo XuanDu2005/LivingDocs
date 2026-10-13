@@ -28,6 +28,7 @@ import { documentsApi } from '../services/documents';
 import { driftApi } from '../services/drift';
 import { reviewsApi } from '../services/drift';
 import { fetchBackendHealth, HealthStatus } from '../services/health';
+import { LinkedAccountsCard } from '../components/auth/LinkedAccountsCard';
 import { format } from 'date-fns';
 
 interface Stat {
@@ -251,6 +252,21 @@ export default function DashboardPage() {
               </Link>
             </Button>
           </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <LinkedAccountsCard variant="card" />
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Mẹo</CardTitle>
+            <CardDescription>
+              Liên kết Google/GitHub giúp bạn đăng nhập nhanh và xác thực email tự động.
+              Trạng thái liên kết đồng bộ giữa mọi thiết bị và tab.
+            </CardDescription>
+          </CardHeader>
         </Card>
       </div>
 

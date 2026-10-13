@@ -36,6 +36,7 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { NotificationBell } from '../components/NotificationBell';
+import { LinkedAccountsQuickLinks } from '../components/auth/LinkedAccountsQuickLinks';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -368,6 +369,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <span className="text-sm text-muted-foreground">{t('common.tagline')}</span>
           </div>
           <div className="flex items-center gap-2">
+            {isAuthenticated && <LinkedAccountsQuickLinks />}
             <Button
               variant="ghost"
               size="icon"
