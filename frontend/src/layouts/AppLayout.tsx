@@ -139,6 +139,11 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
       items: [
         { labelKey: 'nav.documents', to: `/workspaces/${workspaceId}/documents`, icon: FileText },
         { labelKey: 'nav.templates', to: `/workspaces/${workspaceId}/templates`, icon: FileType },
+      ],
+    },
+    {
+      labelKey: 'nav.workspaceGroupWorkflow',
+      items: [
         { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
         { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
       ],
