@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Github,
   GitBranch,
+  GitCommit,
   RefreshCw,
   Unplug,
   ExternalLink,
@@ -28,7 +29,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
-import { githubApi, Repository, PullRequest } from '../services/github';
+import { githubApi, Repository, PullRequest, Commit } from '../services/github';
 import { describeError } from '../services/auth';
 
 /**
@@ -69,6 +70,9 @@ export default function RepositoryPage() {
   const [selected, setSelected] = useState<Repository | null>(null);
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [prsLoading, setPrsLoading] = useState<boolean>(false);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [commitsLoading, setCommitsLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'pulls' | 'commits'>('pulls');
 
   async function load() {
     if (!workspaceId) return;
@@ -254,14 +258,22 @@ export default function RepositoryPage() {
     if (!workspaceId) return;
     setSelected(repo);
     setPulls([]);
+    setCommits([]);
     setPrsLoading(true);
+    setCommitsLoading(true);
+    setActiveTab('pulls');
     try {
-      const prs = await githubApi.listPullRequests(workspaceId, repo.id);
+      const [prs, cs] = await Promise.all([
+        githubApi.listPullRequests(workspaceId, repo.id),
+        githubApi.listCommits(workspaceId, repo.id, 50),
+      ]);
       setPulls(prs);
+      setCommits(cs);
     } catch (err) {
       // non-critical
     } finally {
       setPrsLoading(false);
+      setCommitsLoading(false);
     }
   }
 
@@ -487,80 +499,218 @@ export default function RepositoryPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <GitPullRequest className="h-4 w-4" /> {t('repository.recentPRs', {
-                  name: selected.fullName,
-                })}
+                <GitPullRequest className="h-4 w-4" /> {selected.fullName}
               </CardTitle>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => githubApi
-                  .ingestPullRequests(workspaceId, selected.id, 'all')
-                  .then(() => loadDetails(selected))
-                  .catch((err) => setError(describeError(err)))}
-                disabled={busy}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
-              </Button>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1 border rounded-md p-0.5">
+                  <button
+                    onClick={() => setActiveTab('pulls')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'pulls' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <GitPullRequest className="h-3 w-3" />
+                    {t('repository.tabPRs', 'Pull Requests')} ({pulls.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('commits')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'commits' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <GitCommit className="h-3 w-3" />
+                    {t('repository.tabCommits', 'Commits')} ({commits.length})
+                  </button>
+                </div>
+                {activeTab === 'pulls' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => githubApi
+                      .ingestPullRequests(workspaceId, selected.id, 'all')
+                      .then(() => loadDetails(selected))
+                      .catch((err) => setError(describeError(err)))}
+                    disabled={busy}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
+                  </Button>
+                )}
+                {activeTab === 'commits' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        const result = await githubApi.ingestCommits(workspaceId, selected.id, 50);
+                        setInfo(t('repository.commitsIngested', {
+                          count: result.ingested,
+                          name: selected.fullName,
+                        }));
+                        await loadDetails(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={busy}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.fetchFromGithub', 'Fetch from GitHub')}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {prsLoading ? (
-              <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingPRs')}
-              </div>
-            ) : pulls.length === 0 ? (
-              <p className="text-sm text-muted-foreground px-4 py-6">
-                {t('repository.noPRs')}
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>{t('repository.colPRTitle')}</TableHead>
-                    <TableHead>{t('repository.colPRState')}</TableHead>
-                    <TableHead>{t('repository.colPRAuthor')}</TableHead>
-                    <TableHead>{t('repository.colPRBranch')}</TableHead>
-                    <TableHead className="text-right">{t('repository.colPRUpdated')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pulls.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs">#{p.number}</TableCell>
-                      <TableCell>
-                        {p.htmlUrl ? (
-                          <a
-                            href={p.htmlUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:text-primary flex items-center gap-1"
-                          >
-                            {p.title}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          p.title
-                        )}
-                        {p.isDraft && (
-                          <Badge variant="muted" className="ml-2 text-[10px]">draft</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <PRStateBadge state={p.state} />
-                      </TableCell>
-                      <TableCell className="text-xs">{p.authorLogin || '—'}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {p.headBranch} → {p.baseBranch}
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground">
-                        {new Date(p.updatedAt).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+
+            {/* Pull Requests Tab */}
+            {activeTab === 'pulls' && (
+              <>
+                {prsLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingPRs')}
+                  </div>
+                ) : pulls.length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-4 py-6">
+                    {t('repository.noPRs')}
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>{t('repository.colPRTitle')}</TableHead>
+                        <TableHead>{t('repository.colPRState')}</TableHead>
+                        <TableHead>{t('repository.colPRAuthor')}</TableHead>
+                        <TableHead>{t('repository.colPRBranch')}</TableHead>
+                        <TableHead className="text-right">{t('repository.colPRUpdated')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pulls.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-mono text-xs">#{p.number}</TableCell>
+                          <TableCell>
+                            {p.htmlUrl ? (
+                              <a
+                                href={p.htmlUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:text-primary flex items-center gap-1"
+                              >
+                                {p.title}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : (
+                              p.title
+                            )}
+                            {p.isDraft && (
+                              <Badge variant="muted" className="ml-2 text-[10px]">draft</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <PRStateBadge state={p.state} />
+                          </TableCell>
+                          <TableCell className="text-xs">{p.authorLogin || '—'}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {p.headBranch} → {p.baseBranch}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">
+                            {new Date(p.updatedAt).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </>
+            )}
+
+            {/* Commits Tab */}
+            {activeTab === 'commits' && (
+              <>
+                {commitsLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingCommits', 'Loading commits...')}
+                  </div>
+                ) : commits.length === 0 ? (
+                  <div className="text-center py-8 px-4">
+                    <GitCommit className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground mb-2">
+                      {t('repository.noCommits', 'No commits found')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('repository.noCommitsHint', 'Click "Fetch from GitHub" to load commits from this repository.')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {commits.map((c) => (
+                      <div key={c.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* SHA */}
+                              {c.url ? (
+                                <a
+                                  href={c.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="font-mono text-xs text-primary hover:underline"
+                                >
+                                  {c.shortSha || c.sha?.substring(0, 7)}
+                                </a>
+                              ) : (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {c.shortSha || c.sha?.substring(0, 7)}
+                                </span>
+                              )}
+                              {/* Branch */}
+                              {c.branch && (
+                                <Badge variant="muted" className="text-[10px] flex items-center gap-0.5">
+                                  <GitBranch className="h-2.5 w-2.5" />
+                                  {c.branch}
+                                </Badge>
+                              )}
+                              {/* Author */}
+                              {c.authorName && (
+                                <span className="text-xs text-muted-foreground">
+                                  {c.authorName}
+                                </span>
+                              )}
+                            </div>
+                            {/* Message */}
+                            <p className="text-sm mt-1 line-clamp-2">
+                              {c.message}
+                            </p>
+                            {/* Meta */}
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                              {c.authorEmail && (
+                                <span>{c.authorEmail}</span>
+                              )}
+                              <span>
+                                {c.authoredAt ? new Date(c.authoredAt).toLocaleString() : ''}
+                              </span>
+                              {c.url && (
+                                <a
+                                  href={c.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1 hover:text-primary"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  GitHub
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
