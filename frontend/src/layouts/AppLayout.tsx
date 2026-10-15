@@ -332,7 +332,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
-              <NotificationBell />
               <LanguageSwitcher />
             </div>
           ) : (
@@ -370,6 +369,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex items-center gap-2">
             {isAuthenticated && <LinkedAccountsQuickLinks />}
+            {isAuthenticated && <NotificationBell compact />}
             <Button
               variant="ghost"
               size="icon"

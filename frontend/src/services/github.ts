@@ -184,6 +184,31 @@ export const githubApi = {
     );
     return res.data;
   },
+
+  /**
+   * Publish a document to a repository as a new-branch pull request.
+   * The backend creates a feature branch, writes the file via the
+   * Contents API, and opens a PR against the repository's default
+   * branch.
+   */
+  async commitDocument(
+    workspaceId: string,
+    repositoryId: string,
+    req: {
+      filePath: string;
+      content: string;
+      commitMessage: string;
+      prTitle: string;
+      prBody?: string;
+      headBranch?: string;
+    },
+  ): Promise<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }> {
+    const res = await apiClient.post<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/commit`,
+      req,
+    );
+    return res.data;
+  },
 };
 
 export interface Commit {

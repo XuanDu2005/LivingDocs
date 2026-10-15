@@ -12,6 +12,10 @@ import { formatDistanceToNow, parseISO } from 'date-fns';
 const POPOVER_WIDTH = 320;
 const POPOVER_GAP = 8;
 
+interface NotificationBellProps {
+  compact?: boolean; // true = icon + badge only (for header)
+}
+
 /**
  * Header bell icon with unread badge and popover list.
  *
@@ -24,8 +28,10 @@ const POPOVER_GAP = 8;
  * absolute) so it never gets clipped by an <code>overflow</code>
  * ancestor on the sidebar / header. Coordinates are computed from
  * the trigger button's bounding rect.
+ *
+ * <p>Use <code>compact</code> prop for icon-only display in header.
  */
-export function NotificationBell() {
+export function NotificationBell({ compact = false }: NotificationBellProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<Notification[]>([]);
   const [count, setCount] = useState<number>(0);
@@ -235,17 +241,18 @@ export function NotificationBell() {
       <Button
         ref={triggerRef}
         variant="ghost"
-        size="sm"
+        size="icon"
         aria-label={t('notifications.openBell')}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="relative w-full justify-start"
+        className="relative"
+        title={compact ? t('notifications.title') : undefined}
       >
         <Bell className="h-4 w-4" />
-        <span className="ml-2 text-sm">{t('notifications.title')}</span>
+        {!compact && <span className="ml-2 text-sm">{t('notifications.title')}</span>}
         {count > 0 && (
-          <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
+          <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
             {count > 99 ? '99+' : count}
           </span>
         )}

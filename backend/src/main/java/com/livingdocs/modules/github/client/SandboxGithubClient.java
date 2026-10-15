@@ -217,4 +217,43 @@ public class SandboxGithubClient implements GithubClient {
     public void deleteWebhook(String accessToken, String owner, String repo, Long hookId) {
         log.info("Sandbox: would delete webhook {} on {}/{}", hookId, owner, repo);
     }
+
+    @Override
+    public String createFileAsPullRequest(String accessToken, String owner, String repo,
+                                           String baseBranch, String headBranch,
+                                           String filePath, String content,
+                                           String commitMessage, String prTitle, String prBody) {
+        // Sandbox mode just simulates a successful PR creation.
+        log.info("Sandbox: would open PR on {}/{} from {} (file={}, {} bytes)",
+                owner, repo, headBranch, filePath, content == null ? 0 : content.length());
+        return "https://github.example/" + owner + "/" + repo + "/pull/sandbox-" + Math.abs((headBranch + filePath).hashCode() % 1000);
+    }
+
+    // ── Repository Contents ───────────────────────────────────────────────
+
+    @Override
+    public List<GithubRepositoryContent> listRepositoryContents(String accessToken, String owner, String repo,
+                                                              String path, String ref) {
+        log.info("Sandbox: listRepositoryContents {}/{}/{}", owner, repo, path);
+        // Return a sample structure for docs folder
+        if (path == null || path.isEmpty() || path.equals("docs")) {
+            return List.of(
+                    new GithubRepositoryContent("README.md", "docs/README.md", "file", 1024L, null),
+                    new GithubRepositoryContent("API.md", "docs/API.md", "file", 2048L, null),
+                    new GithubRepositoryContent("GUIDE.md", "docs/GUIDE.md", "file", 1536L, null),
+                    new GithubRepositoryContent("api", "docs/api", "dir", null, null)
+            );
+        }
+        return List.of();
+    }
+
+    @Override
+    public String getFileContent(String accessToken, String owner, String repo, String path, String ref) {
+        log.info("Sandbox: getFileContent {}/{}/{}", owner, repo, path);
+        // Return sample content for known files
+        if (path != null && path.endsWith(".md")) {
+            return "# Sample Documentation\n\nThis is sample content for " + path;
+        }
+        return null;
+    }
 }

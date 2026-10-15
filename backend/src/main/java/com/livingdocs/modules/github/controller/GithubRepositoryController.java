@@ -1,5 +1,7 @@
 package com.livingdocs.modules.github.controller;
 
+import com.livingdocs.modules.github.dto.CommitDocumentRequest;
+import com.livingdocs.modules.github.dto.CommitDocumentResponse;
 import com.livingdocs.modules.github.dto.CommitDto;
 import com.livingdocs.modules.github.dto.ConnectRepositoryRequest;
 import com.livingdocs.modules.github.dto.GithubRepositoryCatalogItem;
@@ -9,6 +11,7 @@ import com.livingdocs.modules.github.dto.RepositoryResponse;
 import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.service.CommitIngestionService;
+import com.livingdocs.modules.github.service.DocSyncService;
 import com.livingdocs.modules.github.service.GithubIngestionService;
 import com.livingdocs.modules.github.service.GithubRepositoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,13 +45,16 @@ public class GithubRepositoryController {
     private final GithubRepositoryService repositoryService;
     private final GithubIngestionService ingestionService;
     private final CommitIngestionService commitIngestionService;
+    private final DocSyncService docSyncService;
 
     public GithubRepositoryController(GithubRepositoryService repositoryService,
                                       GithubIngestionService ingestionService,
-                                      CommitIngestionService commitIngestionService) {
+                                      CommitIngestionService commitIngestionService,
+                                      DocSyncService docSyncService) {
         this.repositoryService = repositoryService;
         this.ingestionService = ingestionService;
         this.commitIngestionService = commitIngestionService;
+        this.docSyncService = docSyncService;
     }
 
     @GetMapping("/github/catalog/repositories")
@@ -141,6 +147,72 @@ public class GithubRepositoryController {
         return commitIngestionService.listForRepository(workspaceId, repositoryId, limit).stream()
                 .map(CommitDto::from)
                 .toList();
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/commit")
+    @Operation(summary = "Publish a document to a repository as a pull request (creates a new branch, writes the file, and opens a PR)")
+    public ResponseEntity<CommitDocumentResponse> commitDocument(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @Valid @RequestBody CommitDocumentRequest req) {
+        CommitDocumentResponse res = repositoryService.commitDocument(
+                workspaceId, repositoryId,
+                req.filePath(), req.content(),
+                req.commitMessage(), req.prTitle(), req.prBody(), req.headBranch());
+        return ResponseEntity.status(HttpStatus.CREATED).body(res);
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/scan-docs")
+    @Operation(summary = "Scan repository for documentation files and code references")
+    public Map<String, Object> scanDocs(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestParam(required = false) String branch) {
+        // Get the authenticated user's access token from security context
+        UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
+        String accessToken = repositoryService.getAccessTokenForWorkspace(workspaceId);
+        
+        DocSyncService.ScanResult result = docSyncService.scanRepository(
+                actorId, workspaceId, repositoryId, accessToken, branch);
+        
+        return Map.of(
+                "totalFiles", result.totalFiles(),
+                "referencedEntities", result.referencedEntities(),
+                "updatedEntities", result.updatedEntities(),
+                "files", result.files().stream()
+                        .map(f -> Map.of(
+                                "path", f.path(),
+                                "type", f.type(),
+                                "size", f.size() != null ? f.size() : 0,
+                                "referencedEntities", f.referencedEntities(),
+                                "foundEntities", f.foundEntities(),
+                                "missingEntities", f.missingEntities()
+                        ))
+                        .toList()
+        );
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/docs/{path:.*}")
+    @Operation(summary = "Get content of a documentation file")
+    public ResponseEntity<Map<String, Object>> getDocContent(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @PathVariable String path,
+            @RequestParam(required = false) String branch) {
+        UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
+        String accessToken = repositoryService.getAccessTokenForWorkspace(workspaceId);
+        
+        String content = docSyncService.getFileContent(
+                actorId, workspaceId, repositoryId, accessToken, path, branch);
+        
+        if (content == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        return ResponseEntity.ok(Map.of(
+                "path", path,
+                "content", content
+        ));
     }
 
     private RepositoryResponse toResponse(Repository r) {

@@ -32,6 +32,7 @@ import { createWorkspace, Workspace } from '../../services/workspaces';
 import { githubApi, GithubConnection, GithubRepositoryCatalogItem } from '../../services/github';
 
 const STORAGE_KEY = 'livingdocs:onboarding:v1';
+const MAX_DISPLAYS = 2; // Show wizard at most twice before staying hidden
 
 type Step = 'welcome' | 'workspace' | 'github' | 'repo' | 'done';
 
@@ -44,15 +45,32 @@ interface WizardState {
 
 const STEP_ORDER: Step[] = ['welcome', 'workspace', 'github', 'repo', 'done'];
 
-function readFlag(): boolean {
+/**
+ * Reads the onboarding counter from localStorage.
+ * Returns the number of times the wizard has been shown to the user.
+ */
+function readCount(): number {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'done';
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === 'done') return MAX_DISPLAYS; // legacy: treat finished wizards as fully hidden
+    const n = Number(raw ?? '0');
+    return Number.isFinite(n) && n >= 0 ? n : 0;
   } catch {
-    return false;
+    return 0;
   }
 }
 
-function writeFlag() {
+function incrementCount() {
+  try {
+    const current = readCount();
+    if (current >= MAX_DISPLAYS) return; // already capped
+    localStorage.setItem(STORAGE_KEY, String(current + 1));
+  } catch {
+    /* localStorage may be disabled — non-fatal */
+  }
+}
+
+function writeDoneFlag() {
   try {
     localStorage.setItem(STORAGE_KEY, 'done');
   } catch {
@@ -63,8 +81,20 @@ function writeFlag() {
 /**
  * First-run wizard that walks a brand-new user through the 4 setup steps
  * (welcome → workspace → GitHub → repository) in a single modal flow.
- * The wizard persists a `done` flag in localStorage and only shows up when
- * the flag is missing — it never blocks returning users.
+ *
+ * <p>Visibility rules:
+ * <ul>
+ *   <li>Skipped entirely for {@code ADMIN} users (they have their own flow).</li>
+ *   <li>Shown at most {@link MAX_DISPLAYS} times per browser (default 2).</li>
+ *   <li>Hidden permanently once the user reaches the "done" step — a
+ *       {@code done} flag is written to localStorage.</li>
+ *   <li>Hidden permanently once the display budget is exhausted — the
+ *       count is incremented each time the wizard is opened.</li>
+ * </ul>
+ *
+ * The user can dismiss at any time by clicking outside, pressing Escape,
+ * or hitting "Skip". Dismissing only costs one display; it does NOT mark
+ * the wizard as completed.
  */
 export function FirstRunWizard() {
   const { isAuthenticated, user } = useAuth();
@@ -79,16 +109,19 @@ export function FirstRunWizard() {
     repo: null,
   });
 
-  // Open the wizard on first authenticated mount when no flag is set.
+  // Open the wizard on first authenticated mount while the user hasn't
+  // exhausted the display budget (default: 2 times). Once they finish the
+  // wizard, the `done` flag is set and it never reappears.
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (readFlag()) return;
+    if (readCount() >= MAX_DISPLAYS) return;
     setOpen(true);
+    incrementCount();
   }, [isAuthenticated]);
 
   function close(reason: 'dismiss' | 'finish' = 'dismiss') {
     setOpen(false);
-    if (reason === 'finish') writeFlag();
+    if (reason === 'finish') writeDoneFlag();
   }
 
   function next() {
