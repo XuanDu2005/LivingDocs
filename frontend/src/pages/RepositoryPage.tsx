@@ -20,6 +20,7 @@ import {
   Shield,
   Play,
   BookOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -37,7 +38,8 @@ import { githubApi, Repository, PullRequest, Commit } from '../services/github';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi } from '../services/documents';
 import { driftApi } from '../services/drift';
-import { docSyncApi } from '../services/docSync';
+import { docSyncApi, DocScanResult } from '../services/docSync';
+import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import { describeError } from '../services/auth';
 
 /**
@@ -94,21 +96,11 @@ export default function RepositoryPage() {
   const [generateResult, setGenerateResult] = useState<string | null>(null);
 
   // Doc sync state
-  const [docScanResult, setDocScanResult] = useState<{
-    totalFiles: number;
-    referencedEntities: number;
-    updatedEntities: number;
-    files: Array<{
-      path: string;
-      type: string;
-      size: number;
-      referencedEntities: number;
-      foundEntities: string[];
-      missingEntities: string[];
-    }>;
-  } | null>(null);
+  const [docScanResult, setDocScanResult] = useState<DocScanResult | null>(null);
   const [scanningDocs, setScanningDocs] = useState<boolean>(false);
   const [docScanError, setDocScanError] = useState<string | null>(null);
+  const [previewingFile, setPreviewingFile] = useState<string | null>(null);
+  const [prUrl, setPrUrl] = useState<string | null>(null);
 
   // Coverage stats state
   const [coverageStats, setCoverageStats] = useState<{
@@ -463,7 +455,15 @@ export default function RepositoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, selected?.id]);
 
-  // Distinct entity types for the filter dropdown (derived from loaded list)
+  // Prefetch entities count when a repository is selected so the tab badge
+  // shows the real number instead of "0" until the user clicks the tab.
+  // Skip the prefetch if a fetch is already running or already loaded.
+  useEffect(() => {
+    if (selected && entities.length === 0 && !entitiesLoading) {
+      void loadEntities(selected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
   const availableEntityTypes = useMemo(() => {
     const set = new Set<string>();
     entities.forEach((e) => set.add(e.entityType));
@@ -782,7 +782,7 @@ export default function RepositoryPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="grid grid-cols-4 gap-2 text-center">
                   <div className="bg-muted/50 rounded p-2">
                     <div className="text-lg font-bold">{docScanResult.totalFiles}</div>
                     <div className="text-xs text-muted-foreground">Doc Files</div>
@@ -795,18 +795,54 @@ export default function RepositoryPage() {
                     <div className="text-lg font-bold">{docScanResult.updatedEntities}</div>
                     <div className="text-xs text-muted-foreground">Matched</div>
                   </div>
+                  <div className={`rounded p-2 ${docScanResult.driftCount > 0 ? 'bg-amber-500/20 text-amber-700' : 'bg-muted/50'}`}>
+                    <div className="text-lg font-bold">{docScanResult.driftCount}</div>
+                    <div className="text-xs">Need Update</div>
+                  </div>
                 </div>
+                {docScanResult.driftCount > 0 && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 text-xs text-amber-700 flex items-center gap-2">
+                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                    <span>
+                      <b>{docScanResult.driftCount}</b> file(s) may need updating to match the latest code.
+                    </span>
+                  </div>
+                )}
                 {docScanResult.files.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {docScanResult.files.slice(0, 10).map((file) => (
-                      <div key={file.path} className="text-xs p-2 bg-muted/30 rounded flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <BookOpen className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate font-mono">{file.path}</span>
+                      <div
+                        key={file.path}
+                        className={`text-xs p-2 rounded flex flex-col gap-1 ${
+                          file.hasDrift
+                            ? 'bg-amber-500/10 border border-amber-500/30'
+                            : 'bg-muted/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <BookOpen className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate font-mono">{file.path}</span>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Badge variant="outline" className="text-xs">
+                              {file.foundEntities.length} refs
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant={file.hasDrift ? 'default' : 'ghost'}
+                              className="h-6 px-2 text-xs"
+                              onClick={() => setPreviewingFile(file.path)}
+                            >
+                              {t('repository.reviewAndUpdate', 'Review & Update')}
+                            </Button>
+                          </div>
                         </div>
-                        <Badge variant="outline" className="text-xs ml-2">
-                          {file.foundEntities.length} refs
-                        </Badge>
+                        {file.hasDrift && file.driftReason && (
+                          <div className="text-amber-700 text-[10px] pl-5">
+                            {file.driftReason}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {docScanResult.files.length > 10 && (
@@ -935,13 +971,22 @@ export default function RepositoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => void loadEntities(selected)}
-                    disabled={entitiesLoading}
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        const result = await githubApi.ingestCode(workspaceId, selected.id);
+                        setInfo(`Indexed ${result.ingested} code entities from ${selected.fullName}`);
+                        await loadEntities(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={busy}
                   >
-                    <RefreshCw className="mr-1 h-3 w-3" />
-                    {entitiesLoading
-                      ? t('repository.loadingEntities', 'Loading…')
-                      : t('repository.refreshEntities', 'Refresh entities')}
+                    <Code2 className="mr-1 h-3 w-3" />
+                    {busy ? 'Indexing…' : 'Ingest Code'}
                   </Button>
                 )}
               </div>
@@ -1406,6 +1451,67 @@ export default function RepositoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Doc Sync Preview Modal */}
+      {previewingFile && selected && (
+        <DocSyncPreviewModal
+          workspaceId={workspaceId}
+          repositoryId={selected.id}
+          filePath={previewingFile}
+          onClose={() => setPreviewingFile(null)}
+          onApplied={(url) => {
+            setPrUrl(url);
+            setPreviewingFile(null);
+            if (url) {
+              setGenerateResult(`Pull request created: ${url}`);
+            }
+          }}
+        />
+      )}
+
+      {/* PR Created Success Dialog */}
+      {prUrl && (
+        <Dialog open={!!prUrl} onOpenChange={() => setPrUrl(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                Pull Request Created!
+              </DialogTitle>
+              <DialogDescription>
+                Your documentation changes have been submitted for review.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <a
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-blue-600 hover:underline"
+              >
+                <GitPullRequest className="w-4 h-4" />
+                {prUrl}
+              </a>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPrUrl(null)}>
+                Close
+              </Button>
+              <Button asChild>
+                <a
+                  href={prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View on GitHub
+                </a>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

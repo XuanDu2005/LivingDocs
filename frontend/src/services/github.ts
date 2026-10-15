@@ -167,6 +167,15 @@ export const githubApi = {
     return res.data;
   },
 
+  async ingestCode(workspaceId: string, repositoryId: string, branch?: string) {
+    const res = await apiClient.post<{ ingested: number }>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/code-entities/ingest`,
+      null,
+      { params: branch ? { branch } : {} },
+    );
+    return res.data;
+  },
+
   async listCommits(workspaceId: string, repositoryId: string, limit = 50): Promise<Commit[]> {
     const res = await apiClient.get<Commit[]>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/commits?limit=${limit}`,

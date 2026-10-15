@@ -1242,7 +1242,8 @@
     "connectGithub": "Connect GitHub",
     "githubNotConnectedTitle": "GitHub account not connected",
     "githubNotConnectedDesc": "Connect your GitHub account to browse and add repositories. You will be redirected to GitHub to grant access.",
-    "manageConnections": "Manage connections"
+    "manageConnections": "Manage connections",
+    "reviewAndUpdate": "Review & Update"
   },
   "webhook": {
     "title": "Webhook Configuration",
