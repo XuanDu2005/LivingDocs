@@ -131,4 +131,17 @@ public interface GithubClient {
                                    String baseBranch, String headBranch,
                                    String filePath, String content,
                                    String commitMessage, String prTitle, String prBody);
+
+    /**
+     * Checks whether a branch with the given name exists in the repository.
+     *
+     * @return {@code true} if the branch exists, {@code false} otherwise
+     */
+    boolean branchExists(String accessToken, String owner, String repo, String branch);
+
+    /**
+     * Deletes a branch from the repository. No-op if the branch does not
+     * exist.
+     */
+    void deleteBranch(String accessToken, String owner, String repo, String branch);
 }
