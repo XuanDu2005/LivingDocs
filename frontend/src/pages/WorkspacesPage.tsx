@@ -132,7 +132,7 @@ export default function WorkspacesPage() {
                   <Label htmlFor="ws-slug">{t('workspaces.fieldSlug')}</Label>
                   <Input id="ws-slug" value={slug}
                     onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
-                    required minLength={2} maxLength={140} pattern="^[a-z0-9][a-z0-9-]*$" />
+                    required minLength={2} maxLength={140} pattern="^[a-z0-9][a-z0-9\-]*$" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="ws-desc">{t('workspaces.fieldDescription')}</Label>
