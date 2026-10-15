@@ -557,6 +557,8 @@ public class RestGithubClient implements GithubClient {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .onErrorResume(WebClientResponseException.class, ex -> {
+                        log.error("GitHub PR create failed: status={} body={}",
+                                ex.getStatusCode().value(), ex.getResponseBodyAsString());
                         if (ex.getStatusCode().value() == 401) {
                             throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
                         }
@@ -575,6 +577,41 @@ public class RestGithubClient implements GithubClient {
             throw e;
         } catch (Exception e) {
             throw new GithubClientException("createFileAsPullRequest failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean branchExists(String accessToken, String owner, String repo, String branch) {
+        try {
+            Boolean exists = webClient.get()
+                    .uri("/repos/{owner}/{repo}/branches/{branch}", owner, repo, branch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .toBodilessEntity()
+                    .map(r -> true)
+                    .onErrorResume(e -> Mono.just(false))
+                    .block();
+            return Boolean.TRUE.equals(exists);
+        } catch (Exception e) {
+            log.warn("branchExists check failed for {}/{}:{} — {}", owner, repo, branch, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public void deleteBranch(String accessToken, String owner, String repo, String branch) {
+        try {
+            webClient.delete()
+                    .uri("/repos/{owner}/{repo}/git/refs/heads/{branch}", owner, repo, branch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+            log.info("Deleted branch {}/{}:{}", owner, repo, branch);
+        } catch (Exception e) {
+            log.warn("deleteBranch failed for {}/{}:{} — {}", owner, repo, branch, e.getMessage());
         }
     }
 

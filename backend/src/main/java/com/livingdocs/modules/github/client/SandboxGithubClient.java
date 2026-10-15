@@ -229,6 +229,16 @@ public class SandboxGithubClient implements GithubClient {
         return "https://github.example/" + owner + "/" + repo + "/pull/sandbox-" + Math.abs((headBranch + filePath).hashCode() % 1000);
     }
 
+    @Override
+    public boolean branchExists(String accessToken, String owner, String repo, String branch) {
+        return false; // sandbox never has pre-existing branches
+    }
+
+    @Override
+    public void deleteBranch(String accessToken, String owner, String repo, String branch) {
+        log.info("Sandbox: would delete branch {}/{}:{}", owner, repo, branch);
+    }
+
     // ── Repository Contents ───────────────────────────────────────────────
 
     @Override
