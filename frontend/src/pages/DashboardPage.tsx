@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Bell,
   FileText,
   GitBranch,
   Plus,
@@ -30,6 +31,8 @@ import { listWorkspaces, Workspace } from '../services/workspaces';
 import { documentsApi, Document } from '../services/documents';
 import { driftApi, reviewsApi, DriftAlert, DocumentReview } from '../services/drift';
 import { fetchBackendHealth, HealthStatus } from '../services/health';
+import { notificationsApi } from '../services/notifications';
+import { codeApi } from '../services/knowledge';
 import { formatDistanceToNow } from 'date-fns';
 
 interface StatItem {
@@ -58,6 +61,12 @@ export default function DashboardPage() {
   const [recentDrifts, setRecentDrifts] = useState<DriftAlert[]>([]);
   const [recentReviews, setRecentReviews] = useState<DocumentReview[]>([]);
 
+  // Notification + coverage stats
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
+  const [totalEntities, setTotalEntities] = useState<number>(0);
+  const [documentedEntities, setDocumentedEntities] = useState<number>(0);
+  const [recentAiVersions, setRecentAiVersions] = useState<{ docTitle: string; versionNumber: number; createdAt: string; docId: string }[]>([]);
+
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -78,6 +87,8 @@ export default function DashboardPage() {
 
         loadAggregates(wsList);
         loadRecentActivity(activeWs);
+        loadCoverageStats(activeWs);
+        loadRecentAiActivity(activeWs);
       } catch (err) {
         setError(describeError(err));
       } finally {
@@ -108,6 +119,81 @@ export default function DashboardPage() {
       setOpenDrifts(driftCounts.reduce((a, b) => a + b, 0));
     } catch {
       /* keep nulls = "—" */
+    }
+
+    // Load notification count (independent of workspace)
+    try {
+      const count = await notificationsApi.unreadCount();
+      setUnreadNotifications(count);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function loadCoverageStats(ws: Workspace | undefined) {
+    if (!ws) return;
+    try {
+      // Get all repos in workspace to count entities
+      const { githubApi } = await import('../services/github');
+      const repos = await githubApi.listRepositories(ws.id).catch(() => []);
+      let total = 0;
+      let documented = 0;
+
+      // Count entities from all repos
+      const entityCounts = await Promise.allSettled(
+        repos.map((r) => codeApi.listEntities(ws.id, r.id).then((entities) => {
+          const hasDocs = entities.filter((e) => e.docstring && e.docstring.trim().length > 0).length;
+          return { total: entities.length, documented: hasDocs };
+        }).catch(() => ({ total: 0, documented: 0 }))),
+      );
+
+      for (const result of entityCounts) {
+        if (result.status === 'fulfilled') {
+          total += result.value.total;
+          documented += result.value.documented;
+        }
+      }
+
+      setTotalEntities(total);
+      setDocumentedEntities(documented);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function loadRecentAiActivity(ws: Workspace | undefined) {
+    if (!ws) return;
+    try {
+      const docs = await documentsApi.list(ws.id).catch(() => []);
+      // Get recent AI-generated versions from each doc
+      const aiVersions: { docTitle: string; versionNumber: number; createdAt: string; docId: string }[] = [];
+
+      // Sample first 10 docs to avoid too many API calls
+      const sampleDocs = docs.slice(0, 10);
+
+      for (const doc of sampleDocs) {
+        try {
+          const timeline = await documentsApi.timeline(doc.id).catch(() => []);
+          // Find AI versions
+          const aiVersion = timeline.find((v) => v.actorRole === 'AI');
+          if (aiVersion) {
+            aiVersions.push({
+              docTitle: doc.title,
+              versionNumber: aiVersion.versionNumber,
+              createdAt: aiVersion.createdAt,
+              docId: doc.id,
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Sort by most recent
+      aiVersions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setRecentAiVersions(aiVersions.slice(0, 5));
+    } catch {
+      /* ignore */
     }
   }
 
@@ -175,6 +261,25 @@ export default function DashboardPage() {
       icon: AlertTriangle,
       to: activeWs ? `/workspaces/${activeWs.id}/drift` : '/workspaces',
     },
+    {
+      label: t('dashboard.statNotifications'),
+      value: unreadNotifications > 0 ? unreadNotifications : null,
+      hint: t('dashboard.statNotificationsHint'),
+      icon: Bell,
+      to: '#notifications',
+    },
+    {
+      label: t('dashboard.statCoverage'),
+      value: totalEntities > 0
+        ? `${Math.round((documentedEntities / totalEntities) * 100)}%`
+        : null,
+      hint: t('dashboard.statCoverageHint', {
+        documented: documentedEntities,
+        total: totalEntities,
+      }),
+      icon: Sparkles,
+      to: activeWs ? `/workspaces/${activeWs.id}/knowledge` : '/workspaces',
+    },
   ];
 
   return (
@@ -205,11 +310,16 @@ export default function DashboardPage() {
       {loading && <LoadingState message={t('common.loading')} />}
 
       {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
         {stats.map((s) => (
           <Link
             key={s.label}
-            to={s.to}
+            to={s.to === '#notifications' ? '#' : s.to}
+            onClick={s.to === '#notifications' ? () => {
+              // Scroll to notification bell in sidebar
+              const bell = document.querySelector('[aria-label*="notification" i], button:has(svg[class*="Bell"])');
+              if (bell instanceof HTMLElement) bell.click();
+            } : undefined}
             className="group rounded-lg border bg-card p-4 transition-shadow hover:shadow-md"
           >
             <div className="flex items-center justify-between">
@@ -296,6 +406,19 @@ export default function DashboardPage() {
                 to: `/workspaces/${activeWs?.id ?? ''}/reviews`,
               }))}
             />
+            {recentAiVersions.length > 0 && (
+              <ActivitySection
+                title={t('dashboard.recentAiActivity', 'Recent AI activity')}
+                empty={t('dashboard.recentAiActivityEmpty', 'No AI activity yet')}
+                items={recentAiVersions.map((v) => ({
+                  key: `${v.docId}-${v.versionNumber}`,
+                  primary: v.docTitle,
+                  secondary: `v${v.versionNumber} · ${formatDistanceToNow(new Date(v.createdAt), { addSuffix: true })}`,
+                  to: `/workspaces/${activeWs?.id ?? ''}/documents/${v.docId}`,
+                  badge: 'AI',
+                }))}
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -389,7 +512,10 @@ function ActivitySection({ title, empty, items }: { title: string; empty: string
                   <div className="truncate text-xs text-muted-foreground">{it.secondary}</div>
                 </div>
                 {it.badge && (
-                  <Badge variant="muted" className="shrink-0 text-[10px]">
+                  <Badge
+                    variant={it.badge === 'AI' ? 'info' : it.badge === 'CRITICAL' ? 'destructive' : it.badge === 'HIGH' ? 'warning' : 'muted'}
+                    className="shrink-0 text-[10px]"
+                  >
                     {it.badge}
                   </Badge>
                 )}

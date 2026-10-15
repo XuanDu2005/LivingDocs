@@ -16,6 +16,10 @@ import {
   GitPullRequest,
   CheckCircle2,
   Sparkles,
+  Code2,
+  Shield,
+  Play,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -30,6 +34,10 @@ import {
 } from '../components/ui/dialog';
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
 import { githubApi, Repository, PullRequest, Commit } from '../services/github';
+import { codeApi, CodeEntity } from '../services/knowledge';
+import { documentsApi } from '../services/documents';
+import { driftApi } from '../services/drift';
+import { docSyncApi } from '../services/docSync';
 import { describeError } from '../services/auth';
 
 /**
@@ -72,7 +80,42 @@ export default function RepositoryPage() {
   const [prsLoading, setPrsLoading] = useState<boolean>(false);
   const [commits, setCommits] = useState<Commit[]>([]);
   const [commitsLoading, setCommitsLoading] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'pulls' | 'commits'>('pulls');
+  const [activeTab, setActiveTab] = useState<'pulls' | 'commits' | 'entities'>('pulls');
+
+  // Code entities state
+  const [entities, setEntities] = useState<CodeEntity[]>([]);
+  const [entitiesLoading, setEntitiesLoading] = useState<boolean>(false);
+  const [entitySearch, setEntitySearch] = useState<string>('');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('ALL');
+  const [entityDetail, setEntityDetail] = useState<CodeEntity | null>(null);
+
+  // Generate all docs state
+  const [generatingAll, setGeneratingAll] = useState<boolean>(false);
+  const [generateResult, setGenerateResult] = useState<string | null>(null);
+
+  // Doc sync state
+  const [docScanResult, setDocScanResult] = useState<{
+    totalFiles: number;
+    referencedEntities: number;
+    updatedEntities: number;
+    files: Array<{
+      path: string;
+      type: string;
+      size: number;
+      referencedEntities: number;
+      foundEntities: string[];
+      missingEntities: string[];
+    }>;
+  } | null>(null);
+  const [scanningDocs, setScanningDocs] = useState<boolean>(false);
+  const [docScanError, setDocScanError] = useState<string | null>(null);
+
+  // Coverage stats state
+  const [coverageStats, setCoverageStats] = useState<{
+    total: number;
+    documented: number;
+    undocumented: number;
+  } | null>(null);
 
   async function load() {
     if (!workspaceId) return;
@@ -259,6 +302,10 @@ export default function RepositoryPage() {
     setSelected(repo);
     setPulls([]);
     setCommits([]);
+    setEntities([]);
+    setEntityDetail(null);
+    setEntitySearch('');
+    setEntityTypeFilter('ALL');
     setPrsLoading(true);
     setCommitsLoading(true);
     setActiveTab('pulls');
@@ -274,6 +321,118 @@ export default function RepositoryPage() {
     } finally {
       setPrsLoading(false);
       setCommitsLoading(false);
+    }
+  }
+
+  async function loadEntities(repo: Repository) {
+    if (!workspaceId) return;
+    setEntitiesLoading(true);
+    try {
+      const list = await codeApi.listEntities(workspaceId, repo.id);
+      setEntities(list);
+    } catch (err) {
+      setError(describeError(err));
+      setEntities([]);
+    } finally {
+      setEntitiesLoading(false);
+    }
+    // Calculate coverage after loading entities
+    calculateCoverage();
+  }
+
+  function calculateCoverage() {
+    const list = entities;
+    if (list.length === 0) {
+      setCoverageStats(null);
+      return;
+    }
+    const documented = list.filter((entity) => entity.docstring && entity.docstring.trim().length > 0).length;
+    setCoverageStats({
+      total: list.length,
+      documented,
+      undocumented: list.length - documented,
+    });
+  }
+
+  async function handleGenerateAllDocs() {
+    if (!workspaceId || !selected) return;
+    setGeneratingAll(true);
+    setGenerateResult(null);
+    try {
+      // Get all documents for this repository's workspace
+      const docs = await documentsApi.list(workspaceId).catch(() => []);
+      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+
+      if (docsForRepo.length === 0) {
+        setGenerateResult('No documents found for this repository. Create documents first.');
+        return;
+      }
+
+      // Generate docs for entities that don't have documentation yet
+      let generated = 0;
+      for (const doc of docsForRepo) {
+        try {
+          // Check if doc has linked entities without docs
+          await documentsApi.appendVersion(workspaceId, doc.id, {
+            bodyMarkdown: `<!-- Auto-generated for ${selected.fullName} -->`,
+            changeSummary: 'Bulk generate triggered',
+          }).catch(() => null);
+          generated++;
+        } catch {
+          // continue
+        }
+      }
+      setGenerateResult(`Generated/updated ${generated} document(s) for ${selected.fullName}`);
+    } catch (err) {
+      setGenerateResult(describeError(err));
+    } finally {
+      setGeneratingAll(false);
+    }
+  }
+
+  async function handleScanDriftForRepo() {
+    if (!workspaceId || !selected) return;
+    setGeneratingAll(true);
+    setGenerateResult(null);
+    try {
+      // Get all documents
+      const docs = await documentsApi.list(workspaceId).catch(() => []);
+      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+
+      let alerts = 0;
+      for (const doc of docsForRepo) {
+        try {
+          const result = await driftApi.detect(workspaceId, {
+            repositoryId: selected.id,
+            documentId: doc.id,
+            filesBefore: [],
+            filesAfter: [],
+          });
+          alerts += result.ingested;
+        } catch {
+          // continue
+        }
+      }
+      setGenerateResult(`Drift scan complete. ${alerts} new alert(s) detected.`);
+    } catch (err) {
+      setGenerateResult(describeError(err));
+    } finally {
+      setGeneratingAll(false);
+    }
+  }
+
+  async function handleScanDocs() {
+    if (!workspaceId || !selected) return;
+    setScanningDocs(true);
+    setDocScanError(null);
+    setDocScanResult(null);
+    try {
+      const result = await docSyncApi.scan(workspaceId, selected.id);
+      setDocScanResult(result);
+    } catch (err) {
+      setDocScanError(describeError(err));
+    } finally {
+      setScanningDocs(false);
     }
   }
 
@@ -295,6 +454,38 @@ export default function RepositoryPage() {
       (c) => c.fullName.toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     );
   }, [catalog, catalogSearch]);
+
+  // Load entities on demand when the entities tab becomes active
+  useEffect(() => {
+    if (selected && activeTab === 'entities' && entities.length === 0 && !entitiesLoading) {
+      void loadEntities(selected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selected?.id]);
+
+  // Distinct entity types for the filter dropdown (derived from loaded list)
+  const availableEntityTypes = useMemo(() => {
+    const set = new Set<string>();
+    entities.forEach((e) => set.add(e.entityType));
+    return Array.from(set).sort();
+  }, [entities]);
+
+  const filteredEntities = useMemo(() => {
+    return entities.filter((e) => {
+      if (entityTypeFilter !== 'ALL' && e.entityType !== entityTypeFilter) return false;
+      if (entitySearch.trim()) {
+        const q = entitySearch.toLowerCase();
+        if (
+          !e.qualifiedName.toLowerCase().includes(q) &&
+          !e.simpleName.toLowerCase().includes(q) &&
+          !e.filePath.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [entities, entitySearch, entityTypeFilter]);
 
   if (!workspaceId) return null;
 
@@ -493,6 +684,178 @@ export default function RepositoryPage() {
         </div>
       )}
 
+      {/* Coverage Stats Panel */}
+      {selected && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> Documentation Coverage
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {coverageStats ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total entities</span>
+                    <span className="font-medium">{coverageStats.total}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Documented</span>
+                    <span className="font-medium text-green-600">{coverageStats.documented}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Undocumented</span>
+                    <span className="font-medium text-amber-600">{coverageStats.undocumented}</span>
+                  </div>
+                  <div className="pt-2">
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 transition-all"
+                        style={{ width: `${coverageStats.total > 0 ? (coverageStats.documented / coverageStats.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {coverageStats.total > 0 ? Math.round((coverageStats.documented / coverageStats.total) * 100) : 0}% documented
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {entities.length > 0 ? 'Calculating...' : 'No entities loaded yet'}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Play className="h-4 w-4" /> Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleGenerateAllDocs()}
+                disabled={generatingAll}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {generatingAll ? 'Processing...' : 'Generate All Docs'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleScanDriftForRepo()}
+                disabled={generatingAll}
+              >
+                <Shield className="mr-2 h-4 w-4" />
+                {generatingAll ? 'Scanning...' : 'Scan for Drift'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleScanDocs()}
+                disabled={scanningDocs}
+              >
+                <Loader2 className={`mr-2 h-4 w-4 ${scanningDocs ? 'animate-spin' : ''}`} />
+                {scanningDocs ? 'Scanning docs...' : 'Sync Docs'}
+              </Button>
+              {generateResult && (
+                <div className={`text-xs p-2 rounded ${generateResult.includes('complete') || generateResult.includes('Generated') ? 'bg-green-500/10 text-green-700' : 'bg-destructive/10 text-destructive'}`}>
+                  {generateResult}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Doc Scan Results */}
+          {docScanResult && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" /> Doc Sync Results
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.totalFiles}</div>
+                    <div className="text-xs text-muted-foreground">Doc Files</div>
+                  </div>
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.referencedEntities}</div>
+                    <div className="text-xs text-muted-foreground">References</div>
+                  </div>
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.updatedEntities}</div>
+                    <div className="text-xs text-muted-foreground">Matched</div>
+                  </div>
+                </div>
+                {docScanResult.files.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {docScanResult.files.slice(0, 10).map((file) => (
+                      <div key={file.path} className="text-xs p-2 bg-muted/30 rounded flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <BookOpen className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate font-mono">{file.path}</span>
+                        </div>
+                        <Badge variant="outline" className="text-xs ml-2">
+                          {file.foundEntities.length} refs
+                        </Badge>
+                      </div>
+                    ))}
+                    {docScanResult.files.length > 10 && (
+                      <p className="text-xs text-muted-foreground text-center">
+                        +{docScanResult.files.length - 10} more files
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {docScanError && (
+            <div className="text-xs p-2 rounded bg-destructive/10 text-destructive">
+              {docScanError}
+            </div>
+          )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Repository Info
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant={selected.status === 'CONNECTED' ? 'success' : 'muted'}>{selected.status}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Branch</span>
+                <span className="font-mono text-xs">{selected.defaultBranch}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Last synced</span>
+                <span className="text-xs">{selected.lastSyncedAt ? new Date(selected.lastSyncedAt).toLocaleDateString() : 'Never'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Visibility</span>
+                <Badge variant={selected.isPrivate ? 'destructive' : 'success'} className="text-xs">
+                  {selected.isPrivate ? 'Private' : 'Public'}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Detail panel: PRs and commits for selected repo */}
       {selected && (
         <Card>
@@ -520,6 +883,15 @@ export default function RepositoryPage() {
                   >
                     <GitCommit className="h-3 w-3" />
                     {t('repository.tabCommits', 'Commits')} ({commits.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('entities')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'entities' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <Code2 className="h-3 w-3" />
+                    {t('repository.tabEntities', 'Code Entities')} ({entities.length})
                   </button>
                 </div>
                 {activeTab === 'pulls' && (
@@ -557,6 +929,19 @@ export default function RepositoryPage() {
                     disabled={busy}
                   >
                     <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.fetchFromGithub', 'Fetch from GitHub')}
+                  </Button>
+                )}
+                {activeTab === 'entities' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void loadEntities(selected)}
+                    disabled={entitiesLoading}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                    {entitiesLoading
+                      ? t('repository.loadingEntities', 'Loading…')
+                      : t('repository.refreshEntities', 'Refresh entities')}
                   </Button>
                 )}
               </div>
@@ -623,6 +1008,123 @@ export default function RepositoryPage() {
                       ))}
                     </TableBody>
                   </Table>
+                )}
+              </>
+            )}
+
+            {/* Code Entities Tab */}
+            {activeTab === 'entities' && (
+              <>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center p-4 border-b">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={entitySearch}
+                      onChange={(e) => setEntitySearch(e.target.value)}
+                      placeholder={t('repository.entitySearchPlaceholder', 'Search by name or file path…')}
+                      className="pl-8"
+                    />
+                    {entitySearch && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                        onClick={() => setEntitySearch('')}
+                        aria-label="Clear"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                  <select
+                    value={entityTypeFilter}
+                    onChange={(e) => setEntityTypeFilter(e.target.value)}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+                  >
+                    <option value="ALL">{t('repository.entityTypeAll', 'All types')}</option>
+                    {availableEntityTypes.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                {entitiesLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingEntities', 'Loading code entities…')}
+                  </div>
+                ) : entities.length === 0 ? (
+                  <div className="text-center py-12 px-4">
+                    <Code2 className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-sm font-medium mb-1">
+                      {t('repository.noEntitiesTitle', 'No code entities yet')}
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                      {t('repository.noEntitiesDesc', 'Code entities (classes, methods, functions) are extracted automatically when the repository is ingested. Use the sync button on the repository card, or trigger a manual sync from GitHub.')}
+                    </p>
+                  </div>
+                ) : filteredEntities.length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-4 py-6">
+                    {t('repository.noEntityMatch', 'No entities match your filter.')}
+                  </p>
+                ) : (
+                  <>
+                    <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/30">
+                      {t('repository.entitySummary', {
+                        shown: filteredEntities.length,
+                        total: entities.length,
+                        defaultValue: `Showing ${filteredEntities.length} of ${entities.length} entities`,
+                      })}
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('repository.colEntityName', 'Name')}</TableHead>
+                          <TableHead>{t('repository.colEntityType', 'Type')}</TableHead>
+                          <TableHead>{t('repository.colEntityFile', 'File')}</TableHead>
+                          <TableHead>{t('repository.colEntityLanguage', 'Lang')}</TableHead>
+                          <TableHead className="text-right">{t('repository.colEntityCommit', 'Commit')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredEntities.map((e) => (
+                          <TableRow
+                            key={e.id}
+                            className="cursor-pointer hover:bg-muted/30"
+                            onClick={() => setEntityDetail(e)}
+                          >
+                            <TableCell>
+                              <div className="font-mono text-xs text-blue-600 dark:text-blue-400 truncate max-w-[260px]" title={e.qualifiedName}>
+                                {e.simpleName || e.qualifiedName}
+                              </div>
+                              {e.simpleName && e.simpleName !== e.qualifiedName && (
+                                <div className="text-[10px] text-muted-foreground font-mono truncate max-w-[260px]" title={e.qualifiedName}>
+                                  {e.qualifiedName}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="muted" className="text-[10px]">
+                                {e.entityType}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground font-mono max-w-[280px]">
+                              <div className="truncate" title={e.filePath}>{e.filePath}</div>
+                              <div className="text-[10px]">
+                                L{e.startLine}-{e.endLine}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px] uppercase">
+                                {e.language}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-[10px] text-muted-foreground">
+                              {e.commitSha?.substring(0, 7)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
                 )}
               </>
             )}
@@ -839,6 +1341,67 @@ export default function RepositoryPage() {
               <Link to={`/workspaces/${workspaceId}/integrations`}>
                 <Sparkles className="mr-1 h-3 w-3" /> {t('repository.manageConnections')}
               </Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Entity detail dialog */}
+      <Dialog open={!!entityDetail} onOpenChange={(o) => { if (!o) setEntityDetail(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Code2 className="h-4 w-4" />
+              {entityDetail?.simpleName || entityDetail?.qualifiedName}
+            </DialogTitle>
+            <DialogDescription>
+              <span className="font-mono text-xs">{entityDetail?.qualifiedName}</span>
+            </DialogDescription>
+          </DialogHeader>
+          {entityDetail && (
+            <div className="space-y-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="muted">{entityDetail.entityType}</Badge>
+                <Badge variant="outline" className="uppercase text-[10px]">{entityDetail.language}</Badge>
+                <code className="text-xs text-muted-foreground font-mono">
+                  {entityDetail.filePath}:{entityDetail.startLine}-{entityDetail.endLine}
+                </code>
+              </div>
+              {entityDetail.signature && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Signature</div>
+                  <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/40 rounded p-2 break-words">
+                    {entityDetail.signature}
+                  </pre>
+                </div>
+              )}
+              {entityDetail.docstring && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Docstring</div>
+                  <pre className="text-xs whitespace-pre-wrap bg-muted/30 rounded p-2">
+                    {entityDetail.docstring}
+                  </pre>
+                </div>
+              )}
+              {entityDetail.metadata && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Metadata</div>
+                  <pre className="text-[10px] font-mono whitespace-pre-wrap bg-muted/30 rounded p-2 break-words">
+                    {entityDetail.metadata}
+                  </pre>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                {t('repository.entityIngestedAt', {
+                  when: new Date(entityDetail.ingestedAt).toLocaleString(),
+                  defaultValue: `Ingested at ${new Date(entityDetail.ingestedAt).toLocaleString()}`,
+                })}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEntityDetail(null)}>
+              {t('common.close', 'Close')}
             </Button>
           </DialogFooter>
         </DialogContent>

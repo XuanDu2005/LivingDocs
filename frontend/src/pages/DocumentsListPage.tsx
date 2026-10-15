@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, FileText, Plus, Search } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
@@ -47,6 +47,7 @@ const STATUS_LABEL_KEY: Record<DocumentStatus, string> = {
 export default function DocumentsListPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,12 +166,23 @@ export default function DocumentsListPage() {
             </TableHeader>
             <TableBody>
               {filtered.map((d) => (
-                <TableRow key={d.id}>
+                <TableRow
+                  key={d.id}
+                  className="cursor-pointer hover:bg-muted/50 focus:bg-muted/50 focus:outline-none"
+                  onClick={() => navigate(`/workspaces/${workspaceId}/documents/${d.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/workspaces/${workspaceId}/documents/${d.id}`);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="link"
+                  aria-label={`${t('common.view', 'View')} ${d.title}`}
+                >
                   <TableCell>
-                    <div className="font-medium">
-                      <Link to={`/workspaces/${workspaceId}/documents/${d.id}`} className="hover:text-primary">
-                        {d.title}
-                      </Link>
+                    <div className="font-medium text-primary group-hover:underline">
+                      {d.title}
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       <code>{d.slug}</code>

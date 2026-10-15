@@ -8,6 +8,7 @@ import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubRepositorySummary;
 import com.livingdocs.modules.github.config.GithubProperties;
+import com.livingdocs.modules.github.dto.CommitDocumentResponse;
 import com.livingdocs.modules.github.dto.GithubRepositoryCatalogItem;
 import com.livingdocs.modules.github.model.GithubConnection;
 import com.livingdocs.modules.github.model.Repository;
@@ -274,5 +275,110 @@ public class GithubRepositoryService {
         GithubConnection conn = oauthService.requireForCurrentUser();
         GithubRepositorySummary r = githubClient.fetchRepositoryByUrl(conn.getAccessToken(), url);
         return toCatalogItem(r);
+    }
+
+    /**
+     * Commits the given content to a new feature branch and opens a pull
+     * request on the repository. Does NOT touch the local repository row
+     * — the file is "published" via GitHub's PR flow and stays under
+     * human review.
+     *
+     * @throws BadRequestException if the repository is not in a state that
+     *         supports commit (DISCONNECTED, ARCHIVED, ERROR)
+     * @throws NotFoundException if the repository is not part of the workspace
+     * @throws com.livingdocs.modules.github.client.GithubClientException
+     *         if the GitHub API rejects the operation
+     */
+    @Transactional
+    public CommitDocumentResponse commitDocument(UUID workspaceId, UUID repositoryId,
+                                                  String filePath, String content,
+                                                  String commitMessage, String prTitle,
+                                                  String prBody, String headBranch) {
+        requireMembership(workspaceId);
+        Repository repo = repositoryRepository.findById(repositoryId)
+                .orElseThrow(() -> new NotFoundException("Repository not found"));
+        if (!repo.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Repository not found in this workspace");
+        }
+        if (repo.getStatus() != Repository.Status.CONNECTED) {
+            throw new BadRequestException(
+                    "Repository must be CONNECTED to commit. Current status: " + repo.getStatus());
+        }
+
+        GithubConnection conn = oauthService.requireForCurrentUser();
+
+        // Sanitize the file path: strip leading slashes, no "..", no backslashes.
+        String safePath = sanitizeFilePath(filePath);
+        if (safePath.isEmpty()) {
+            throw new BadRequestException("Invalid filePath");
+        }
+
+        // Default the feature branch name if the caller didn't provide one.
+        String branch = (headBranch == null || headBranch.isBlank())
+                ? defaultFeatureBranch(safePath)
+                : headBranch;
+        // Branch names cannot contain spaces; trim/normalize.
+        branch = branch.trim().replaceAll("\\s+", "-");
+        if (branch.length() > 200) {
+            branch = branch.substring(0, 200);
+        }
+
+        String prUrl;
+        try {
+            prUrl = githubClient.createFileAsPullRequest(
+                    conn.getAccessToken(),
+                    repo.getOwner(),
+                    repo.getName(),
+                    repo.getDefaultBranch(),
+                    branch,
+                    safePath,
+                    content,
+                    commitMessage,
+                    prTitle,
+                    prBody == null ? "" : prBody);
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            // Token rejected by GitHub — mark the connection EXPIRED so the
+            // UI prompts the user to re-link their account, then re-throw.
+            oauthService.markConnectionStatus(conn.getUserId(), GithubConnection.Status.EXPIRED);
+            throw e;
+        }
+
+        log.info("Opened commit PR for {} on {}/{} (branch={}, file={})",
+                repo.getFullName(), repo.getOwner(), repo.getName(), branch, safePath);
+        return new CommitDocumentResponse(prUrl, branch, safePath, commitMessage);
+    }
+
+    private static String sanitizeFilePath(String filePath) {
+        if (filePath == null) return "";
+        String p = filePath.trim().replace('\\', '/');
+        // Strip any leading slashes
+        while (p.startsWith("/")) p = p.substring(1);
+        // Reject any ".." segment to avoid escaping the repo root.
+        for (String seg : p.split("/")) {
+            if (seg.equals("..") || seg.equals(".")) return "";
+        }
+        return p;
+    }
+
+    private static String defaultFeatureBranch(String safePath) {
+        String base = safePath.toLowerCase()
+                .replaceAll("[^a-z0-9/_-]+", "-")
+                .replaceAll("/+", "/");
+        if (base.endsWith(".md")) base = base.substring(0, base.length() - 3);
+        base = base.replaceAll("^/+", "");
+        return "livingdocs/" + base + "-" + System.currentTimeMillis();
+    }
+
+    /**
+     * Gets the GitHub access token for the given workspace.
+     * The token belongs to the first admin/member of the workspace.
+     *
+     * @throws ForbiddenException if the current user is not a member of the workspace
+     * @throws RuntimeException if no GitHub connection exists for the workspace
+     */
+    public String getAccessTokenForWorkspace(UUID workspaceId) {
+        requireMembership(workspaceId);
+        GithubConnection conn = oauthService.requireForCurrentUser();
+        return conn.getAccessToken();
     }
 }
