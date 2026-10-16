@@ -5,11 +5,16 @@ import { Bell, Check, RefreshCw, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { notificationsApi, Notification } from '../services/notifications';
+import { authStorage } from '../services/auth';
 import { describeError } from '../services/auth';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
 const POPOVER_WIDTH = 320;
 const POPOVER_GAP = 8;
+
+interface NotificationBellProps {
+  compact?: boolean; // true = icon + badge only (for header)
+}
 
 /**
  * Header bell icon with unread badge and popover list.
@@ -23,8 +28,10 @@ const POPOVER_GAP = 8;
  * absolute) so it never gets clipped by an <code>overflow</code>
  * ancestor on the sidebar / header. Coordinates are computed from
  * the trigger button's bounding rect.
+ *
+ * <p>Use <code>compact</code> prop for icon-only display in header.
  */
-export function NotificationBell() {
+export function NotificationBell({ compact = false }: NotificationBellProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<Notification[]>([]);
   const [count, setCount] = useState<number>(0);
@@ -53,10 +60,58 @@ export function NotificationBell() {
 
   useEffect(() => {
     void refresh();
+    // Fallback poll so a missed SSE event (network blip, server
+    // restart) still surfaces within ~10s instead of waiting for
+    // the user to refresh manually.
     const interval = window.setInterval(() => {
       void refresh();
-    }, 60_000);
+    }, 10_000);
     return () => window.clearInterval(interval);
+  }, [refresh]);
+
+  // Real-time push: subscribe to the server-sent event stream so a
+  // freshly persisted notification (e.g. a new commit landed) shows
+  // up in the bell without waiting for the next poll. The connection
+  // is re-established automatically with exponential-ish backoff on
+  // error so it survives transient network drops.
+  useEffect(() => {
+    const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)
+      ?? 'http://localhost:8080/api/v1';
+    const baseUrl = apiBase.replace(/\/api\/v1\/?$/, '');
+    let es: EventSource | null = null;
+    let retryMs = 1_000;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
+
+    function open() {
+      const token = authStorage.getToken();
+      if (!token || cancelled) return;
+      const url = `${baseUrl}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`;
+      es = new EventSource(url);
+      es.addEventListener('notification', () => {
+        // We don't trust the SSE payload schema for the bell — the
+        // full Notification row comes from /api/v1/notifications,
+        // so a refresh keeps the row ordering, link, and read state
+        // consistent.
+        void refresh();
+      });
+      es.addEventListener('hello', () => {
+        retryMs = 1_000;
+      });
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (cancelled) return;
+        reconnectTimer = window.setTimeout(open, retryMs);
+        retryMs = Math.min(retryMs * 2, 30_000);
+      };
+    }
+    open();
+    return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      es?.close();
+    };
   }, [refresh]);
 
   // Position the popover against the trigger when it opens and on scroll/resize.
@@ -186,17 +241,18 @@ export function NotificationBell() {
       <Button
         ref={triggerRef}
         variant="ghost"
-        size="sm"
+        size="icon"
         aria-label={t('notifications.openBell')}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="relative w-full justify-start"
+        className="relative"
+        title={compact ? t('notifications.title') : undefined}
       >
         <Bell className="h-4 w-4" />
-        <span className="ml-2 text-sm">{t('notifications.title')}</span>
+        {!compact && <span className="ml-2 text-sm">{t('notifications.title')}</span>}
         {count > 0 && (
-          <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
+          <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
             {count > 99 ? '99+' : count}
           </span>
         )}
@@ -277,7 +333,9 @@ export function NotificationBell() {
                         </div>
                       )}
                       <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <Badge variant="muted" className="text-[9px]">{n.kind}</Badge>
+                        <Badge variant="muted" className="text-[9px]">
+                          {t(`notifications.kindLabels.${n.kind}`, { defaultValue: n.kind })}
+                        </Badge>
                         <span>{formatDistanceToNow(parseISO(n.createdAt), { addSuffix: true })}</span>
                       </div>
                     </div>

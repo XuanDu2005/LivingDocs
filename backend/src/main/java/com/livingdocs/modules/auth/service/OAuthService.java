@@ -5,6 +5,7 @@ import com.livingdocs.common.email.EmailTemplateService;
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.oauth.OAuthAdapterFactory;
 import com.livingdocs.common.oauth.OAuthUserInfo;
+import com.livingdocs.modules.github.repository.GithubConnectionRepository;
 import com.livingdocs.modules.user.model.OAuthProvider;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.model.UserOAuthIdentity;
@@ -42,15 +43,18 @@ public class OAuthService {
     private final UserOAuthIdentityRepository identityRepository;
     private final OAuthAdapterFactory adapterFactory;
     private final EmailService emailService;
+    private final GithubConnectionRepository githubConnectionRepository;
 
     public OAuthService(UserRepository userRepository,
                         UserOAuthIdentityRepository identityRepository,
                         OAuthAdapterFactory adapterFactory,
-                        EmailService emailService) {
+                        EmailService emailService,
+                        GithubConnectionRepository githubConnectionRepository) {
         this.userRepository = userRepository;
         this.identityRepository = identityRepository;
         this.adapterFactory = adapterFactory;
         this.emailService = emailService;
+        this.githubConnectionRepository = githubConnectionRepository;
     }
 
     /**
@@ -165,15 +169,32 @@ public class OAuthService {
     /**
      * Unlink the given provider from the given user. Returns the number of
      * rows actually removed (0 if nothing was linked).
+     *
+     * <p>For GitHub, the corresponding {@code github_connections} row is
+     * also removed (if present) so the user cannot have a "login" link
+     * pointing to a non-existent repository connection.
      */
     @Transactional
     public int unlink(UUID userId, OAuthProvider provider) {
-        return identityRepository.findByUserIdAndProvider(userId, provider)
-                .map(id -> {
-                    identityRepository.delete(id);
-                    return 1;
-                })
-                .orElse(0);
+        Optional<UserOAuthIdentity> identity = identityRepository
+                .findByUserIdAndProvider(userId, provider);
+        if (identity.isEmpty()) {
+            return 0;
+        }
+        identityRepository.delete(identity.get());
+        if (provider == OAuthProvider.GITHUB) {
+            // Sync: also drop the repository-connection row, if any.
+            int ghRows = githubConnectionRepository.findByUserId(userId)
+                    .map(conn -> {
+                        githubConnectionRepository.delete(conn);
+                        return 1;
+                    })
+                    .orElse(0);
+            if (ghRows > 0) {
+                log.info("Cascade-removed github_connections row for user {} (GitHub unlink)", userId);
+            }
+        }
+        return 1;
     }
 
     private UserOAuthIdentity linkIdentity(UUID userId, OAuthUserInfo info) {

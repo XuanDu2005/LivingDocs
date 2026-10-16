@@ -345,4 +345,382 @@ public class RestGithubClient implements GithubClient {
             throw new GithubClientException("getRepository failed: " + e.getMessage(), e);
         }
     }
+
+    // ── Webhook management ───────────────────────────────────────────────
+
+    @Override
+    public Long createWebhook(String accessToken, String owner, String repo,
+                              String targetUrl, String secret, List<String> events) {
+        if (targetUrl == null || targetUrl.isBlank()) {
+            throw new GithubClientException("Webhook target URL is required");
+        }
+        if (secret == null || secret.isBlank()) {
+            throw new GithubClientException("Webhook secret is required");
+        }
+        List<String> safeEvents = (events == null || events.isEmpty())
+                ? List.of("push", "pull_request", "ping")
+                : events;
+        String json = String.format(
+                "{\"name\":\"web\",\"active\":true,\"events\":%s," +
+                "\"config\":{\"url\":%s,\"content_type\":\"json\",\"secret\":%s,\"insecure_ssl\":\"0\"}}",
+                toJsonArray(safeEvents),
+                jsonString(targetUrl),
+                jsonString(secret));
+        try {
+            JsonNode created = webClient.post()
+                    .uri("/repos/{owner}/{repo}/hooks", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(json)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        if (ex.getStatusCode().value() == 404) {
+                            throw new GithubClientException(
+                                    "Cannot register webhook: repo " + owner + "/" + repo + " not found");
+                        }
+                        if (ex.getStatusCode().value() == 422) {
+                            throw new GithubClientException(
+                                    "GitHub rejected webhook registration (likely already exists or insufficient scope): "
+                                            + ex.getResponseBodyAsString());
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (created == null) {
+                throw new GithubClientException("Empty response from POST /hooks");
+            }
+            long id = created.path("id").asLong();
+            log.info("Registered GitHub webhook id={} on {}/{} -> {}",
+                    id, owner, repo, targetUrl);
+            return id;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (GithubClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubClientException("createWebhook failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteWebhook(String accessToken, String owner, String repo, Long hookId) {
+        if (hookId == null) return;
+        try {
+            webClient.delete()
+                    .uri("/repos/{owner}/{repo}/hooks/{hookId}", owner, repo, hookId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 404) {
+                            // Already gone — treat as success.
+                            log.info("Webhook {} already absent on {}/{}", hookId, owner, repo);
+                            return Mono.empty();
+                        }
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(10));
+            log.info("Deleted GitHub webhook id={} on {}/{}", hookId, owner, repo);
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            // Don't fail the user-facing disconnect on webhook cleanup failure —
+            // the repository row is already marked DISCONNECTED. Log and move on.
+            log.warn("Failed to delete GitHub webhook {} on {}/{}: {}",
+                    hookId, owner, repo, e.getMessage());
+        }
+    }
+
+    @Override
+    public String createFileAsPullRequest(String accessToken, String owner, String repo,
+                                           String baseBranch, String headBranch,
+                                           String filePath, String content,
+                                           String commitMessage, String prTitle, String prBody) {
+        try {
+            // 1. Look up the latest SHA of baseBranch so we can create headBranch from it.
+            JsonNode baseRef = webClient.get()
+                    .uri("/repos/{owner}/{repo}/git/ref/heads/{branch}", owner, repo, baseBranch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (baseRef == null) {
+                throw new GithubClientException("Could not resolve base ref: " + baseBranch);
+            }
+            String baseSha = baseRef.path("object").path("sha").asText();
+            if (baseSha.isEmpty()) {
+                throw new GithubClientException("Base ref had no SHA: " + baseBranch);
+            }
+
+            // 2. Create the new head branch pointing at baseSha.
+            String createRefBody = "{\"ref\":\"refs/heads/" + headBranch + "\",\"sha\":\"" + baseSha + "\"}";
+            try {
+                webClient.post()
+                        .uri("/repos/{owner}/{repo}/git/refs", owner, repo)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(createRefBody)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class)
+                        .onErrorResume(WebClientResponseException.class, ex -> {
+                            // 422 = ref already exists. That's fine — we'll just write to it.
+                            if (ex.getStatusCode().value() == 422) return Mono.empty();
+                            if (ex.getStatusCode().value() == 401) {
+                                throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                            }
+                            return Mono.error(ex);
+                        })
+                        .block(Duration.ofSeconds(15));
+            } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+                throw e;
+            } catch (Exception ignored) {
+                // branch might already exist; continue
+            }
+
+            // 3. If the file already exists on the head branch, we need its current SHA to update.
+            String existingFileSha = null;
+            try {
+                JsonNode existing = webClient.get()
+                        .uri("/repos/{owner}/{repo}/contents/{path}", owner, repo, filePath)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class)
+                        .onErrorResume(WebClientResponseException.class, ex -> {
+                            if (ex.getStatusCode().value() == 404) return Mono.empty();
+                            if (ex.getStatusCode().value() == 401) {
+                                throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                            }
+                            return Mono.error(ex);
+                        })
+                        .block(Duration.ofSeconds(15));
+                if (existing != null && existing.has("sha")) {
+                    existingFileSha = existing.path("sha").asText();
+                }
+            } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+                throw e;
+            } catch (Exception ignored) {
+                // 404 = new file. Continue.
+            }
+
+            // 4. PUT the file content on the new branch.
+            String encoded = java.util.Base64.getEncoder().encodeToString(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder putBody = new StringBuilder();
+            putBody.append("{\"message\":").append(jsonString(commitMessage));
+            putBody.append(",\"content\":\"").append(encoded).append('"');
+            if (existingFileSha != null) {
+                putBody.append(",\"sha\":\"").append(existingFileSha).append('"');
+            }
+            putBody.append(",\"branch\":").append(jsonString(headBranch));
+            putBody.append('}');
+
+            webClient.put()
+                    .uri("/repos/{owner}/{repo}/contents/{path}", owner, repo, filePath)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(putBody.toString())
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(20));
+
+            // 5. Open the pull request.
+            StringBuilder prBody_ = new StringBuilder();
+            prBody_.append("{\"title\":").append(jsonString(prTitle));
+            prBody_.append(",\"body\":").append(jsonString(prBody));
+            prBody_.append(",\"head\":").append(jsonString(headBranch));
+            prBody_.append(",\"base\":").append(jsonString(baseBranch));
+            prBody_.append("}");
+
+            JsonNode pr = webClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(prBody_.toString())
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        log.error("GitHub PR create failed: status={} body={}",
+                                ex.getStatusCode().value(), ex.getResponseBodyAsString());
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(20));
+            if (pr == null) {
+                throw new GithubClientException("Empty response from POST /pulls");
+            }
+            String prUrl = pr.path("html_url").asText(pr.path("url").asText(""));
+            log.info("Opened PR {} on {}/{} ({} -> {})", prUrl, owner, repo, headBranch, baseBranch);
+            return prUrl;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (GithubClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubClientException("createFileAsPullRequest failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean branchExists(String accessToken, String owner, String repo, String branch) {
+        try {
+            Boolean exists = webClient.get()
+                    .uri("/repos/{owner}/{repo}/branches/{branch}", owner, repo, branch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .toBodilessEntity()
+                    .map(r -> true)
+                    .onErrorResume(e -> Mono.just(false))
+                    .block();
+            return Boolean.TRUE.equals(exists);
+        } catch (Exception e) {
+            log.warn("branchExists check failed for {}/{}:{} — {}", owner, repo, branch, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public void deleteBranch(String accessToken, String owner, String repo, String branch) {
+        try {
+            webClient.delete()
+                    .uri("/repos/{owner}/{repo}/git/refs/heads/{branch}", owner, repo, branch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+            log.info("Deleted branch {}/{}:{}", owner, repo, branch);
+        } catch (Exception e) {
+            log.warn("deleteBranch failed for {}/{}:{} — {}", owner, repo, branch, e.getMessage());
+        }
+    }
+
+    // ── Repository Contents ───────────────────────────────────────────────
+
+    @Override
+    public List<GithubRepositoryContent> listRepositoryContents(String accessToken, String owner, String repo,
+                                                               String path, String ref) {
+        try {
+            String uri = "/repos/" + owner + "/" + repo + "/contents/" + (path == null || path.isBlank() ? "" : path);
+            if (ref != null && !ref.isBlank()) {
+                uri += "?ref=" + ref;
+            }
+            JsonNode arr = webClient.get()
+                    .uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (arr == null || !arr.isArray()) return List.of();
+            List<GithubRepositoryContent> out = new ArrayList<>();
+            for (JsonNode item : arr) {
+                JsonNode sizeNode = item.path("size");
+                Long size = sizeNode.isMissingNode() || sizeNode.isNull() ? null : sizeNode.asLong();
+                out.add(new GithubRepositoryContent(
+                        item.path("name").asText(),
+                        item.path("path").asText(),
+                        item.path("type").asText("file"),
+                        size,
+                        item.path("download_url").asText(null)
+                ));
+            }
+            return out;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("listRepositoryContents failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public String getFileContent(String accessToken, String owner, String repo, String path, String ref) {
+        try {
+            String uri = "/repos/" + owner + "/" + repo + "/contents/" + path;
+            if (ref != null && !ref.isBlank()) {
+                uri += "?ref=" + ref;
+            }
+            JsonNode file = webClient.get()
+                    .uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            throw new com.livingdocs.modules.github.exception.GithubTokenInvalidException();
+                        }
+                        if (ex.getStatusCode().value() == 404) return Mono.empty();
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(15));
+            if (file == null || !file.has("content")) return null;
+            // GitHub returns base64-encoded content
+            String encoded = file.path("content").asText().replaceAll("\\s", "");
+            byte[] decoded = java.util.Base64.getDecoder().decode(encoded);
+            return new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("getFileContent failed for {}: {}", path, e.getMessage());
+            return null;
+        }
+    }
+
+    private static String toJsonArray(List<String> values) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(jsonString(values.get(i)));
+        }
+        return sb.append(']').toString();
+    }
+
+    private static String jsonString(String value) {
+        if (value == null) return "null";
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.append('"').toString();
+    }
 }

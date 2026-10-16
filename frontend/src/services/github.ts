@@ -167,6 +167,15 @@ export const githubApi = {
     return res.data;
   },
 
+  async ingestCode(workspaceId: string, repositoryId: string, branch?: string) {
+    const res = await apiClient.post<{ ingested: number }>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/code-entities/ingest`,
+      null,
+      { params: branch ? { branch } : {} },
+    );
+    return res.data;
+  },
+
   async listCommits(workspaceId: string, repositoryId: string, limit = 50): Promise<Commit[]> {
     const res = await apiClient.get<Commit[]>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/commits?limit=${limit}`,
@@ -181,6 +190,31 @@ export const githubApi = {
   ): Promise<Repository> {
     const res = await apiClient.put<Repository>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/auto-update?enabled=${enabled}`,
+    );
+    return res.data;
+  },
+
+  /**
+   * Publish a document to a repository as a new-branch pull request.
+   * The backend creates a feature branch, writes the file via the
+   * Contents API, and opens a PR against the repository's default
+   * branch.
+   */
+  async commitDocument(
+    workspaceId: string,
+    repositoryId: string,
+    req: {
+      filePath: string;
+      content: string;
+      commitMessage: string;
+      prTitle: string;
+      prBody?: string;
+      headBranch?: string;
+    },
+  ): Promise<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }> {
+    const res = await apiClient.post<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/commit`,
+      req,
     );
     return res.data;
   },

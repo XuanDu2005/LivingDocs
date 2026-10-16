@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -67,6 +69,7 @@ public class CodeEntity {
     @Column(name = "docstring", columnDefinition = "text")
     private String docstring;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private String metadata;
 

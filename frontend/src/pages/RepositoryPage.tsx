@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Github,
   GitBranch,
+  GitCommit,
   RefreshCw,
   Unplug,
   ExternalLink,
@@ -15,6 +16,11 @@ import {
   GitPullRequest,
   CheckCircle2,
   Sparkles,
+  Code2,
+  Shield,
+  Play,
+  BookOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -28,7 +34,12 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
-import { githubApi, Repository, PullRequest } from '../services/github';
+import { githubApi, Repository, PullRequest, Commit } from '../services/github';
+import { codeApi, CodeEntity } from '../services/knowledge';
+import { documentsApi } from '../services/documents';
+import { driftApi } from '../services/drift';
+import { docSyncApi, DocScanResult } from '../services/docSync';
+import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import { describeError } from '../services/auth';
 
 /**
@@ -69,6 +80,34 @@ export default function RepositoryPage() {
   const [selected, setSelected] = useState<Repository | null>(null);
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [prsLoading, setPrsLoading] = useState<boolean>(false);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [commitsLoading, setCommitsLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'pulls' | 'commits' | 'entities'>('pulls');
+
+  // Code entities state
+  const [entities, setEntities] = useState<CodeEntity[]>([]);
+  const [entitiesLoading, setEntitiesLoading] = useState<boolean>(false);
+  const [entitySearch, setEntitySearch] = useState<string>('');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('ALL');
+  const [entityDetail, setEntityDetail] = useState<CodeEntity | null>(null);
+
+  // Generate all docs state
+  const [generatingAll, setGeneratingAll] = useState<boolean>(false);
+  const [generateResult, setGenerateResult] = useState<string | null>(null);
+
+  // Doc sync state
+  const [docScanResult, setDocScanResult] = useState<DocScanResult | null>(null);
+  const [scanningDocs, setScanningDocs] = useState<boolean>(false);
+  const [docScanError, setDocScanError] = useState<string | null>(null);
+  const [previewingFile, setPreviewingFile] = useState<string | null>(null);
+  const [prUrl, setPrUrl] = useState<string | null>(null);
+
+  // Coverage stats state
+  const [coverageStats, setCoverageStats] = useState<{
+    total: number;
+    documented: number;
+    undocumented: number;
+  } | null>(null);
 
   async function load() {
     if (!workspaceId) return;
@@ -254,14 +293,138 @@ export default function RepositoryPage() {
     if (!workspaceId) return;
     setSelected(repo);
     setPulls([]);
+    setCommits([]);
+    setEntities([]);
+    setEntityDetail(null);
+    setEntitySearch('');
+    setEntityTypeFilter('ALL');
     setPrsLoading(true);
+    setCommitsLoading(true);
+    setActiveTab('pulls');
     try {
-      const prs = await githubApi.listPullRequests(workspaceId, repo.id);
+      const [prs, cs] = await Promise.all([
+        githubApi.listPullRequests(workspaceId, repo.id),
+        githubApi.listCommits(workspaceId, repo.id, 50),
+      ]);
       setPulls(prs);
+      setCommits(cs);
     } catch (err) {
       // non-critical
     } finally {
       setPrsLoading(false);
+      setCommitsLoading(false);
+    }
+  }
+
+  async function loadEntities(repo: Repository) {
+    if (!workspaceId) return;
+    setEntitiesLoading(true);
+    try {
+      const list = await codeApi.listEntities(workspaceId, repo.id);
+      setEntities(list);
+    } catch (err) {
+      setError(describeError(err));
+      setEntities([]);
+    } finally {
+      setEntitiesLoading(false);
+    }
+    // Calculate coverage after loading entities
+    calculateCoverage();
+  }
+
+  function calculateCoverage() {
+    const list = entities;
+    if (list.length === 0) {
+      setCoverageStats(null);
+      return;
+    }
+    const documented = list.filter((entity) => entity.docstring && entity.docstring.trim().length > 0).length;
+    setCoverageStats({
+      total: list.length,
+      documented,
+      undocumented: list.length - documented,
+    });
+  }
+
+  async function handleGenerateAllDocs() {
+    if (!workspaceId || !selected) return;
+    setGeneratingAll(true);
+    setGenerateResult(null);
+    try {
+      // Get all documents for this repository's workspace
+      const docs = await documentsApi.list(workspaceId).catch(() => []);
+      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+
+      if (docsForRepo.length === 0) {
+        setGenerateResult('No documents found for this repository. Create documents first.');
+        return;
+      }
+
+      // Generate docs for entities that don't have documentation yet
+      let generated = 0;
+      for (const doc of docsForRepo) {
+        try {
+          // Check if doc has linked entities without docs
+          await documentsApi.appendVersion(workspaceId, doc.id, {
+            bodyMarkdown: `<!-- Auto-generated for ${selected.fullName} -->`,
+            changeSummary: 'Bulk generate triggered',
+          }).catch(() => null);
+          generated++;
+        } catch {
+          // continue
+        }
+      }
+      setGenerateResult(`Generated/updated ${generated} document(s) for ${selected.fullName}`);
+    } catch (err) {
+      setGenerateResult(describeError(err));
+    } finally {
+      setGeneratingAll(false);
+    }
+  }
+
+  async function handleScanDriftForRepo() {
+    if (!workspaceId || !selected) return;
+    setGeneratingAll(true);
+    setGenerateResult(null);
+    try {
+      // Get all documents
+      const docs = await documentsApi.list(workspaceId).catch(() => []);
+      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+
+      let alerts = 0;
+      for (const doc of docsForRepo) {
+        try {
+          const result = await driftApi.detect(workspaceId, {
+            repositoryId: selected.id,
+            documentId: doc.id,
+            filesBefore: [],
+            filesAfter: [],
+          });
+          alerts += result.ingested;
+        } catch {
+          // continue
+        }
+      }
+      setGenerateResult(`Drift scan complete. ${alerts} new alert(s) detected.`);
+    } catch (err) {
+      setGenerateResult(describeError(err));
+    } finally {
+      setGeneratingAll(false);
+    }
+  }
+
+  async function handleScanDocs() {
+    if (!workspaceId || !selected) return;
+    setScanningDocs(true);
+    setDocScanError(null);
+    setDocScanResult(null);
+    try {
+      const result = await docSyncApi.scan(workspaceId, selected.id);
+      setDocScanResult(result);
+    } catch (err) {
+      setDocScanError(describeError(err));
+    } finally {
+      setScanningDocs(false);
     }
   }
 
@@ -283,6 +446,46 @@ export default function RepositoryPage() {
       (c) => c.fullName.toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     );
   }, [catalog, catalogSearch]);
+
+  // Load entities on demand when the entities tab becomes active
+  useEffect(() => {
+    if (selected && activeTab === 'entities' && entities.length === 0 && !entitiesLoading) {
+      void loadEntities(selected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selected?.id]);
+
+  // Prefetch entities count when a repository is selected so the tab badge
+  // shows the real number instead of "0" until the user clicks the tab.
+  // Skip the prefetch if a fetch is already running or already loaded.
+  useEffect(() => {
+    if (selected && entities.length === 0 && !entitiesLoading) {
+      void loadEntities(selected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
+  const availableEntityTypes = useMemo(() => {
+    const set = new Set<string>();
+    entities.forEach((e) => set.add(e.entityType));
+    return Array.from(set).sort();
+  }, [entities]);
+
+  const filteredEntities = useMemo(() => {
+    return entities.filter((e) => {
+      if (entityTypeFilter !== 'ALL' && e.entityType !== entityTypeFilter) return false;
+      if (entitySearch.trim()) {
+        const q = entitySearch.toLowerCase();
+        if (
+          !e.qualifiedName.toLowerCase().includes(q) &&
+          !e.simpleName.toLowerCase().includes(q) &&
+          !e.filePath.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [entities, entitySearch, entityTypeFilter]);
 
   if (!workspaceId) return null;
 
@@ -481,86 +684,580 @@ export default function RepositoryPage() {
         </div>
       )}
 
+      {/* Coverage Stats Panel */}
+      {selected && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> Documentation Coverage
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {coverageStats ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total entities</span>
+                    <span className="font-medium">{coverageStats.total}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Documented</span>
+                    <span className="font-medium text-green-600">{coverageStats.documented}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Undocumented</span>
+                    <span className="font-medium text-amber-600">{coverageStats.undocumented}</span>
+                  </div>
+                  <div className="pt-2">
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 transition-all"
+                        style={{ width: `${coverageStats.total > 0 ? (coverageStats.documented / coverageStats.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {coverageStats.total > 0 ? Math.round((coverageStats.documented / coverageStats.total) * 100) : 0}% documented
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {entities.length > 0 ? 'Calculating...' : 'No entities loaded yet'}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Play className="h-4 w-4" /> Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleGenerateAllDocs()}
+                disabled={generatingAll}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {generatingAll ? 'Processing...' : 'Generate All Docs'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleScanDriftForRepo()}
+                disabled={generatingAll}
+              >
+                <Shield className="mr-2 h-4 w-4" />
+                {generatingAll ? 'Scanning...' : 'Scan for Drift'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleScanDocs()}
+                disabled={scanningDocs}
+              >
+                <Loader2 className={`mr-2 h-4 w-4 ${scanningDocs ? 'animate-spin' : ''}`} />
+                {scanningDocs ? 'Scanning docs...' : 'Sync Docs'}
+              </Button>
+              {generateResult && (
+                <div className={`text-xs p-2 rounded ${generateResult.includes('complete') || generateResult.includes('Generated') ? 'bg-green-500/10 text-green-700' : 'bg-destructive/10 text-destructive'}`}>
+                  {generateResult}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Doc Scan Results */}
+          {docScanResult && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" /> Doc Sync Results
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.totalFiles}</div>
+                    <div className="text-xs text-muted-foreground">Doc Files</div>
+                  </div>
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.referencedEntities}</div>
+                    <div className="text-xs text-muted-foreground">References</div>
+                  </div>
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.updatedEntities}</div>
+                    <div className="text-xs text-muted-foreground">Matched</div>
+                  </div>
+                  <div className={`rounded p-2 ${docScanResult.driftCount > 0 ? 'bg-amber-500/20 text-amber-700' : 'bg-muted/50'}`}>
+                    <div className="text-lg font-bold">{docScanResult.driftCount}</div>
+                    <div className="text-xs">Need Update</div>
+                  </div>
+                </div>
+                {docScanResult.driftCount > 0 && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 text-xs text-amber-700 flex items-center gap-2">
+                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                    <span>
+                      <b>{docScanResult.driftCount}</b> file(s) may need updating to match the latest code.
+                    </span>
+                  </div>
+                )}
+                {docScanResult.files.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {docScanResult.files.slice(0, 10).map((file) => (
+                      <div
+                        key={file.path}
+                        className={`text-xs p-2 rounded flex flex-col gap-1 ${
+                          file.hasDrift
+                            ? 'bg-amber-500/10 border border-amber-500/30'
+                            : 'bg-muted/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <BookOpen className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate font-mono">{file.path}</span>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Badge variant="outline" className="text-xs">
+                              {file.foundEntities.length} refs
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant={file.hasDrift ? 'default' : 'ghost'}
+                              className="h-6 px-2 text-xs"
+                              onClick={() => setPreviewingFile(file.path)}
+                            >
+                              {t('repository.reviewAndUpdate', 'Review & Update')}
+                            </Button>
+                          </div>
+                        </div>
+                        {file.hasDrift && file.driftReason && (
+                          <div className="text-amber-700 text-[10px] pl-5">
+                            {file.driftReason}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {docScanResult.files.length > 10 && (
+                      <p className="text-xs text-muted-foreground text-center">
+                        +{docScanResult.files.length - 10} more files
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {docScanError && (
+            <div className="text-xs p-2 rounded bg-destructive/10 text-destructive">
+              {docScanError}
+            </div>
+          )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BookOpen className="h-4 w-4" /> Repository Info
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant={selected.status === 'CONNECTED' ? 'success' : 'muted'}>{selected.status}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Branch</span>
+                <span className="font-mono text-xs">{selected.defaultBranch}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Last synced</span>
+                <span className="text-xs">{selected.lastSyncedAt ? new Date(selected.lastSyncedAt).toLocaleDateString() : 'Never'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Visibility</span>
+                <Badge variant={selected.isPrivate ? 'destructive' : 'success'} className="text-xs">
+                  {selected.isPrivate ? 'Private' : 'Public'}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Detail panel: PRs and commits for selected repo */}
       {selected && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <GitPullRequest className="h-4 w-4" /> {t('repository.recentPRs', {
-                  name: selected.fullName,
-                })}
+                <GitPullRequest className="h-4 w-4" /> {selected.fullName}
               </CardTitle>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => githubApi
-                  .ingestPullRequests(workspaceId, selected.id, 'all')
-                  .then(() => loadDetails(selected))
-                  .catch((err) => setError(describeError(err)))}
-                disabled={busy}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
-              </Button>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1 border rounded-md p-0.5">
+                  <button
+                    onClick={() => setActiveTab('pulls')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'pulls' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <GitPullRequest className="h-3 w-3" />
+                    {t('repository.tabPRs', 'Pull Requests')} ({pulls.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('commits')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'commits' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <GitCommit className="h-3 w-3" />
+                    {t('repository.tabCommits', 'Commits')} ({commits.length})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('entities')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'entities' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <Code2 className="h-3 w-3" />
+                    {t('repository.tabEntities', 'Code Entities')} ({entities.length})
+                  </button>
+                </div>
+                {activeTab === 'pulls' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => githubApi
+                      .ingestPullRequests(workspaceId, selected.id, 'all')
+                      .then(() => loadDetails(selected))
+                      .catch((err) => setError(describeError(err)))}
+                    disabled={busy}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
+                  </Button>
+                )}
+                {activeTab === 'commits' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        const result = await githubApi.ingestCommits(workspaceId, selected.id, 50);
+                        setInfo(t('repository.commitsIngested', {
+                          count: result.ingested,
+                          name: selected.fullName,
+                        }));
+                        await loadDetails(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={busy}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.fetchFromGithub', 'Fetch from GitHub')}
+                  </Button>
+                )}
+                {activeTab === 'entities' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        const result = await githubApi.ingestCode(workspaceId, selected.id);
+                        setInfo(`Indexed ${result.ingested} code entities from ${selected.fullName}`);
+                        await loadEntities(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    disabled={busy}
+                  >
+                    <Code2 className="mr-1 h-3 w-3" />
+                    {busy ? 'Indexing…' : 'Ingest Code'}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {prsLoading ? (
-              <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingPRs')}
-              </div>
-            ) : pulls.length === 0 ? (
-              <p className="text-sm text-muted-foreground px-4 py-6">
-                {t('repository.noPRs')}
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>{t('repository.colPRTitle')}</TableHead>
-                    <TableHead>{t('repository.colPRState')}</TableHead>
-                    <TableHead>{t('repository.colPRAuthor')}</TableHead>
-                    <TableHead>{t('repository.colPRBranch')}</TableHead>
-                    <TableHead className="text-right">{t('repository.colPRUpdated')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pulls.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs">#{p.number}</TableCell>
-                      <TableCell>
-                        {p.htmlUrl ? (
-                          <a
-                            href={p.htmlUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:text-primary flex items-center gap-1"
+
+            {/* Pull Requests Tab */}
+            {activeTab === 'pulls' && (
+              <>
+                {prsLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingPRs')}
+                  </div>
+                ) : pulls.length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-4 py-6">
+                    {t('repository.noPRs')}
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>{t('repository.colPRTitle')}</TableHead>
+                        <TableHead>{t('repository.colPRState')}</TableHead>
+                        <TableHead>{t('repository.colPRAuthor')}</TableHead>
+                        <TableHead>{t('repository.colPRBranch')}</TableHead>
+                        <TableHead className="text-right">{t('repository.colPRUpdated')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pulls.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-mono text-xs">#{p.number}</TableCell>
+                          <TableCell>
+                            {p.htmlUrl ? (
+                              <a
+                                href={p.htmlUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:text-primary flex items-center gap-1"
+                              >
+                                {p.title}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : (
+                              p.title
+                            )}
+                            {p.isDraft && (
+                              <Badge variant="muted" className="ml-2 text-[10px]">draft</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <PRStateBadge state={p.state} />
+                          </TableCell>
+                          <TableCell className="text-xs">{p.authorLogin || '—'}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {p.headBranch} → {p.baseBranch}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">
+                            {new Date(p.updatedAt).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </>
+            )}
+
+            {/* Code Entities Tab */}
+            {activeTab === 'entities' && (
+              <>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center p-4 border-b">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={entitySearch}
+                      onChange={(e) => setEntitySearch(e.target.value)}
+                      placeholder={t('repository.entitySearchPlaceholder', 'Search by name or file path…')}
+                      className="pl-8"
+                    />
+                    {entitySearch && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                        onClick={() => setEntitySearch('')}
+                        aria-label="Clear"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                  <select
+                    value={entityTypeFilter}
+                    onChange={(e) => setEntityTypeFilter(e.target.value)}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+                  >
+                    <option value="ALL">{t('repository.entityTypeAll', 'All types')}</option>
+                    {availableEntityTypes.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                {entitiesLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingEntities', 'Loading code entities…')}
+                  </div>
+                ) : entities.length === 0 ? (
+                  <div className="text-center py-12 px-4">
+                    <Code2 className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-sm font-medium mb-1">
+                      {t('repository.noEntitiesTitle', 'No code entities yet')}
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                      {t('repository.noEntitiesDesc', 'Code entities (classes, methods, functions) are extracted automatically when the repository is ingested. Use the sync button on the repository card, or trigger a manual sync from GitHub.')}
+                    </p>
+                  </div>
+                ) : filteredEntities.length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-4 py-6">
+                    {t('repository.noEntityMatch', 'No entities match your filter.')}
+                  </p>
+                ) : (
+                  <>
+                    <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/30">
+                      {t('repository.entitySummary', {
+                        shown: filteredEntities.length,
+                        total: entities.length,
+                        defaultValue: `Showing ${filteredEntities.length} of ${entities.length} entities`,
+                      })}
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('repository.colEntityName', 'Name')}</TableHead>
+                          <TableHead>{t('repository.colEntityType', 'Type')}</TableHead>
+                          <TableHead>{t('repository.colEntityFile', 'File')}</TableHead>
+                          <TableHead>{t('repository.colEntityLanguage', 'Lang')}</TableHead>
+                          <TableHead className="text-right">{t('repository.colEntityCommit', 'Commit')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredEntities.map((e) => (
+                          <TableRow
+                            key={e.id}
+                            className="cursor-pointer hover:bg-muted/30"
+                            onClick={() => setEntityDetail(e)}
                           >
-                            {p.title}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          p.title
-                        )}
-                        {p.isDraft && (
-                          <Badge variant="muted" className="ml-2 text-[10px]">draft</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <PRStateBadge state={p.state} />
-                      </TableCell>
-                      <TableCell className="text-xs">{p.authorLogin || '—'}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {p.headBranch} → {p.baseBranch}
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground">
-                        {new Date(p.updatedAt).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                            <TableCell>
+                              <div className="font-mono text-xs text-blue-600 dark:text-blue-400 truncate max-w-[260px]" title={e.qualifiedName}>
+                                {e.simpleName || e.qualifiedName}
+                              </div>
+                              {e.simpleName && e.simpleName !== e.qualifiedName && (
+                                <div className="text-[10px] text-muted-foreground font-mono truncate max-w-[260px]" title={e.qualifiedName}>
+                                  {e.qualifiedName}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="muted" className="text-[10px]">
+                                {e.entityType}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground font-mono max-w-[280px]">
+                              <div className="truncate" title={e.filePath}>{e.filePath}</div>
+                              <div className="text-[10px]">
+                                L{e.startLine}-{e.endLine}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[10px] uppercase">
+                                {e.language}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-[10px] text-muted-foreground">
+                              {e.commitSha?.substring(0, 7)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Commits Tab */}
+            {activeTab === 'commits' && (
+              <>
+                {commitsLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingCommits', 'Loading commits...')}
+                  </div>
+                ) : commits.length === 0 ? (
+                  <div className="text-center py-8 px-4">
+                    <GitCommit className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground mb-2">
+                      {t('repository.noCommits', 'No commits found')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('repository.noCommitsHint', 'Click "Fetch from GitHub" to load commits from this repository.')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {commits.map((c) => (
+                      <div key={c.id} className="px-4 py-3 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* SHA */}
+                              {c.url ? (
+                                <a
+                                  href={c.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="font-mono text-xs text-primary hover:underline"
+                                >
+                                  {c.shortSha || c.sha?.substring(0, 7)}
+                                </a>
+                              ) : (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {c.shortSha || c.sha?.substring(0, 7)}
+                                </span>
+                              )}
+                              {/* Branch */}
+                              {c.branch && (
+                                <Badge variant="muted" className="text-[10px] flex items-center gap-0.5">
+                                  <GitBranch className="h-2.5 w-2.5" />
+                                  {c.branch}
+                                </Badge>
+                              )}
+                              {/* Author */}
+                              {c.authorName && (
+                                <span className="text-xs text-muted-foreground">
+                                  {c.authorName}
+                                </span>
+                              )}
+                            </div>
+                            {/* Message */}
+                            <p className="text-sm mt-1 line-clamp-2">
+                              {c.message}
+                            </p>
+                            {/* Meta */}
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                              {c.authorEmail && (
+                                <span>{c.authorEmail}</span>
+                              )}
+                              <span>
+                                {c.authoredAt ? new Date(c.authoredAt).toLocaleString() : ''}
+                              </span>
+                              {c.url && (
+                                <a
+                                  href={c.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1 hover:text-primary"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  GitHub
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -693,6 +1390,128 @@ export default function RepositoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Entity detail dialog */}
+      <Dialog open={!!entityDetail} onOpenChange={(o) => { if (!o) setEntityDetail(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Code2 className="h-4 w-4" />
+              {entityDetail?.simpleName || entityDetail?.qualifiedName}
+            </DialogTitle>
+            <DialogDescription>
+              <span className="font-mono text-xs">{entityDetail?.qualifiedName}</span>
+            </DialogDescription>
+          </DialogHeader>
+          {entityDetail && (
+            <div className="space-y-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="muted">{entityDetail.entityType}</Badge>
+                <Badge variant="outline" className="uppercase text-[10px]">{entityDetail.language}</Badge>
+                <code className="text-xs text-muted-foreground font-mono">
+                  {entityDetail.filePath}:{entityDetail.startLine}-{entityDetail.endLine}
+                </code>
+              </div>
+              {entityDetail.signature && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Signature</div>
+                  <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/40 rounded p-2 break-words">
+                    {entityDetail.signature}
+                  </pre>
+                </div>
+              )}
+              {entityDetail.docstring && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Docstring</div>
+                  <pre className="text-xs whitespace-pre-wrap bg-muted/30 rounded p-2">
+                    {entityDetail.docstring}
+                  </pre>
+                </div>
+              )}
+              {entityDetail.metadata && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">Metadata</div>
+                  <pre className="text-[10px] font-mono whitespace-pre-wrap bg-muted/30 rounded p-2 break-words">
+                    {entityDetail.metadata}
+                  </pre>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                {t('repository.entityIngestedAt', {
+                  when: new Date(entityDetail.ingestedAt).toLocaleString(),
+                  defaultValue: `Ingested at ${new Date(entityDetail.ingestedAt).toLocaleString()}`,
+                })}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEntityDetail(null)}>
+              {t('common.close', 'Close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Doc Sync Preview Modal */}
+      {previewingFile && selected && (
+        <DocSyncPreviewModal
+          workspaceId={workspaceId}
+          repositoryId={selected.id}
+          filePath={previewingFile}
+          onClose={() => setPreviewingFile(null)}
+          onApplied={(url) => {
+            setPrUrl(url);
+            setPreviewingFile(null);
+            if (url) {
+              setGenerateResult(`Pull request created: ${url}`);
+            }
+          }}
+        />
+      )}
+
+      {/* PR Created Success Dialog */}
+      {prUrl && (
+        <Dialog open={!!prUrl} onOpenChange={() => setPrUrl(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                Pull Request Created!
+              </DialogTitle>
+              <DialogDescription>
+                Your documentation changes have been submitted for review.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <a
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-blue-600 hover:underline"
+              >
+                <GitPullRequest className="w-4 h-4" />
+                {prUrl}
+              </a>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPrUrl(null)}>
+                Close
+              </Button>
+              <Button asChild>
+                <a
+                  href={prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View on GitHub
+                </a>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

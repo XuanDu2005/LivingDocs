@@ -37,6 +37,8 @@ import { Badge } from '../components/ui/badge';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { NotificationBell } from '../components/NotificationBell';
 import { LinkedAccountsQuickLinks } from '../components/auth/LinkedAccountsQuickLinks';
+import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
+import { WorkspaceSwitcher } from '../components/workspace/WorkspaceSwitcher';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -70,7 +72,6 @@ const WORKSPACE_NAV_ITEMS: NavItem[] = [
   { labelKey: 'nav.home', to: '/', icon: BookOpen },
   { labelKey: 'nav.dashboard', to: '/dashboard', icon: LayoutDashboard, authOnly: true },
   { labelKey: 'nav.workspaces', to: '/workspaces', icon: Users, authOnly: true },
-  { labelKey: 'nav.aiSettings', to: '/ai-settings', icon: Sparkles, authOnly: true },
 ];
 
 /**
@@ -134,6 +135,9 @@ interface WorkspaceNavGroup {
 
 function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
   if (!workspaceId) return [];
+  // 6 main items, plus a single "Settings" link to the consolidated
+  // workspace settings page (Task 5) — all per-workspace tooling lives
+  // there now instead of being spread across the sidebar.
   return [
     {
       labelKey: 'nav.workspaceGroupContent',
@@ -157,15 +161,9 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
       ],
     },
     {
-      labelKey: 'nav.workspaceGroupAI',
-      items: [
-        { labelKey: 'nav.aiSettings', to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles },
-        { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
-      ],
-    },
-    {
       labelKey: 'nav.workspaceGroupInsights',
       items: [
+        { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
         { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: BarChart3 },
         { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
       ],
@@ -173,8 +171,7 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
     {
       labelKey: 'nav.workspaceGroupSettings',
       items: [
-        { labelKey: 'nav.workspaceNotificationPolicies', to: `/workspaces/${workspaceId}/notification-policies`, icon: BellRing },
-        { labelKey: 'nav.languages', to: `/workspaces/${workspaceId}/languages`, icon: Code2 },
+        { labelKey: 'nav.workspaceSettings', to: `/workspaces/${workspaceId}/settings`, icon: Settings },
       ],
     },
   ];
@@ -335,7 +332,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
-              <NotificationBell />
               <LanguageSwitcher />
             </div>
           ) : (
@@ -364,12 +360,16 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center justify-between border-b bg-card/30 px-4 md:px-6">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{t('common.tagline')}</span>
+          <div className="flex items-center gap-3">
+            {isAuthenticated && <WorkspaceSwitcher />}
+            <div className="hidden items-center gap-2 md:flex">
+              <Activity className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">{t('common.tagline')}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {isAuthenticated && <LinkedAccountsQuickLinks />}
+            {isAuthenticated && <NotificationBell compact />}
             <Button
               variant="ghost"
               size="icon"
@@ -392,6 +392,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="mx-auto w-full max-w-7xl animate-fade-in">{children}</div>
         </main>
       </div>
+      <FirstRunWizard />
     </div>
   );
 }

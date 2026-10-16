@@ -41,12 +41,10 @@ import ResetPasswordPage from '../pages/ResetPasswordPage';
 import ReviewQueuePage from '../pages/ReviewQueuePage';
 import TemplatesPage from '../pages/TemplatesPage';
 import VerifyEmailPage from '../pages/VerifyEmailPage';
-import WorkspaceAiSettingsPage from '../pages/WorkspaceAiSettingsPage';
 import WorkspaceAuditLogPage from '../pages/WorkspaceAuditLogPage';
+import WorkspaceSettingsPage, { LegacyWorkspaceSettingsRedirect } from '../pages/workspace/WorkspaceSettingsPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspaceIntegrationsPage from '../pages/WorkspaceIntegrationsPage';
-import WorkspaceLanguagesPage from '../pages/WorkspaceLanguagesPage';
-import WorkspaceNotificationPoliciesPage from '../pages/WorkspaceNotificationPoliciesPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 import AdminNotificationsPage from '../pages/AdminNotificationsPage';
@@ -229,7 +227,15 @@ export function AppRoutes() {
           path="/workspaces/:workspaceId/ai-settings"
           element={
             <ProtectedRoute>
-              <WorkspaceAiSettingsPage />
+              <LegacyWorkspaceSettingsRedirect />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/settings"
+          element={
+            <ProtectedRoute>
+              <WorkspaceSettingsPage />
             </ProtectedRoute>
           }
         />
@@ -406,7 +412,7 @@ export function AppRoutes() {
           path="/workspaces/:workspaceId/notification-policies"
           element={
             <ProtectedRoute>
-              <WorkspaceNotificationPoliciesPage />
+              <LegacyWorkspaceSettingsRedirect />
             </ProtectedRoute>
           }
         />
@@ -414,7 +420,7 @@ export function AppRoutes() {
           path="/workspaces/:workspaceId/languages"
           element={
             <ProtectedRoute>
-              <WorkspaceLanguagesPage />
+              <LegacyWorkspaceSettingsRedirect />
             </ProtectedRoute>
           }
         />

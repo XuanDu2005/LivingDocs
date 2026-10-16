@@ -4,7 +4,7 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Bot, Check, Eye, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -29,6 +29,7 @@ import { driftApi, DriftAlert } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
+import { githubApi, Repository } from '../services/github';
 import { describeError } from '../services/auth';
 import { templatesApi, DocTemplate } from '../services/templates';
 import { format } from 'date-fns';
@@ -101,6 +102,20 @@ export default function DocumentDetailPage() {
   const [links, setLinks] = useState<CodeDocumentLink[]>([]);
   const [generating, setGenerating] = useState<boolean>(false);
   const [genError, setGenError] = useState<string | null>(null);
+
+  // Commit-to-GitHub dialog state
+  const [showCommitDialog, setShowCommitDialog] = useState<boolean>(false);
+  const [commitRepositoryId, setCommitRepositoryId] = useState<string>('');
+  const [commitFilePath, setCommitFilePath] = useState<string>('');
+  const [commitBranch, setCommitBranch] = useState<string>('');
+  const [commitMessage, setCommitMessage] = useState<string>('');
+  const [prTitle, setPrTitle] = useState<string>('');
+  const [prBody, setPrBody] = useState<string>('');
+  const [committing, setCommitting] = useState<boolean>(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [commitSuccess, setCommitSuccess] = useState<{ url: string; branch: string } | null>(null);
+  const [commitRepos, setCommitRepos] = useState<import('../services/github').Repository[]>([]);
+  const [commitReposLoading, setCommitReposLoading] = useState<boolean>(false);
   const [tab, setTab] = useState<string>('content');
   const [docTags, setDocTags] = useState<DocumentTag[]>([]);
 
@@ -148,6 +163,15 @@ export default function DocumentDetailPage() {
   const [codeEntities, setCodeEntities] = useState<CodeEntity[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
   const [linkingEntity, setLinkingEntity] = useState<boolean>(false);
+  const [entitiesLoading, setEntitiesLoading] = useState<boolean>(false);
+  const [entityLinkSearch, setEntityLinkSearch] = useState<string>('');
+
+  // Attach-repository flow
+  const [showAttachRepo, setShowAttachRepo] = useState<boolean>(false);
+  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState<string>('');
+  const [attachingRepo, setAttachingRepo] = useState<boolean>(false);
+  const [attachRepoError, setAttachRepoError] = useState<string | null>(null);
 
   // Resolve drift dialog
   const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
@@ -235,6 +259,58 @@ export default function DocumentDetailPage() {
     } catch { /* non-critical */ }
   }, [workspaceId, documentId]);
 
+  const loadCodeEntities = useCallback(async () => {
+    if (!workspaceId || !doc?.repositoryId) {
+      setCodeEntities([]);
+      return;
+    }
+    setEntitiesLoading(true);
+    try {
+      const entities = await codeApi.listEntities(workspaceId, doc.repositoryId);
+      setCodeEntities(entities);
+    } catch (err) {
+      // non-critical
+      setCodeEntities([]);
+    } finally {
+      setEntitiesLoading(false);
+    }
+  }, [workspaceId, doc?.repositoryId]);
+
+  const openAttachRepoDialog = useCallback(async () => {
+    if (!workspaceId) return;
+    setShowAttachRepo(true);
+    setSelectedRepoId(doc?.repositoryId ?? '');
+    setAttachRepoError(null);
+    // Lazy-load repositories every time the dialog opens so we always see latest.
+    try {
+      const repos = await githubApi.listRepositories(workspaceId);
+      setRepositories(repos);
+    } catch (err) {
+      setAttachRepoError(describeError(err));
+    }
+  }, [workspaceId, doc?.repositoryId]);
+
+  async function handleAttachRepo() {
+    if (!workspaceId || !documentId || !doc) return;
+    setAttachingRepo(true);
+    setAttachRepoError(null);
+    try {
+      const updated = await documentsApi.update(workspaceId, documentId, {
+        title: doc.title,
+        repositoryId: selectedRepoId ? selectedRepoId : undefined,
+        autoUpdateEnabled: doc.autoUpdateEnabled,
+      });
+      setDoc(updated);
+      setShowAttachRepo(false);
+      // Reload entities so the Link dialog reflects the new repo.
+      await loadCodeEntities();
+    } catch (err) {
+      setAttachRepoError(describeError(err));
+    } finally {
+      setAttachingRepo(false);
+    }
+  }
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -246,8 +322,11 @@ export default function DocumentDetailPage() {
 
   useEffect(() => {
     if (tab === 'drift') void loadDrift();
-    if (tab === 'links') void loadLinks();
-  }, [tab, loadDrift, loadLinks]);
+    if (tab === 'links') {
+      void loadLinks();
+      void loadCodeEntities();
+    }
+  }, [tab, loadDrift, loadLinks, loadCodeEntities]);
 
   // Auto-save debounce
   useEffect(() => {
@@ -416,6 +495,24 @@ export default function DocumentDetailPage() {
     }
   }
 
+  // Auto-pick the workspace's default template once both the document
+  // and the template catalogue have loaded. The user can still change
+  // the dropdown afterwards — this just removes an unnecessary click
+  // for the common case.
+  useEffect(() => {
+    if (!workspaceId || !doc) return;
+    if (templates.length === 0) return;
+    if (doc.templateId) {
+      const match = templates.find((t) => t.id === doc.templateId);
+      if (match) {
+        setSelectedTemplate(match.slug || match.name);
+        return;
+      }
+    }
+    const def = templates.find((t) => t.isDefault) ?? templates[0];
+    if (def) setSelectedTemplate(def.slug || def.name);
+  }, [templates, doc, workspaceId]);
+
   async function handleResolveDrift(alertId: string) {
     if (!workspaceId) return;
     try {
@@ -424,6 +521,29 @@ export default function DocumentDetailPage() {
       await loadDrift();
     } catch (err) {
       setError(describeError(err));
+    }
+  }
+
+  const [driftScanning, setDriftScanning] = useState<boolean>(false);
+  const [driftScanResult, setDriftScanResult] = useState<string | null>(null);
+
+  async function handleTriggerDriftForDoc() {
+    if (!workspaceId || !documentId || !doc?.repositoryId) return;
+    setDriftScanning(true);
+    setDriftScanResult(null);
+    try {
+      const result = await driftApi.detect(workspaceId, {
+        repositoryId: doc.repositoryId,
+        documentId: documentId,
+        filesBefore: [],
+        filesAfter: [],
+      });
+      setDriftScanResult(`Scan complete. ${result.ingested} new alert(s) detected.`);
+      await loadDrift();
+    } catch (err) {
+      setDriftScanResult(describeError(err));
+    } finally {
+      setDriftScanning(false);
     }
   }
 
@@ -442,14 +562,123 @@ export default function DocumentDetailPage() {
     }
   }
 
-  async function handleLoadEntities() {
-    if (!workspaceId || !doc?.repositoryId) return;
+  async function handleClearAllLinks() {
+    if (!workspaceId || !documentId) return;
+    if (!window.confirm(t('documentDetail.confirmClearLinks', 'Remove all code links from this document?'))) return;
     try {
-      const entities = await codeApi.listEntities(workspaceId, doc.repositoryId);
-      setCodeEntities(entities);
+      await linksApi.clear(workspaceId, documentId);
+      await loadLinks();
     } catch (err) {
       setError(describeError(err));
     }
+  }
+
+  async function openLinkDialog() {
+    if (!doc?.repositoryId) {
+      // Open the attach-repo flow directly so the user can fix it in 2 clicks.
+      void openAttachRepoDialog();
+      return;
+    }
+    setShowLinkEntity(true);
+    setSelectedEntityId('');
+    setEntityLinkSearch('');
+    // Always refresh entities when opening the dialog so the dropdown is current.
+    void loadCodeEntities();
+  }
+
+  async function loadCommitRepos() {
+    if (!workspaceId) return;
+    setCommitReposLoading(true);
+    try {
+      const repos = await githubApi.listRepositories(workspaceId);
+      setCommitRepos(repos);
+      // Auto-select doc's repository if not already selected
+      if (doc?.repositoryId && repos.some(r => r.id === doc.repositoryId)) {
+        setCommitRepositoryId(doc.repositoryId);
+      } else if (repos.length > 0 && !commitRepositoryId) {
+        setCommitRepositoryId(repos[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load repositories:', err);
+    } finally {
+      setCommitReposLoading(false);
+    }
+  }
+
+  function openCommitDialog() {
+    console.log('[CommitDialog] openCommitDialog called', { doc: doc?.id, repo: doc?.repositoryId });
+    if (!doc) return;
+    setCommitRepositoryId(doc.repositoryId || '');
+    setCommitFilePath(`docs/${doc.slug || doc.id}.md`);
+    setCommitBranch('');
+    setCommitMessage(`docs: update ${doc.slug || doc.title}`);
+    setPrTitle(`docs: ${doc.title}`);
+    setPrBody(
+      `This pull request was opened automatically by LivingDocs.\n\n` +
+      `Source document: \`${doc.slug || doc.id}\`\n` +
+      `Status: ${doc.status}\n\n` +
+      `Please review and merge if the content looks correct.`,
+    );
+    setCommitError(null);
+    setCommitSuccess(null);
+    setShowCommitDialog(true);
+    // Load repositories for the dropdown
+    void loadCommitRepos();
+    console.log('[CommitDialog] showCommitDialog set to true');
+  }
+
+  async function handleCommitToGithub() {
+    if (!workspaceId || !documentId || !commitRepositoryId) {
+      setCommitError('Please select a repository.');
+      return;
+    }
+    if (!commitFilePath.trim() || !commitMessage.trim() || !prTitle.trim()) {
+      setCommitError('Please fill in file path, commit message, and PR title.');
+      return;
+    }
+    setCommitting(true);
+    setCommitError(null);
+    try {
+      // Build the file content as a small Markdown document so reviewers see
+      // a meaningful diff. Include frontmatter with title + slug.
+      if (!doc) {
+        setCommitError('Document not loaded.');
+        return;
+      }
+      const content = buildCommitContent(doc);
+      const result = await githubApi.commitDocument(workspaceId, commitRepositoryId, {
+        filePath: commitFilePath.trim(),
+        content,
+        commitMessage: commitMessage.trim(),
+        prTitle: prTitle.trim(),
+        prBody: prBody.trim() || undefined,
+        headBranch: commitBranch.trim() || undefined,
+      });
+      setCommitSuccess({ url: result.pullRequestUrl, branch: result.headBranch });
+    } catch (err) {
+      setCommitError(describeError(err));
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  function buildCommitContent(d: Document): string {
+    const body = editBody && editBody.trim().length > 0
+      ? editBody
+      : (selectedVersion?.bodyMarkdown ?? '');
+    const fm = [
+      '---',
+      `title: ${d.title}`,
+      d.slug ? `slug: ${d.slug}` : null,
+      d.docType ? `type: ${d.docType}` : null,
+      d.summary ? `summary: ${d.summary}` : null,
+      `status: ${d.status}`,
+      `source: livingdocs://workspaces/${workspaceId}/documents/${documentId}`,
+      `committed_at: ${new Date().toISOString()}`,
+      '---',
+      '',
+    ].filter(Boolean).join('\n');
+    return `${fm}\n${body}\n`;
   }
 
   if (!workspaceId || !documentId) return <EmptyState title={t('documentDetail.missingIds')} />;
@@ -585,6 +814,19 @@ export default function DocumentDetailPage() {
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={openCommitDialog}
+            disabled={!doc?.repositoryId}
+            title={
+              !doc?.repositoryId
+                ? t('documentDetail.commitNeedsRepo', 'Attach a repository first to commit.')
+                : undefined
+            }
+          >
+            <Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitToGithub', 'Commit to GitHub')}
+          </Button>
           <RegenerateDocButton workspaceId={workspaceId} documentId={documentId} />
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
@@ -637,6 +879,33 @@ export default function DocumentDetailPage() {
       </div>
 
       {genError && <ErrorState message={genError} />}
+
+      {/* Quick Status Bar */}
+      {doc.repositoryId && (
+        <div className="flex items-center gap-4 rounded-md border bg-muted/30 px-4 py-2 text-sm">
+          <div className="flex items-center gap-2">
+            <Github className="h-4 w-4 text-muted-foreground" />
+            <Link
+              to={`/workspaces/${workspaceId}/repositories`}
+              className="hover:text-primary"
+            >
+              {doc.repositoryId.slice(0, 8)}...
+            </Link>
+          </div>
+          <div className="h-4 w-px bg-border" />
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Shield className="h-4 w-4" />
+            <span>
+              Auto-update: {doc.autoUpdateEnabled ? 'ON' : 'OFF'}
+            </span>
+          </div>
+          <div className="h-4 w-px bg-border" />
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Link2 className="h-4 w-4" />
+            <span>{links.length} linked entities</span>
+          </div>
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -738,8 +1007,23 @@ export default function DocumentDetailPage() {
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">
+                  <CardTitle className="text-sm flex items-center gap-2">
                     {selectedVersion ? `v${selectedVersion.versionNumber} body` : t('documentDetail.documentBody')}
+                    {selectedVersion?.confidenceScore !== null && selectedVersion?.confidenceScore !== undefined && (
+                      <Badge
+                        variant={
+                          (selectedVersion.confidenceScore ?? 0) >= 0.7
+                            ? 'success'
+                            : (selectedVersion.confidenceScore ?? 0) >= 0.4
+                              ? 'warning'
+                              : 'destructive'
+                        }
+                        className="text-[10px]"
+                        title="AI confidence score for this version"
+                      >
+                        {Math.round((selectedVersion.confidenceScore ?? 0) * 100)}% confidence
+                      </Badge>
+                    )}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     {saving && <span className="text-xs text-muted-foreground animate-pulse">Saving…</span>}
@@ -864,76 +1148,283 @@ export default function DocumentDetailPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <Link2 className="h-4 w-4" /> Code–document links
                 </CardTitle>
-                <Dialog open={showLinkEntity} onOpenChange={setShowLinkEntity}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" variant="outline" disabled={!doc?.repositoryId} onClick={() => void handleLoadEntities()}>
-                      <Link2 className="mr-1 h-4 w-4" /> Link entity
+                <div className="flex gap-2">
+                  {links.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleClearAllLinks()}
+                      className="text-destructive"
+                    >
+                      {t('documentDetail.clearAllLinks', 'Clear all')}
                     </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Link code entity</DialogTitle>
-                      <DialogDescription>
-                        Select a code entity to link to this document.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-3">
-                      {codeEntities.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          No code entities found for this repository.
-                        </p>
-                      ) : (
-                        <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t('documentDetail.selectEntity')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {codeEntities.map((e) => (
-                              <SelectItem key={e.id} value={e.id}>
-                                [{e.entityType}] {e.qualifiedName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowLinkEntity(false)}>Cancel</Button>
-                      <Button onClick={() => void handleLinkEntity()} disabled={!selectedEntityId || linkingEntity}>
-                        {linkingEntity ? t('documentDetail.linking') : t('documentDetail.linkEntity')}
+                  )}
+                  <Dialog open={showLinkEntity} onOpenChange={setShowLinkEntity}>
+                    <DialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void openLinkDialog()}
+                      >
+                        <Link2 className="mr-1 h-4 w-4" /> {t('documentDetail.linkEntity', 'Link entity')}
                       </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>{t('documentDetail.linkEntityTitle', 'Link code entity')}</DialogTitle>
+                        <DialogDescription>
+                          {t('documentDetail.linkEntityDesc', 'Select a code entity to link to this document. The AI will use this link as grounding when regenerating.')}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        {entitiesLoading ? (
+                          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t('documentDetail.loadingEntities', 'Loading code entities…')}
+                          </div>
+                        ) : codeEntities.length === 0 ? (
+                          <div className="space-y-3">
+                            <div className="text-sm text-muted-foreground space-y-2 py-2">
+                              <p>
+                                {t('documentDetail.noEntities', 'No code entities found for this repository.')}
+                              </p>
+                              <p className="text-xs">
+                                {t('documentDetail.noEntitiesHint', 'Code entities are ingested automatically when the repository is synced.')}
+                              </p>
+                            </div>
+                            {/* Debug info so the user can see exactly what backend returned */}
+                            <div className="rounded-md border border-dashed bg-muted/30 p-2 text-[10px] font-mono text-muted-foreground space-y-0.5">
+                              <div>workspaceId: <span className="text-foreground">{workspaceId}</span></div>
+                              <div>repositoryId: <span className="text-foreground">{doc?.repositoryId || '(none)'}</span></div>
+                              <div>entity count: <span className="text-foreground">{codeEntities.length}</span></div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void loadCodeEntities()}
+                            >
+                              <Loader2 className="mr-1 h-3 w-3" />
+                              {t('documentDetail.retryLoadEntities', 'Retry')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Search + counter so the user can find an entity among many */}
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <Input
+                                  value={entityLinkSearch}
+                                  onChange={(e) => setEntityLinkSearch(e.target.value)}
+                                  placeholder={t('documentDetail.entityLinkSearchPlaceholder', 'Search by name, type, or file path…')}
+                                  className="h-9"
+                                />
+                                {entityLinkSearch && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                                    onClick={() => setEntityLinkSearch('')}
+                                    aria-label="Clear"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-9 w-9"
+                                onClick={() => void loadCodeEntities()}
+                                disabled={entitiesLoading}
+                                aria-label="Refresh"
+                                title="Refresh entities"
+                              >
+                                <Loader2 className={`h-4 w-4 ${entitiesLoading ? 'animate-spin' : ''}`} />
+                              </Button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {(() => {
+                                const q = entityLinkSearch.trim().toLowerCase();
+                                if (!q) return `${codeEntities.length} entities available`;
+                                const matched = codeEntities.filter((e) =>
+                                  e.qualifiedName.toLowerCase().includes(q) ||
+                                  e.simpleName.toLowerCase().includes(q) ||
+                                  e.entityType.toLowerCase().includes(q) ||
+                                  e.filePath.toLowerCase().includes(q)
+                                ).length;
+                                return `${matched} / ${codeEntities.length} match "${entityLinkSearch}"`;
+                              })()}
+                            </div>
+                            <Select value={selectedEntityId} onValueChange={setSelectedEntityId}>
+                              <SelectTrigger>
+                                <SelectValue placeholder={t('documentDetail.selectEntity', 'Select entity…')} />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-80">
+                                {codeEntities
+                                  .filter((e) => {
+                                    const q = entityLinkSearch.trim().toLowerCase();
+                                    if (!q) return true;
+                                    return (
+                                      e.qualifiedName.toLowerCase().includes(q) ||
+                                      e.simpleName.toLowerCase().includes(q) ||
+                                      e.entityType.toLowerCase().includes(q) ||
+                                      e.filePath.toLowerCase().includes(q)
+                                    );
+                                  })
+                                  .map((e) => (
+                                    <SelectItem key={e.id} value={e.id}>
+                                      <div className="flex flex-col gap-0.5">
+                                        <div>
+                                          <span className="font-mono text-[10px] text-muted-foreground">[{e.entityType}]</span>{' '}
+                                          <span className="font-mono text-xs">{e.simpleName || e.qualifiedName}</span>
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground font-mono truncate max-w-[480px]">
+                                          {e.filePath}:{e.startLine}-{e.endLine}
+                                        </div>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowLinkEntity(false)}>
+                          {t('common.cancel', 'Cancel')}
+                        </Button>
+                        <Button onClick={() => void handleLinkEntity()} disabled={!selectedEntityId || linkingEntity}>
+                          {linkingEntity ? t('documentDetail.linking', 'Linking…') : t('documentDetail.linkEntity', 'Link entity')}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Attach repository dialog */}
+                  <Dialog open={showAttachRepo} onOpenChange={(o) => { if (!o) setShowAttachRepo(false); }}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>{t('documentDetail.attachRepoTitle', 'Attach a repository')}</DialogTitle>
+                        <DialogDescription>
+                          {t('documentDetail.attachRepoDesc', 'Pick a GitHub repository this document should be associated with. The AI will use it as grounding context, and its code entities will appear in the link picker.')}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        <Label htmlFor="attach-repo-select">{t('documentDetail.attachRepoLabel', 'Repository')}</Label>
+                        {repositories.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t('documentDetail.attachRepoEmpty', 'No repositories found in this workspace. Add one from the Repositories page first.')}
+                          </p>
+                        ) : (
+                          <Select value={selectedRepoId} onValueChange={setSelectedRepoId}>
+                            <SelectTrigger id="attach-repo-select">
+                              <SelectValue placeholder={t('documentDetail.attachRepoPlaceholder', 'Select a repository…')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">{t('documentDetail.attachRepoNone', '— None —')}</SelectItem>
+                              {repositories.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>
+                                  {r.fullName}
+                                  {r.description ? <span className="text-xs text-muted-foreground"> · {r.description.slice(0, 60)}</span> : null}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        {attachRepoError && (
+                          <div className="rounded border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            {attachRepoError}
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowAttachRepo(false)} disabled={attachingRepo}>
+                          {t('common.cancel', 'Cancel')}
+                        </Button>
+                        <Button onClick={() => void handleAttachRepo()} disabled={attachingRepo}>
+                          {attachingRepo ? (
+                            <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {t('documentDetail.attaching', 'Attaching…')}</>
+                          ) : (
+                            t('documentDetail.attachRepoSave', 'Attach')
+                          )}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Commit-to-GitHub dialog moved out of Tabs so it works on every tab */}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
-              {links.length === 0 ? (
+              {!doc?.repositoryId ? (
+                <div className="space-y-3">
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-3">
+                    <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-medium">{t('documentDetail.noRepoTitle', 'No repository attached')}</div>
+                      <p className="mt-1 text-amber-700/80 dark:text-amber-300/80">
+                        {t('documentDetail.noRepoDesc', 'This document is not attached to a GitHub repository. Attach a repository so the AI can ground its regeneration in your source code and you can link specific entities.')}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => void openAttachRepoDialog()}
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    {t('documentDetail.attachRepoCta', 'Attach repository')}
+                  </Button>
+                </div>
+              ) : links.length === 0 ? (
                 <EmptyState
-                  title={t('documentDetail.noLinks')}
-                  description={t('documentDetail.noLinksDesc')}
+                  icon={<Link2 className="h-8 w-8" />}
+                  title={t('documentDetail.noLinks', 'No links yet')}
+                  description={t('documentDetail.noLinksDesc', 'Link code entities to track references between this document and source code. Linked entities will be used as AI grounding.')}
                 />
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Entity</TableHead>
-                      <TableHead>Kind</TableHead>
-                      <TableHead>Confidence</TableHead>
-                      <TableHead>Created</TableHead>
+                      <TableHead>{t('documentDetail.colEntityName', 'Entity')}</TableHead>
+                      <TableHead>{t('documentDetail.colEntityFile', 'File')}</TableHead>
+                      <TableHead>{t('documentDetail.colEntityKind', 'Type')}</TableHead>
+                      <TableHead>{t('documentDetail.colLinkKind', 'Link kind')}</TableHead>
+                      <TableHead>{t('documentDetail.colConfidence', 'Confidence')}</TableHead>
+                      <TableHead>{t('documentDetail.colCreated', 'Linked at')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {links.map((l) => (
-                      <TableRow key={l.id}>
-                        <TableCell className="font-mono text-xs">{l.codeEntityId}</TableCell>
-                        <TableCell><Badge variant="muted">{l.linkKind}</Badge></TableCell>
-                        <TableCell>{l.confidence !== null ? `${(l.confidence * 100).toFixed(0)}%` : '—'}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {format(new Date(l.createdAt), 'MMM d, yyyy')}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {links.map((l) => {
+                      // Resolve codeEntityId → CodeEntity to show file/name
+                      const ent = codeEntities.find((c) => c.id === l.codeEntityId);
+                      return (
+                        <TableRow key={l.id}>
+                          <TableCell>
+                            <code className="text-xs font-mono text-blue-600 dark:text-blue-400">
+                              {ent ? ent.qualifiedName : l.codeEntityId}
+                            </code>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground font-mono max-w-[260px] truncate">
+                            {ent ? `${ent.filePath}:${ent.startLine}-${ent.endLine}` : '—'}
+                          </TableCell>
+                          <TableCell>
+                            {ent ? (
+                              <Badge variant="muted" className="text-[10px]">{ent.entityType}</Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell><Badge variant="muted">{l.linkKind}</Badge></TableCell>
+                          <TableCell>
+                            {l.confidence !== null ? `${(l.confidence * 100).toFixed(0)}%` : '—'}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {format(new Date(l.createdAt), 'MMM d, yyyy HH:mm')}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -945,11 +1436,29 @@ export default function DocumentDetailPage() {
         <TabsContent value="drift" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="h-4 w-4" /> Drift alerts
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4" /> Drift alerts
+                </CardTitle>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleTriggerDriftForDoc()}
+                  disabled={!doc.repositoryId}
+                  title={!doc.repositoryId ? 'Attach a repository first to analyze drift' : undefined}
+                >
+                  <Play className="mr-1 h-4 w-4" /> Analyze Drift
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
+              {driftScanResult && (
+                <div className={`rounded-md border px-3 py-2 text-sm mb-3 ${driftScanResult.includes('complete') ? 'border-green-500/40 bg-green-500/10 text-green-700' : 'border-destructive/50 bg-destructive/10 text-destructive'}`}>
+                  {driftScanning ? (
+                    <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</span>
+                  ) : driftScanResult}
+                </div>
+              )}
               {driftAlerts.length === 0 ? (
                 <EmptyState title={t('documentDetail.noOpenDrift')} description={t('documentDetail.noOpenDriftDesc')} />
               ) : (
@@ -1024,6 +1533,182 @@ export default function DocumentDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Commit-to-GitHub dialog — placed at root so it works regardless of active tab */}
+      <Dialog open={showCommitDialog} onOpenChange={(o) => { if (!o) { setShowCommitDialog(false); setCommitSuccess(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              <Upload className="mr-2 inline h-4 w-4" />
+              {t('documentDetail.commitDialogTitle', 'Commit document to GitHub')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('documentDetail.commitDialogDesc', 'This opens a new branch and a pull request against the repository\'s default branch. The file path defaults to docs/<slug>.md but you can change it.')}
+            </DialogDescription>
+          </DialogHeader>
+          {commitSuccess ? (
+            <div className="space-y-3">
+              <div className="rounded-md border border-green-500/40 bg-green-500/10 p-4 text-sm text-green-700 dark:text-green-300">
+                <div className="font-medium mb-1">
+                  {t('documentDetail.commitOpened', 'Pull request opened')}
+                </div>
+                <a
+                  href={commitSuccess.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+                >
+                  {commitSuccess.url}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+                <div className="text-xs text-muted-foreground mt-2">
+                  {t('documentDetail.commitBranchLabel', { branch: commitSuccess.branch, defaultValue: `Branch: ${commitSuccess.branch}` })}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowCommitDialog(false); setCommitSuccess(null); }}>
+                  {t('common.close', 'Close')}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="commit-repository">{t('documentDetail.commitRepository', 'Repository')}</Label>
+                <select
+                  id="commit-repository"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={commitRepositoryId}
+                  onChange={(e) => setCommitRepositoryId(e.target.value)}
+                  disabled={commitReposLoading}
+                >
+                  {commitReposLoading ? (
+                    <option value="">Loading repositories...</option>
+                  ) : commitRepos.length === 0 ? (
+                    <option value="">No repositories found</option>
+                  ) : (
+                    commitRepos.map((repo) => (
+                      <option key={repo.id} value={repo.id}>
+                        {repo.fullName} {repo.isPrivate ? '🔒' : '🌐'}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t('documentDetail.commitRepositoryHint', 'Select the GitHub repository to commit to.')}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="commit-file-path">{t('documentDetail.commitFilePath', 'File path')}</Label>
+                <Input
+                  id="commit-file-path"
+                  value={commitFilePath}
+                  onChange={(e) => setCommitFilePath(e.target.value)}
+                  placeholder="docs/intro.md"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('documentDetail.commitFilePathHint', 'Path inside the repository. Will be created or overwritten on the new branch.')}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="commit-branch">{t('documentDetail.commitBranch', 'Feature branch (optional)')}</Label>
+                <Input
+                  id="commit-branch"
+                  value={commitBranch}
+                  onChange={(e) => setCommitBranch(e.target.value)}
+                  placeholder="livingdocs/docs/intro-1697123456"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('documentDetail.commitBranchHint', 'Leave blank to auto-generate from the file path.')}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="commit-message">{t('documentDetail.commitMessageLabel', 'Commit message')}</Label>
+                <Input
+                  id="commit-message"
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  placeholder="docs: update intro"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pr-title">{t('documentDetail.prTitleLabel', 'Pull request title')}</Label>
+                <Input
+                  id="pr-title"
+                  value={prTitle}
+                  onChange={(e) => setPrTitle(e.target.value)}
+                  placeholder="docs: Update introduction"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pr-body">{t('documentDetail.prBodyLabel', 'Pull request description (optional)')}</Label>
+                <Textarea
+                  id="pr-body"
+                  value={prBody}
+                  onChange={(e) => setPrBody(e.target.value)}
+                  rows={4}
+                  placeholder="Why is this change needed?"
+                />
+              </div>
+              {commitError && (
+                <div className="rounded border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive space-y-2">
+                  <div>{commitError}</div>
+                  {commitError.toLowerCase().includes('token') ||
+                   commitError.toLowerCase().includes('reconnect') ||
+                   commitError.toLowerCase().includes('access') ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await githubApi.disconnect();
+                        } catch {
+                          // ignore — disconnect is best-effort
+                        }
+                        // Redirect directly to GitHub OAuth so the new token
+                        // has scope=repo. Build the URL client-side to
+                        // avoid needing the (possibly stale) JWT for the
+                        // /oauth/authorize-url call.
+                        const clientId = (import.meta.env.VITE_GITHUB_OAUTH_CLIENT_ID
+                          || 'Ov23liHgJFSFryoJ34rS') as string;
+                        const redirectUri = (import.meta.env.VITE_GITHUB_OAUTH_REDIRECT_URI
+                          || 'http://localhost:8080/api/v1/github/oauth/callback') as string;
+                        const scope = 'repo%20read%3Auser%20user%3Aemail%20workflow';
+                        const state = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+                          ? crypto.randomUUID()
+                          : Math.random().toString(36).slice(2);
+                        sessionStorage.setItem('github-oauth-state', state);
+                        const url =
+                          `https://github.com/login/oauth/authorize` +
+                          `?client_id=${encodeURIComponent(clientId)}` +
+                          `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                          `&scope=${scope}` +
+                          `&state=${encodeURIComponent(state)}` +
+                          `&allow_signup=true`;
+                        window.location.href = url;
+                      }}
+                    >
+                      {t('documentDetail.reconnectGithub', 'Reconnect GitHub')}
+                    </Button>
+                  ) : null}
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCommitDialog(false)} disabled={committing}>
+                  {t('common.cancel', 'Cancel')}
+                </Button>
+                <Button onClick={() => void handleCommitToGithub()} disabled={committing}>
+                  {committing ? (
+                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {t('documentDetail.committing', 'Opening PR…')}</>
+                  ) : (
+                    <><Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitOpenPr', 'Open pull request')}</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Grounding evidence dialog */}
       {groundingFor && (
