@@ -1,4 +1,4 @@
-package com.livingdocs.modules.integrations.repository;
+package com.livingdocs.modules.user.repository;
 
 import com.livingdocs.modules.integrations.model.Webhook;
 import org.springframework.data.jpa.repository.JpaRepository;
