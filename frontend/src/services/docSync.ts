@@ -118,3 +118,31 @@ export const docSyncApi = {
       .then((r) => r.data);
   },
 };
+
+/**
+ * Queue a doc update for review (creates a PENDING_REVIEW DocUpdateRequest
+ * instead of opening a PR directly). Returns the freshly created request.
+ */
+export interface DocSyncQueueResult {
+  id: string;
+  status: string;
+  filePath: string;
+  hasChanges: boolean;
+  message?: string;
+}
+
+export const docSyncQueueApi = {
+  queue(
+    workspaceId: string,
+    repositoryId: string,
+    filePath: string,
+    branch?: string,
+  ) {
+    return apiClient
+      .post<DocSyncQueueResult>(
+        `/workspaces/${workspaceId}/repositories/${repositoryId}/doc-sync/queue`,
+        { filePath, branch },
+      )
+      .then((r) => r.data);
+  },
+};

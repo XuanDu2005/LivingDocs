@@ -23,6 +23,7 @@ import AiSettingsIndexPage from '../pages/AiSettingsIndexPage';
 import DashboardPage from '../pages/DashboardPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
 import DocumentsListPage from '../pages/DocumentsListPage';
+import DocUpdateRequestsPage from '../pages/DocUpdateRequestsPage';
 import DriftAlertsPage from '../pages/DriftAlertsPage';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import GithubCallbackPage from '../pages/GithubCallbackPage';
@@ -220,6 +221,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <ReviewQueuePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workspaces/:workspaceId/doc-updates"
+          element={
+            <ProtectedRoute>
+              <DocUpdateRequestsPage />
             </ProtectedRoute>
           }
         />
