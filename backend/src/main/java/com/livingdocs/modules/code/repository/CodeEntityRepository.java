@@ -18,6 +18,9 @@ public interface CodeEntityRepository extends JpaRepository<CodeEntity, UUID> {
 
     long countByRepositoryId(UUID repositoryId);
 
+    boolean existsByRepositoryIdAndCommitShaAndQualifiedNameAndFilePathAndStartLine(
+            UUID repositoryId, String commitSha, String qualifiedName, String filePath, Integer startLine);
+
     @org.springframework.data.jpa.repository.Query("""
         SELECT e FROM CodeEntity e 
         WHERE e.repositoryId = :repositoryId 

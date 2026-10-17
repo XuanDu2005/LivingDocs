@@ -19,6 +19,7 @@ import {
   Activity,
   AlertTriangle,
   GitBranch,
+  GitPullRequest,
   Stethoscope,
   Megaphone,
   PlugZap,
@@ -149,6 +150,7 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
       labelKey: 'nav.workspaceGroupWorkflow',
       items: [
         { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
+        { labelKey: 'nav.docUpdates', to: `/workspaces/${workspaceId}/doc-updates`, icon: GitPullRequest },
         { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
       ],
     },

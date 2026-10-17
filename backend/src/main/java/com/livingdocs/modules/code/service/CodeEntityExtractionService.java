@@ -146,6 +146,12 @@ public class CodeEntityExtractionService {
 
                 List<ParsedEntity> parsed = parse(content, language, path);
                 for (ParsedEntity p : parsed) {
+                    // Skip if already exists to avoid unique constraint violations
+                    if (repository.existsByRepositoryIdAndCommitShaAndQualifiedNameAndFilePathAndStartLine(
+                            repositoryId, branch, p.qualifiedName, path, p.startLine)) {
+                        log.debug("Skipping duplicate entity: {} @ line {}", p.qualifiedName, p.startLine);
+                        continue;
+                    }
                     CodeEntity entity = new CodeEntity(
                             repositoryId,
                             branch,

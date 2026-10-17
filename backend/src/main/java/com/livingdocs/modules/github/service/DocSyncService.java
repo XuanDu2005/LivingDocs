@@ -45,6 +45,11 @@ public class DocSyncService {
             Pattern.compile("\\[\\[([A-Z][a-zA-Z0-9]*(?:[A-Z][a-zA-Z0-9]*)*)\\]\\]"),
             // Function/method names: `functionName()` or `methodName()`
             Pattern.compile("`([a-z][a-zA-Z0-9]*)\\(\\)`"),
+            // camelCase function names in backticks WITHOUT parens: `formatDate`
+            // (matches identifiers that start with lowercase, contain at least
+            // one uppercase boundary like `formatDate` or `getUserById`, so it
+            // doesn't false-positive generic lowercase words like `the`, `a`).
+            Pattern.compile("`([a-z][a-zA-Z0-9]*(?:[A-Z][a-zA-Z0-9]*)+)`"),
             // Code block class references
             Pattern.compile("```[\\s\\S]*?class\\s+([A-Z][a-zA-Z0-9]*)"),
             // API endpoints: `/api/v1/...`
@@ -139,7 +144,6 @@ public class DocSyncService {
         // recursive "docs/" listing, or when repo has both "docs/" and
         // "documentation/" with overlapping files).
         Set<String> seenPaths = new HashSet<>();
-        Set<String> allReferencedEntities = new HashSet<>();
 
         for (String docPath : docPaths) {
             try {
@@ -152,7 +156,6 @@ public class DocSyncService {
                             DocFileInfo fileInfo = scanFile(content, entityMap,
                                     accessToken, repo.getOwner(), repo.getName(), scanBranch);
                             allFiles.add(fileInfo);
-                            allReferencedEntities.addAll(fileInfo.foundEntities());
                         }
                     } else if ("dir".equals(content.type())) {
                         // Recursively scan subdirectories (recursive call also dedupes)
@@ -169,6 +172,13 @@ public class DocSyncService {
         // Use AI to enrich drift detection for top candidates
         enrichDriftDetectionWithAI(allFiles, entities, workspaceId, scanBranch, repo.getFullName());
 
+        // Build the unique-entity set from ALL files (including those discovered
+        // through recursive subdirectory scanning, which don't flow back through
+        // the outer loop's addAll).
+        Set<String> allReferencedEntities = new HashSet<>();
+        for (DocFileInfo f : allFiles) {
+            allReferencedEntities.addAll(f.foundEntities());
+        }
         int totalReferenced = allReferencedEntities.size();
         int matchedEntities = (int) allReferencedEntities.stream()
                 .filter(name -> entityMap.containsKey(name.toLowerCase())).count();

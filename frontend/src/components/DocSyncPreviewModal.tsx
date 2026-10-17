@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Diff2HtmlUI } from 'diff2html/lib/ui/js/diff2html-ui-slim';
-import { X, GitPullRequest, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
-import { docSyncApi, DocSyncPreview, DriftFinding } from '../services/docSync';
+import { X, GitPullRequest, AlertTriangle, CheckCircle2, Info, ShieldCheck } from 'lucide-react';
+import { docSyncApi, docSyncQueueApi, DocSyncPreview, DriftFinding } from '../services/docSync';
+import { listMembers } from '../services/workspaces';
+import { authStorage } from '../services/auth';
 
 interface DiffPreviewProps {
   workspaceId: string;
@@ -24,6 +26,9 @@ export function DocSyncPreviewModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [queuing, setQueuing] = useState(false);
+  const [queued, setQueued] = useState<{ id: string; message?: string } | null>(null);
+  const [isManager, setIsManager] = useState<boolean>(false);
 
   // Fetch preview on mount
   useEffect(() => {
@@ -32,6 +37,30 @@ export function DocSyncPreviewModal({
       .catch((err) => setError(err.response?.data?.message || 'Failed to generate preview'))
       .finally(() => setLoading(false));
   }, [workspaceId, repositoryId, filePath, branch]);
+
+  // Check current user's workspace role.
+  // MANAGER can push PR directly, so we hide the "Queue for review" button
+  // for managers to avoid the extra (and confusing) step.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = authStorage.getUser();
+        if (!user) return;
+        const members = await listMembers(workspaceId);
+        if (cancelled) return;
+        const me = members.find((m) => m.userId === user.id);
+        setIsManager(me?.role === 'MANAGER');
+      } catch {
+        // If we can't determine role, default to showing the queue button
+        // (safer than silently allowing non-managers to push PRs).
+        if (!cancelled) setIsManager(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const handleApply = async () => {
     if (!preview) return;
@@ -66,6 +95,32 @@ export function DocSyncPreviewModal({
       setError(err.response?.data?.message || 'Failed to apply changes');
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleQueue = async () => {
+    if (!preview) return;
+    if (preview.noEntitiesFound) {
+      setError('No code entities found — cannot queue a doc update for review.');
+      return;
+    }
+    if (preview.proposedContent === preview.currentContent) {
+      setError('No changes detected — documentation already matches the code.');
+      return;
+    }
+    setQueuing(true);
+    setError(null);
+    try {
+      const result = await docSyncQueueApi.queue(workspaceId, repositoryId, filePath, branch);
+      if (result?.hasChanges) {
+        setQueued({ id: result.id, message: result.message });
+      } else {
+        setError(result?.message || 'No changes to queue — documentation already matches the code.');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to queue doc update for review');
+    } finally {
+      setQueuing(false);
     }
   };
 
@@ -230,25 +285,56 @@ export function DocSyncPreviewModal({
             </div>
           )}
 
-          {/* Create PR Button */}
+          {/* Queue for Review + Create PR buttons */}
           {canCreatePR && (
-            <button
-              onClick={handleApply}
-              disabled={!preview || applying}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {applying ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                  Creating PR...
-                </>
-              ) : (
-                <>
-                  <GitPullRequest className="w-4 h-4" />
-                  Create Pull Request
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              {queued ? (
+                <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-800 rounded-lg border border-green-200">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Queued for review (id: {queued.id.slice(0, 8)}…)</span>
+                </div>
+              ) : !isManager ? (
+                // Members / non-managers: queue for review first
+                <button
+                  onClick={handleQueue}
+                  disabled={!preview || queuing || applying}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Queue this update for Staff/Manager review. A PENDING_REVIEW DocUpdateRequest will be created; a Manager can then push the PR to Git."
+                >
+                  {queuing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                      Queuing…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      Queue for review
+                    </>
+                  )}
+                </button>
+              ) : null}
+              <button
+                onClick={handleApply}
+                disabled={!preview || applying || queuing}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title={isManager
+                  ? "Push this update to GitHub as a Pull Request."
+                  : "Push this update to GitHub as a Pull Request (Manager only — request review if you don't have access)."}
+              >
+                {applying ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                    Creating PR...
+                  </>
+                ) : (
+                  <>
+                    <GitPullRequest className="w-4 h-4" />
+                    Create Pull Request
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>
