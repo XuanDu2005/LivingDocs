@@ -38,7 +38,6 @@ import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { NotificationBell } from '../components/NotificationBell';
 import { LinkedAccountsQuickLinks } from '../components/auth/LinkedAccountsQuickLinks';
 import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
-import { WorkspaceSwitcher } from '../components/workspace/WorkspaceSwitcher';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -361,7 +360,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center justify-between border-b bg-card/30 px-4 md:px-6">
           <div className="flex items-center gap-3">
-            {isAuthenticated && <WorkspaceSwitcher />}
             <div className="hidden items-center gap-2 md:flex">
               <Activity className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('common.tagline')}</span>
