@@ -74,8 +74,8 @@ public class SecurityConfig {
                                                           "/api/v1/auth/refresh",
                                                           "/api/v1/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/*/start",
-                                                       "/api/v1/auth/oauth/*/callback",
-                                                       "/api/v1/auth/oauth/*/sandbox-start").permitAll()
+                                                         "/api/v1/auth/oauth/*/callback",
+                                                         "/api/v1/auth/oauth/*/sandbox-start").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/providers").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/*/link/start").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/oauth/*/link").permitAll()
@@ -91,6 +91,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/github/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/oauth/complete").permitAll()
+                        
                         // Integrations module: each provider verifies the request with its
                         // own mechanism (HMAC, shared token, signed timestamp), not JWT.
                         .requestMatchers(HttpMethod.POST,
@@ -102,10 +103,6 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(corsFilter, org.springframework.web.filter.CorsFilter.class)
-                // Place the JWT filter AFTER SecurityContextHolderFilter (so the
-                // context is initialised) but BEFORE AnonymousAuthenticationFilter
-                // (so that a real authentication does not get overwritten by an
-                // anonymous one).
                 .addFilterAfter(jwtFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class)
                 .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
         return http.build();

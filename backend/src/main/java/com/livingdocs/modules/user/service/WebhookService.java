@@ -1,55 +1,63 @@
-package com.livingdocs.modules.integrations.service;
+package com.livingdocs.modules.user.service;
 
-import com.livingdocs.modules.integrations.model.Webhook;
-import com.livingdocs.modules.integrations.repository.WebhookRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @Service
 public class WebhookService {
 
-    private final WebhookRepository webhookRepository;
-    private final RestClient restClient;
+    private static final Logger log = LoggerFactory.getLogger(WebhookService.class);
+    private final ObjectMapper objectMapper;
 
-    public WebhookService(WebhookRepository webhookRepository) {
-        this.webhookRepository = webhookRepository;
-        // Initialize RestClient for making HTTP requests to Discord/Slack webhooks
-        this.restClient = RestClient.create(); 
+    public WebhookService(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
     }
 
-    /**
-     * Notify all active webhooks for a given workspace with a message.
-     */
-    public void notifyWorkspace(UUID workspaceId, String message) {
-        // Fetch all active webhooks for the workspace
-        List<Webhook> activeWebhooks = webhookRepository.findByWorkspaceIdAndIsActiveTrue(workspaceId);
-        
-        if (activeWebhooks.isEmpty()) {
-            return;
+    public void processGitHubPayload(String eventType, String payload) throws Exception {
+        JsonNode rootNode = objectMapper.readTree(payload);
+
+        if ("push".equals(eventType)) {
+            handlePushEvent(rootNode);
+        } else if ("issues".equals(eventType)) {
+            log.info("Sự kiện Issues nhận được (Đang chờ xử lý)");
+        } else if ("ping".equals(eventType)) {
+            log.info("Nhận được ping từ GitHub. Kết nối ổn định!");
+        } else {
+            log.info("Bỏ qua sự kiện không hỗ trợ: {}", eventType);
         }
+    }
 
-        // Create a payload to send to Discord/Slack.
-        Map<String, String> payload = Map.of(
-                "content", message,
-                "text", message
-        );
+    private void handlePushEvent(JsonNode payload) {
+        String repoName = payload.path("repository").path("full_name").asText();
+        String pusherName = payload.path("pusher").path("name").asText();
+        String branch = payload.path("ref").asText();
 
-        // Go through each URL and "fire off" a message.
-        for (Webhook webhook : activeWebhooks) {
-            try {
-                restClient.post()
-                        .uri(webhook.getUrl())
-                        .body(payload)
-                        .retrieve()
-                        .toBodilessEntity();
-                        
-                System.out.println("✅ Đã bắn webhook thành công tới: " + webhook.getName());
-            } catch (Exception e) {
-                System.err.println("❌ Lỗi khi bắn webhook tới " + webhook.getName() + ": " + e.getMessage());
+        log.info("Phát hiện code mới! [{}] vừa push lên nhánh [{}] của kho [{}]", pusherName, branch, repoName);
+
+        JsonNode commits = payload.path("commits");
+        if (commits != null && commits.isArray()) {
+            for (JsonNode commit : commits) {
+                String commitMessage = commit.path("message").asText();
+                String commitId = commit.path("id").asText();
+                String shortId = commitId.length() > 7 ? commitId.substring(0, 7) : commitId;
+                
+                log.info("Commit ({}): {}", shortId, commitMessage);
+
+                logFiles(commit, "added", "Thêm mới");
+                logFiles(commit, "modified", "Chỉnh sửa");
+                logFiles(commit, "removed", "Đã xóa");
+            }
+        }
+    }
+
+    private void logFiles(JsonNode commit, String fieldName, String label) {
+        JsonNode files = commit.path(fieldName);
+        if (files != null && files.isArray() && files.size() > 0) {
+            for (JsonNode file : files) {
+                log.info("    {}: {}", label, file.asText());
             }
         }
     }
