@@ -39,6 +39,7 @@ import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi } from '../services/documents';
 import { driftApi } from '../services/drift';
 import { docSyncApi, DocScanResult } from '../services/docSync';
+import { aiApi } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import { describeError } from '../services/auth';
 
@@ -351,30 +352,31 @@ export default function RepositoryPage() {
     setGeneratingAll(true);
     setGenerateResult(null);
     try {
-      // Get all documents for this repository's workspace
-      const docs = await documentsApi.list(workspaceId).catch(() => []);
-      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+      // Call the backend endpoint to generate docs for all undocumented entities
+      const result = await aiApi.generateAllForRepository(workspaceId, selected.id);
 
-      if (docsForRepo.length === 0) {
-        setGenerateResult('No documents found for this repository. Create documents first.');
+      if (result.generated === 0 && result.skipped === 0) {
+        setGenerateResult('No undocumented code entities found. All entities are already documented.');
         return;
       }
 
-      // Generate docs for entities that don't have documentation yet
-      let generated = 0;
-      for (const doc of docsForRepo) {
-        try {
-          // Check if doc has linked entities without docs
-          await documentsApi.appendVersion(workspaceId, doc.id, {
-            bodyMarkdown: `<!-- Auto-generated for ${selected.fullName} -->`,
-            changeSummary: 'Bulk generate triggered',
-          }).catch(() => null);
-          generated++;
-        } catch {
-          // continue
+      let message = `Generated ${result.generated} document(s) for ${selected.fullName}`;
+      if (result.skipped > 0) {
+        message += ` (${result.skipped} skipped - already documented)`;
+      }
+      if (result.errors.length > 0) {
+        message += `\n${result.errors.length} error(s): ${result.errors.slice(0, 3).join(', ')}`;
+        if (result.errors.length > 3) {
+          message += ` and ${result.errors.length - 3} more`;
         }
       }
-      setGenerateResult(`Generated/updated ${generated} document(s) for ${selected.fullName}`);
+      setGenerateResult(message);
+
+      // Auto-clear the result after 10 seconds
+      setTimeout(() => {
+        setGenerateResult(null);
+      }, 10000);
+
     } catch (err) {
       setGenerateResult(describeError(err));
     } finally {
@@ -1462,8 +1464,14 @@ export default function RepositoryPage() {
           onApplied={(url) => {
             setPrUrl(url);
             setPreviewingFile(null);
+            // Clear doc scan result after successful apply
+            setDocScanResult(null);
             if (url) {
               setGenerateResult(`Pull request created: ${url}`);
+              // Auto-clear the result after 10 seconds
+              setTimeout(() => {
+                setGenerateResult(null);
+              }, 10000);
             }
           }}
         />

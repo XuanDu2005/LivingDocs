@@ -34,6 +34,51 @@ spring:
     validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:false}
     repair-on-migrate: ${SPRING_FLYWAY_REPAIR_ON_MIGRATE:true}
 
+  # ---- Redis cache (L2 distributed cache) ----
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      # Connection-level timeout. Lettuce auto-reconnects if Redis restarts.
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+  cache:
+    # Switched to redis so @Cacheable uses the cacheManager bean defined
+    # in RedisConfig.java. If Redis is unreachable at runtime, the
+    # application still serves uncached responses — cache failures do
+    # not fail user requests.
+    type: ${SPRING_CACHE_TYPE:redis}
+
+  # ---- Kafka event bus ----
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${SPRING_KAFKA_CONSUMER_GROUP_ID:livingdocs-backend}
+      auto-offset-reset: ${SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET:earliest}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        # Trust our own packages; reject polymorphic deserialization of
+        # arbitrary classes from the broker.
+        spring.json.trusted.packages: "com.livingdocs.*"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.livingdocs.common.events.GenericEvent
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: ${SPRING_KAFKA_PRODUCER_ACKS:all}
+      properties:
+        # Send messages idempotently so retries don't duplicate events.
+        enable.idempotence: true
+    listener:
+      missing-topics-fatal: false
+      ack-mode: record
+
 # ---- Actuator ----
 management:
   endpoints:
@@ -104,6 +149,24 @@ app:
       redirect-uri:  ${GITHUB_OAUTH_LOGIN_REDIRECT_URI:http://localhost:8080/api/v1/auth/oauth/github/callback}
       scopes:        ${GITHUB_OAUTH_LOGIN_SCOPES:read:user,user:email}
       sandbox:       ${GITHUB_OAUTH_SANDBOX:true}
+
+  # ---- Cache TTLs (seconds). All values can be overridden via env. ----
+  cache:
+    # Fallback for any cache that does not declare a specific override.
+    ttl-seconds: ${APP_CACHE_TTL_SECONDS:300}
+    ai-responses-ttl-seconds: ${APP_CACHE_AI_RESPONSES_TTL:1800}
+    kb-search-ttl-seconds: ${APP_CACHE_KB_SEARCH_TTL:600}
+    user-permissions-ttl-seconds: ${APP_CACHE_USER_PERMISSIONS_TTL:900}
+    code-entities-ttl-seconds: ${APP_CACHE_CODE_ENTITIES_TTL:1800}
+
+  # ---- Kafka topic names. Centralized here so consumer/producer
+  #      code never hard-codes a topic name. ----
+  kafka:
+    topic:
+      doc-generation-requested: ${APP_KAFKA_TOPIC_DOC_GENERATION_REQUESTED:doc.generation.requested}
+      doc-generation-completed: ${APP_KAFKA_TOPIC_DOC_GENERATION_COMPLETED:doc.generation.completed}
+      drift-detection-completed: ${APP_KAFKA_TOPIC_DRIFT_DETECTION_COMPLETED:drift.detection.completed}
+      notification-send: ${APP_KAFKA_TOPIC_NOTIFICATION_SEND:notification.send}
 
 # ---- GitHub integration ----
 github:

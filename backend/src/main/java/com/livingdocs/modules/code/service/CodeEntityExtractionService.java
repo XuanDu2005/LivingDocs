@@ -67,17 +67,20 @@ public class CodeEntityExtractionService {
             Pattern.compile("(?m)^\\s*(?:export\\s+)?interface\\s+([A-Z][A-Za-z0-9_]+)");
 
     private final CodeEntityRepository repository;
+    private final CodeEntityService codeEntityService;
     private final RepositoryRepository githubRepoRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final GithubClient githubClient;
     private final GithubOAuthService oauthService;
 
     public CodeEntityExtractionService(CodeEntityRepository repository,
+                                       CodeEntityService codeEntityService,
                                        RepositoryRepository githubRepoRepository,
                                        WorkspaceMemberRepository workspaceMemberRepository,
                                        GithubClient githubClient,
                                        GithubOAuthService oauthService) {
         this.repository = repository;
+        this.codeEntityService = codeEntityService;
         this.githubRepoRepository = githubRepoRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.githubClient = githubClient;
@@ -173,6 +176,11 @@ public class CodeEntityExtractionService {
             }
         }
         log.info("Extracted {} code entities from {}", stored, repo.getFullName());
+
+        // Drop the cached "all entities for this repo" view so the next
+        // reader sees the freshly extracted set instead of stale data.
+        codeEntityService.invalidateRepository(repositoryId);
+
         return stored;
     }
 

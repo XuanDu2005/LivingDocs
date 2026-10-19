@@ -50,6 +50,34 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- Redis caching (L2 distributed cache). Pairs with @Cacheable
+             annotations across the codebase to short-circuit expensive
+             LLM calls, repeated permission lookups, and rarely-changing
+             code-entity fetches. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <!-- Lettuce is the default Redis client, but we declare a recent
+             version explicitly so we can rely on its async command support. -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+        </dependency>
+
+        <!-- Kafka event broker. The codebase already uses Spring @Async
+             for background work; this dependency gives us a real durable
+             event bus so retries survive restarts and consumers can be
+             scaled horizontally without code changes. -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Email (SMTP) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

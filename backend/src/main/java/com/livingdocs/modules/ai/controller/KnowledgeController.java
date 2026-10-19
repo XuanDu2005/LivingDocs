@@ -5,6 +5,7 @@ import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.client.AiServiceClient;
 import com.livingdocs.modules.ai.indexing.IndexJob;
 import com.livingdocs.modules.ai.indexing.IndexingService;
+import com.livingdocs.modules.ai.service.KnowledgeSearchService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.version.service.DocumentVersionService;
@@ -41,17 +42,20 @@ import java.util.UUID;
 public class KnowledgeController {
 
     private final AiServiceClient aiClient;
+    private final KnowledgeSearchService knowledgeSearchService;
     private final DocumentRepository documentRepository;
     private final DocumentVersionService versionService;
     private final WorkspaceService workspaceService;
     private final IndexingService indexingService;
 
     public KnowledgeController(AiServiceClient aiClient,
+                               KnowledgeSearchService knowledgeSearchService,
                                DocumentRepository documentRepository,
                                DocumentVersionService versionService,
                                WorkspaceService workspaceService,
                                IndexingService indexingService) {
         this.aiClient = aiClient;
+        this.knowledgeSearchService = knowledgeSearchService;
         this.documentRepository = documentRepository;
         this.versionService = versionService;
         this.workspaceService = workspaceService;
@@ -85,8 +89,11 @@ public class KnowledgeController {
                                                        @RequestBody SearchRequest req) {
         UUID actorId = CurrentUser.requireId();
         workspaceService.requireMember(actorId, workspaceId);
-        AiDtos.SearchResponse resp = aiClient.search(
-                req.query(), workspaceId.toString(), req.topK() == null ? 5 : req.topK());
+        int topK = req.topK() == null ? 5 : req.topK();
+        // Route through the Redis-cached wrapper so repeated searches
+        // for the same query don't re-run the embedding pipeline.
+        AiDtos.SearchResponse resp = knowledgeSearchService.search(
+                workspaceId, req.query(), topK);
         if (resp == null) {
             return ResponseEntity.ok(Map.of("hits", java.util.List.of(), "status", "ai_service_unavailable"));
         }

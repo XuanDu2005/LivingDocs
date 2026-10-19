@@ -19,6 +19,71 @@ services:
     networks:
       - livingdocs-net
 
+  # Redis is used as a distributed L2 cache for AI responses, knowledge-base
+  # search results, user permissions, and code-entity lookups. The Spring
+  # backend connects to it on startup; if Redis is down, the app degrades
+  # gracefully and falls back to direct DB calls.
+  redis:
+    image: redis:7-alpine
+    container_name: livingdocs-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - livingdocs-net
+
+  # Apache Kafka + ZooKeeper form the event bus for background work
+  # (documentation generation, drift detection, notifications). ZooKeeper
+  # is the default KRaft-less controller in this dev compose file; a
+  # production deployment would switch to the KRaft-only image.
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: livingdocs-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - livingdocs-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: livingdocs-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - livingdocs-net
+
   backend:
     build:
       context: ./backend
@@ -28,6 +93,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     environment:
       SERVER_PORT: ${BACKEND_PORT:-8080}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-livingdocs}
@@ -39,6 +108,20 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-please-this-is-a-development-only-secret-32b+}
       APP_JWT_EXPIRATION_MINUTES: ${APP_JWT_EXPIRATION_MINUTES:-1440}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5173}
+      # ---- Redis cache ----
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_CACHE_TYPE: redis
+      APP_CACHE_TTL_SECONDS: ${APP_CACHE_TTL_SECONDS:-300}
+      # ---- Kafka event bus ----
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_CONSUMER_GROUP_ID: livingdocs-backend
+      SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET: earliest
+      SPRING_KAFKA_PRODUCER_ACKS: all
+      APP_KAFKA_TOPIC_DOC_GENERATION_REQUESTED: doc.generation.requested
+      APP_KAFKA_TOPIC_DOC_GENERATION_COMPLETED: doc.generation.completed
+      APP_KAFKA_TOPIC_DRIFT_DETECTION_COMPLETED: drift.detection.completed
+      APP_KAFKA_TOPIC_NOTIFICATION_SEND: notification.send
       # ---- OAuth (Google — login) ----
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
@@ -115,3 +198,5 @@ networks:
 
 volumes:
   postgres_data:
+  redis_data:
+  kafka_data:

@@ -13,6 +13,8 @@ class CodeEntityKind(str, Enum):
     MODULE = "MODULE"
     CLASS = "CLASS"
     INTERFACE = "INTERFACE"
+    TYPE_ALIAS = "TYPE_ALIAS"
+    ENUM = "ENUM"
     FUNCTION = "FUNCTION"
     METHOD = "METHOD"
     VARIABLE = "VARIABLE"

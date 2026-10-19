@@ -130,4 +130,24 @@ public class AiController {
     public record DriftDetectionBody(
             List<AiDtos.SourceFile> filesBefore,
             List<AiDtos.SourceFile> filesAfter) {}
+
+    /**
+     * Generate documentation for all coverage-gap entities in a repository.
+     * Creates new documents for undocumented code entities.
+     */
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/generate-all")
+    @Operation(summary = "Generate documentation for all undocumented code entities in a repository")
+    public Map<String, Object> generateAllForRepository(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template) {
+        var result = aiService.generateForRepository(
+                CurrentUser.requireId(), workspaceId, repositoryId, template);
+        return Map.of(
+                "generated", result.generated(),
+                "skipped", result.skipped(),
+                "errors", result.errors(),
+                "documents", result.documents()
+        );
+    }
 }

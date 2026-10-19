@@ -153,9 +153,14 @@ export const githubApi = {
     repositoryId: string,
     state: 'open' | 'closed' | 'all' = 'all',
   ): Promise<PullRequest[]> {
+    // Backend exposes the state filter as a query parameter (see
+    // {@code GithubRepositoryController.ingestPulls}), so it must be
+    // sent on the URL — putting it in the JSON body would be ignored
+    // and the controller would fall back to its default ("all"), which
+    // is incidentally what we want here, but only by luck. Be explicit
+    // about it so a future "state" body field doesn't conflict.
     const res = await apiClient.post<PullRequest[]>(
-      `/workspaces/${workspaceId}/repositories/${repositoryId}/pulls/ingest`,
-      { state },
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/pulls/ingest?state=${state}`,
     );
     return res.data;
   },
