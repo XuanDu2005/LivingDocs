@@ -1,5 +1,7 @@
 package com.livingdocs.modules.notification.service;
 
+import com.livingdocs.common.events.EventPublisher;
+import com.livingdocs.common.events.NotificationSendEvent;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.notification.event.NotificationCreatedEvent;
 import com.livingdocs.modules.notification.model.Notification;
@@ -34,13 +36,16 @@ public class NotificationService {
     private final NotificationRepository repository;
     private final NotificationPolicyService policyService;
     private final ApplicationEventPublisher eventPublisher;
+    private final EventPublisher kafkaEventPublisher;
 
     public NotificationService(NotificationRepository repository,
                                NotificationPolicyService policyService,
-                               ApplicationEventPublisher eventPublisher) {
+                               ApplicationEventPublisher eventPublisher,
+                               EventPublisher kafkaEventPublisher) {
         this.repository = repository;
         this.policyService = policyService;
         this.eventPublisher = eventPublisher;
+        this.kafkaEventPublisher = kafkaEventPublisher;
     }
 
     @Transactional
@@ -48,6 +53,25 @@ public class NotificationService {
         Notification n = new Notification(userId, kind, title, body, link);
         Notification saved = repository.save(n);
         eventPublisher.publishEvent(new NotificationCreatedEvent(saved));
+
+        // Also emit a Kafka event so external delivery channels
+        // (SMTP, Slack) and the cross-service notification worker
+        // can react. This decouples the in-app save from any
+        // potentially-slow channel-specific code.
+        kafkaEventPublisher.publishNotification(new NotificationSendEvent(
+                java.util.UUID.randomUUID(),
+                null,                  // workspaceId — Notification row doesn't carry it
+                null,                  // correlationId — caller didn't pass one
+                OffsetDateTime.now(),
+                userId,
+                NotificationSendEvent.Channel.IN_APP,
+                kind,
+                title,
+                body,
+                link,
+                java.util.Map.of()
+        ));
+
         return saved;
     }
 

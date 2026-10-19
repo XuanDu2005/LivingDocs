@@ -363,6 +363,12 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
 
     import_re = re.compile(r"^\s*import\s+(?:.+?\s+from\s+)?['\"]([^'\"]+)['\"]")
     class_re = re.compile(r"(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+\w+)?(?:\s+implements\s+[\w,\s]+)?\s*\{")
+    # Interface regex - handles: export interface Foo { ... }
+    interface_re = re.compile(r"(?:export\s+)?interface\s+(\w+)(?:\s*<\w+>)?\s*(?:extends\s+[\w,\s]+)?\s*\{")
+    # Type alias regex - handles: export type Foo = ...
+    type_re = re.compile(r"(?:export\s+)?type\s+(\w+)(?:\s*<\w+>)?\s*=\s*")
+    # Enum regex - handles: export enum Foo { ... }
+    enum_re = re.compile(r"(?:export\s+)?enum\s+(\w+)\s*\{")
     fn_re = re.compile(
         r"(?:export\s+)?(?:async\s+)?function\s+(?P<name>\w+)\s*\((?P<params>[^)]*)\)"
         r"(?:\s*:\s*(?P<ret>[^{=]+))?\s*\{"
@@ -380,6 +386,55 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
 
         if m := import_re.match(line):
             parsed.imports.append(m.group(1))
+            continue
+
+        if m := interface_re.search(line):
+            name = m.group(1)
+            end_line = _find_brace_end(lines, idx)
+            # Extract interface body for documentation
+            interface_body = _extract_ts_interface_body(lines, idx, end_line)
+            parsed.entities.append(CodeEntity(
+                qualified_name=name,
+                simple_name=name,
+                kind=CodeEntityKind.INTERFACE,
+                file_path=file_path,
+                language=language,
+                start_line=idx,
+                end_line=end_line,
+                signature=line.strip(),
+                metadata={"body": interface_body},
+            ))
+            continue
+
+        if m := type_re.search(line):
+            name = m.group(1)
+            # Find the end of the type definition
+            end_line = _find_type_end(lines, idx)
+            parsed.entities.append(CodeEntity(
+                qualified_name=name,
+                simple_name=name,
+                kind=CodeEntityKind.TYPE_ALIAS,
+                file_path=file_path,
+                language=language,
+                start_line=idx,
+                end_line=end_line,
+                signature=line.strip(),
+            ))
+            continue
+
+        if m := enum_re.search(line):
+            name = m.group(1)
+            end_line = _find_brace_end(lines, idx)
+            parsed.entities.append(CodeEntity(
+                qualified_name=name,
+                simple_name=name,
+                kind=CodeEntityKind.ENUM,
+                file_path=file_path,
+                language=language,
+                start_line=idx,
+                end_line=end_line,
+                signature=line.strip(),
+            ))
             continue
 
         if m := class_re.search(line):
@@ -431,6 +486,47 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
             ))
 
     return parsed
+
+
+def _extract_ts_interface_body(lines: list[str], start_idx: int, end_idx: int) -> str:
+    """Extract the body lines of a TypeScript interface."""
+    body_lines = []
+    for i in range(start_idx - 1, min(end_idx, len(lines))):
+        line = lines[i].rstrip()
+        # Skip the opening brace line (but include its contents if inline)
+        if "{" in lines[start_idx - 1] and i == start_idx - 1:
+            # Get content after opening brace
+            brace_idx = line.find("{")
+            if brace_idx >= 0:
+                content = line[brace_idx + 1:].strip()
+                if content:
+                    body_lines.append(content)
+            continue
+        # Skip the closing brace
+        if line.strip() == "}":
+            continue
+        body_lines.append(line)
+    return "\n".join(body_lines)
+
+
+def _find_type_end(lines: list[str], start_idx: int) -> int:
+    """Find the end line of a type alias definition."""
+    depth = 0
+    started = False
+    for j in range(start_idx - 1, len(lines)):
+        line = lines[j]
+        for ch in line:
+            if ch in "([{<":
+                depth += 1
+                started = True
+            elif ch in ")]}>":
+                depth -= 1
+        if started and depth <= 0:
+            return j + 1
+        # Check for single-line type: type Foo = string | number;
+        if ";" in line and depth == 0:
+            return j + 1
+    return len(lines)
 
 
 def _parse_ts_params(raw: str) -> List[FunctionParameter]:

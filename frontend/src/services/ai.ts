@@ -76,4 +76,31 @@ export const aiApi = {
       )
       .then((r) => r.data);
   },
+
+  /**
+   * Generate documentation for all undocumented code entities in a repository.
+   * Creates new documents or updates existing ones.
+   */
+  generateAllForRepository(
+    workspaceId: string,
+    repositoryId: string,
+    template = 'MODULE_GUIDE',
+  ) {
+    return apiClient
+      .post<{
+        generated: number;
+        skipped: number;
+        errors: string[];
+        documents: Array<{
+          documentId: string;
+          title: string;
+          entity: string;
+          versionNumber: number;
+        }>;
+      }>(
+        `/workspaces/${workspaceId}/repositories/${repositoryId}/generate-all?template=${template}`,
+        {},
+      )
+      .then((r) => r.data);
+  },
 };

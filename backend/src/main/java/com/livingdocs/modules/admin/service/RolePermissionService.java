@@ -12,6 +12,8 @@ import com.livingdocs.modules.admin.repository.PermissionRepository;
 import com.livingdocs.modules.admin.repository.RolePermissionRepository;
 import com.livingdocs.modules.admin.repository.RoleRepository;
 import com.livingdocs.modules.audit.service.AuditLogService;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,7 +57,13 @@ public class RolePermissionService {
 
     // -------- catalogue --------
 
+    /**
+     * Cached read of the permission catalogue. The catalogue only
+     * changes when an admin adds/removes a permission entry, so a
+     * long TTL is safe and saves a DB hit on every admin page load.
+     */
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "user-permissions", key = "'permissions:all'")
     public List<PermissionResponse> listPermissions() {
         return permissionRepository.findAllByOrderByCategoryAscDisplayOrderAscCodeAsc()
                 .stream()
@@ -66,9 +74,12 @@ public class RolePermissionService {
     /**
      * Build the matrix view for a single role: every permission in the
      * catalogue with a {@code granted} flag based on whether the
-     * role_permissions table currently has a row.
+     * role_permissions table currently has a row. Cached per role
+     * because the matrix rarely changes and is read on every
+     * authorization check.
      */
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "user-permissions", key = "'matrix:' + #roleId")
     public RolePermissionMatrixResponse getMatrix(UUID roleId) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new NotFoundException("Role not found"));
@@ -109,8 +120,12 @@ public class RolePermissionService {
      * normalized against the current state, the diff is persisted, and
      * an audit entry summarises the change. ADMIN's grants are pinned:
      * any revocation attempts are ignored.
+     *
+     * <p>Invalidates the cached matrix for this role and the cached
+     * permission catalogue so subsequent reads see the new state.
      */
     @Transactional
+    @CacheEvict(cacheNames = "user-permissions", allEntries = true)
     public RolePermissionMatrixResponse updateMatrix(UUID actorId,
                                                      UUID roleId,
                                                      UpdateRolePermissionsRequest request) {

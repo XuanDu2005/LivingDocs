@@ -7,6 +7,8 @@ import com.livingdocs.modules.code.repository.CodeEntityRepository;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,13 @@ import java.util.UUID;
 
 /**
  * Read access to extracted code entities.
+ *
+ * <p>The repository-scoped listing is one of the most-frequently hit
+ * endpoints: every drift detection, doc generation preview, and
+ * coverage gap report iterates over the full code-entity set for
+ * a given repository. Cache the read path; the entity extractor
+ * (which writes) is responsible for invalidating the cache when a
+ * new commit is ingested.
  */
 @Service
 public class CodeEntityService {
@@ -31,7 +40,14 @@ public class CodeEntityService {
         this.workspaceService = workspaceService;
     }
 
+    /**
+     * Cached: the entity list for a repository is only invalidated by
+     * an explicit {@code @CacheEvict} call from the extraction
+     * service (see {@code CodeEntityExtractionService.ingestCommit})
+     * or by the long TTL elapsing.
+     */
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "code-entities", key = "'repo:' + #repositoryId")
     public List<CodeEntityResponse> listForRepository(UUID actorId, UUID workspaceId, UUID repositoryId) {
         Repository repo = githubRepoRepository.findById(repositoryId)
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
@@ -45,7 +61,7 @@ public class CodeEntityService {
         Repository repo = githubRepoRepository.findById(repositoryId)
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
         workspaceService.requireMember(actorId, repo.getWorkspaceId());
-        
+
         // Gọi query tìm các Code Entity chưa có link tài liệu
         return repository.findCoverageGaps(repositoryId).stream()
                 .map(CodeEntityResponse::from).toList();
@@ -59,5 +75,15 @@ public class CodeEntityService {
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
         workspaceService.requireMember(actorId, repo.getWorkspaceId());
         return CodeEntityResponse.from(e);
+    }
+
+    /**
+     * Drop the cached entity list for a repository. Called by the
+     * extraction service whenever a new commit re-extracts the
+     * code, and by repository sync flows.
+     */
+    @CacheEvict(cacheNames = "code-entities", key = "'repo:' + #repositoryId")
+    public void invalidateRepository(UUID repositoryId) {
+        // Body intentionally empty: the annotation does the work.
     }
 }

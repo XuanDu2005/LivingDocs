@@ -12,6 +12,7 @@ import com.livingdocs.modules.github.model.WebhookEvent;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.notification.model.NotificationKinds;
 import com.livingdocs.modules.notification.service.NotificationService;
 import com.livingdocs.modules.workspace.model.WorkspaceMember;
@@ -46,6 +47,7 @@ public class GithubIngestionService {
     private final WorkspaceSettingsRepository workspaceSettingsRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final NotificationService notificationService;
+    private final GithubOAuthService githubOAuthService;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
@@ -54,7 +56,8 @@ public class GithubIngestionService {
                                   ObjectMapper objectMapper,
                                   WorkspaceSettingsRepository workspaceSettingsRepository,
                                   WorkspaceMemberRepository workspaceMemberRepository,
-                                  NotificationService notificationService) {
+                                  NotificationService notificationService,
+                                  GithubOAuthService githubOAuthService) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
@@ -63,6 +66,7 @@ public class GithubIngestionService {
         this.workspaceSettingsRepository = workspaceSettingsRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.notificationService = notificationService;
+        this.githubOAuthService = githubOAuthService;
     }
 
     /**
@@ -81,16 +85,23 @@ public class GithubIngestionService {
     /**
      * Pulls PRs from GitHub and stores them idempotently. Used for the
      * "manually re-sync" endpoint.
+     *
+     * <p>The access token comes from the current user's
+     * {@link com.livingdocs.modules.github.model.GithubConnection}.
+     * Previously this method passed the literal string {@code "any"}
+     * to the GitHub client, which only worked in sandbox mode —
+     * real {@link com.livingdocs.modules.github.client.RestGithubClient}
+     * calls now reject that value with HTTP 401. The same fix is
+     * applied to {@link #ingestCommits} and {@link #ingestRepositoryMetadata}
+     * below.
      */
     @Transactional
     public List<PullRequest> ingestPullRequests(UUID repositoryId, String state) {
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new IllegalStateException("Repository not found: " + repositoryId));
-        // Real implementation reads the access token from the GitHub
-        // connection of the user who connected the repo. For Phase 2 we
-        // accept any token; sandbox has no token check.
+        String accessToken = githubOAuthService.requireForCurrentUser().getAccessToken();
         List<GithubPullRequest> prs = githubClient.listPullRequests(
-                "any", repo.getOwner(), repo.getName(), state);
+                accessToken, repo.getOwner(), repo.getName(), state);
         for (GithubPullRequest pr : prs) {
             upsert(repo, pr);
         }
