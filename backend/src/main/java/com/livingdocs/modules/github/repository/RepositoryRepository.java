@@ -11,8 +11,12 @@ import static com.livingdocs.modules.github.model.Repository.Status;
 
 public interface RepositoryRepository extends JpaRepository<Repository, UUID> {
     List<Repository> findByWorkspaceIdOrderByConnectedAtDesc(UUID workspaceId);
+
     Optional<Repository> findByGithubId(Long githubId);
+
     Optional<Repository> findByWorkspaceIdAndGithubId(UUID workspaceId, Long githubId);
+
+    Optional<Repository> findByFullName(String fullName);
 
     /**
      * Cross-tenant list ordered by most-recent activity. Drives the

@@ -1,15 +1,11 @@
--- LivingDocs V26 — Webhooks table (generic integrations).
---
--- Mirrors com.livingdocs.modules.integrations.model.Webhook. Do not
--- change column names without updating the entity.
-
 CREATE TABLE webhooks (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     url TEXT NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_webhooks_workspace ON webhooks(workspace_id);
+
+CREATE INDEX idx_webhooks_workspace_id ON webhooks(workspace_id);
