@@ -886,7 +886,25 @@
     "updated": "Đã cập nhật hồ sơ.",
     "saveChanges": "Lưu thay đổi",
     "signOut": "Đăng xuất",
-    "signOutDesc": "Đăng xuất khỏi LivingDocs trên thiết bị này."
+    "signOutDesc": "Đăng xuất khỏi LivingDocs trên thiết bị này.",
+    "avatar": {
+      "title": "Ảnh đại diện",
+      "upload": "Tải ảnh lên",
+      "change": "Đổi ảnh",
+      "remove": "Xoá ảnh",
+      "hint": "PNG, JPEG, GIF hoặc WebP. Tối đa 5 MB. Ảnh sẽ được tự động thu nhỏ.",
+      "invalidType": "Vui lòng chọn ảnh PNG, JPEG, GIF hoặc WebP.",
+      "tooLarge": "Ảnh phải nhỏ hơn 5 MB.",
+      "updated": "Đã cập nhật ảnh đại diện.",
+      "removed": "Đã xoá ảnh đại diện.",
+      "cropTitle": "Căn chỉnh ảnh",
+      "cropDesc": "Kéo để di chuyển và thu phóng để chọn phần nằm trong hình tròn.",
+      "cropHint": "Kéo ảnh để di chuyển",
+      "zoom": "Thu phóng",
+      "reset": "Đặt lại",
+      "applyCrop": "Áp dụng",
+      "cropFailed": "Không thể xử lý ảnh. Vui lòng thử ảnh khác."
+    }
   },
   "about": {
     "hero": "LivingDocs giữ tài liệu sát mã nguồn — sinh tự động, hỗ trợ AI, và luôn đồng bộ với repository.",

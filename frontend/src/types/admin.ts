@@ -141,6 +141,8 @@ export interface UserWithRoles {
   id: string;
   email: string;
   displayName: string | null;
+  /** Public URL of the user's profile picture, or `null` when unset. */
+  avatarUrl?: string | null;
   enabled: boolean;
   createdAt: string | null;
   roles: string[];

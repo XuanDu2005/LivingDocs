@@ -856,7 +856,25 @@
     "updated": "Profile updated successfully.",
     "saveChanges": "Save changes",
     "signOut": "Sign out",
-    "signOutDesc": "Sign out of your LivingDocs account on this device."
+    "signOutDesc": "Sign out of your LivingDocs account on this device.",
+    "avatar": {
+      "title": "Profile picture",
+      "upload": "Upload picture",
+      "change": "Change picture",
+      "remove": "Remove",
+      "hint": "PNG, JPEG, GIF or WebP. Max 5 MB. The image is resized automatically.",
+      "invalidType": "Please choose a PNG, JPEG, GIF or WebP image.",
+      "tooLarge": "The image must be smaller than 5 MB.",
+      "updated": "Profile picture updated.",
+      "removed": "Profile picture removed.",
+      "cropTitle": "Adjust your picture",
+      "cropDesc": "Drag to reposition and zoom to choose what fits in the circle.",
+      "cropHint": "Drag the image to reposition it",
+      "zoom": "Zoom",
+      "reset": "Reset",
+      "applyCrop": "Apply",
+      "cropFailed": "Could not process the image. Please try a different picture."
+    }
   },
   "about": {
     "hero": "LivingDocs keeps your documentation next to your code — automatically generated, AI-assisted, and always in sync with your repository.",

@@ -33,6 +33,18 @@ public class User {
     @Column(name = "display_name", length = 120)
     private String displayName;
 
+    /**
+     * Relative storage key of the user's uploaded avatar, e.g.
+     * {@code avatars/<user-id>/<uuid>.png}. {@code null} means the user
+     * never uploaded a picture — the UI then renders initials.
+     *
+     * <p>We deliberately store the *key* rather than a full URL so the
+     * public base URL can change (different host, CDN, …) without
+     * rewriting every row.
+     */
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
     @Column(name = "password_hash", nullable = false, length = 100)
     private String passwordHash;
 
@@ -66,6 +78,8 @@ public class User {
     public void setEmail(String email) { this.email = email; }
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public boolean isEnabled() { return enabled; }

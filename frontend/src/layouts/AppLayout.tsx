@@ -39,6 +39,7 @@ import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { NotificationBell } from '../components/NotificationBell';
 import { LinkedAccountsQuickLinks } from '../components/auth/LinkedAccountsQuickLinks';
 import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
+import { UserAvatar } from '../components/user/UserAvatar';
 import { cn } from '../lib/utils';
 
 interface AppLayoutProps {
@@ -299,20 +300,31 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="border-t p-3">
           {isAuthenticated && user ? (
             <div className="space-y-2">
-              <div className="rounded-md bg-muted/50 px-3 py-2">
-                <div className="truncate text-sm font-medium">
-                  {user.displayName || user.email}
+              <Link
+                to="/profile"
+                className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 transition-colors hover:bg-muted"
+              >
+                <UserAvatar
+                  src={user.avatarUrl}
+                  name={user.displayName}
+                  email={user.email}
+                  size="sm"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {user.displayName || user.email}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    {(user.roles && user.roles.length > 0) ? (
+                      user.roles.map((r) => (
+                        <Badge key={r} variant="muted" className="text-[10px]">{r}</Badge>
+                      ))
+                    ) : (
+                      <span className="text-[10px]">{t('common.loading')}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                  {(user.roles && user.roles.length > 0) ? (
-                    user.roles.map((r) => (
-                      <Badge key={r} variant="muted" className="text-[10px]">{r}</Badge>
-                    ))
-                  ) : (
-                    <span className="text-[10px]">{t('common.loading')}</span>
-                  )}
-                </div>
-              </div>
+              </Link>
               <div className="flex gap-1">
                 <Button
                   variant="ghost"

@@ -7,10 +7,11 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import {
-    Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '../components/ui/card';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { LinkedAccountsCard } from '../components/auth/LinkedAccountsCard';
+import { AvatarUploader } from '../components/user/AvatarUploader';
 import { useAuth } from '../contexts/AuthContext';
 import { updateCurrentUser } from '../services/users';
 import { describeError } from '../services/auth';
@@ -74,7 +75,21 @@ export default function ProfilePage() {
           </CardTitle>
           <CardDescription>{t('profile.infoDesc')}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          <div>
+            <Label>{t('profile.avatar.title')}</Label>
+            <div className="mt-2">
+              <AvatarUploader
+                avatarUrl={user.avatarUrl ?? null}
+                displayName={user.displayName}
+                email={user.email}
+                onChanged={async () => {
+                  await refreshUser();
+                }}
+              />
+            </div>
+          </div>
+
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="profile-display">{t('profile.displayName')}</Label>

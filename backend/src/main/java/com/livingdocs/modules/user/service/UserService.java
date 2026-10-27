@@ -88,6 +88,16 @@ public class UserService implements UserDetailsService {
     }
 
     /**
+     * Persists changes made to an already-loaded user entity. Used by
+     * flows that mutate the entity outside {@link #updateProfile},
+     * e.g. uploading a new avatar.
+     */
+    @Transactional
+    public User save(User user) {
+        return userRepository.save(user);
+    }
+
+    /**
      * Verify that a raw password matches the stored hash for the given email.
      *
      * @throws UnauthorizedException if the credentials don't match

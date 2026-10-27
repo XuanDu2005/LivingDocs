@@ -15,7 +15,13 @@ export const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api/v1',
   timeout: 10_000,
   headers: {
-    'Content-Type': 'application/json',
+    // Deliberately no default Content-Type. Axios's default transform
+    // would see "application/json" and serialise *every* request as
+    // JSON — including FormData uploads, which would then be sent as a
+    // JSON string instead of multipart. Leaving it unset lets Axios pick
+    // the right content type per request: it still sets
+    // `application/json` for plain objects, and `multipart/form-data`
+    // (with the boundary it generates) for FormData.
     Accept: 'application/json',
   },
 });
