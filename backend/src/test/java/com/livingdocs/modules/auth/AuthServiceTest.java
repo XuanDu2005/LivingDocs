@@ -10,6 +10,7 @@ import com.livingdocs.modules.user.dto.LoginRequest;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.repository.UserRepository;
+import com.livingdocs.modules.user.service.UserResponseMapper;
 import com.livingdocs.modules.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +46,8 @@ class AuthServiceTest {
         jwtService = new JwtService("test-secret-which-is-at-least-32-bytes-long-for-hmac-sha256", 60);
         emailVerificationService = mock(EmailVerificationService.class);
         refreshTokenService = mock(RefreshTokenService.class);
-        authService = new AuthService(userService, roleAssignmentRepository, jwtService, emailVerificationService, refreshTokenService, 15);
+        UserResponseMapper userResponseMapper = mock(UserResponseMapper.class);
+        authService = new AuthService(userService, roleAssignmentRepository, jwtService, emailVerificationService, refreshTokenService, userResponseMapper, 15);
     }
 
     @Test

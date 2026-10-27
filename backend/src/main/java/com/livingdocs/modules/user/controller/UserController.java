@@ -1,13 +1,11 @@
 package com.livingdocs.modules.user.controller;
 
 import com.livingdocs.common.security.CurrentUser;
-import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
-import com.livingdocs.modules.auth.service.LinkedProvidersMapper;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.dto.UserNotificationPreferenceDto;
 import com.livingdocs.modules.user.dto.UserResponse;
-import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.service.UserNotificationPreferenceService;
+import com.livingdocs.modules.user.service.UserResponseMapper;
 import com.livingdocs.modules.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,7 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,36 +29,29 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
-    private final UserRoleAssignmentRepository roleAssignmentRepository;
+    private final UserResponseMapper userResponseMapper;
     private final UserNotificationPreferenceService preferenceService;
-    private final LinkedProvidersMapper linkedProvidersMapper;
 
     public UserController(UserService userService,
-                          UserRoleAssignmentRepository roleAssignmentRepository,
-                          UserNotificationPreferenceService preferenceService,
-                          LinkedProvidersMapper linkedProvidersMapper) {
+                          UserResponseMapper userResponseMapper,
+                          UserNotificationPreferenceService preferenceService) {
         this.userService = userService;
-        this.roleAssignmentRepository = roleAssignmentRepository;
+        this.userResponseMapper = userResponseMapper;
         this.preferenceService = preferenceService;
-        this.linkedProvidersMapper = linkedProvidersMapper;
     }
 
     @GetMapping("/me")
     @Operation(summary = "Get the currently authenticated user")
     public ResponseEntity<UserResponse> me() {
         UUID id = CurrentUser.requireId();
-        User user = userService.getById(id);
-        List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
-        return ResponseEntity.ok(UserResponse.from(user, roleCodes, linkedProvidersMapper.forUser(id)));
+        return ResponseEntity.ok(userResponseMapper.toResponse(userService.getById(id)));
     }
 
     @PutMapping("/me")
     @Operation(summary = "Update the currently authenticated user's profile")
     public ResponseEntity<UserResponse> updateMe(@Valid @RequestBody UpdateProfileRequest req) {
         UUID id = CurrentUser.requireId();
-        User updated = userService.updateProfile(id, req);
-        List<String> roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(id);
-        return ResponseEntity.ok(UserResponse.from(updated, roleCodes, linkedProvidersMapper.forUser(id)));
+        return ResponseEntity.ok(userResponseMapper.toResponse(userService.updateProfile(id, req)));
     }
 
     @GetMapping("/me/notification-preferences")

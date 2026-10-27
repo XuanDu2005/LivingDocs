@@ -17,6 +17,7 @@ import com.livingdocs.modules.user.dto.LoginRequest;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.User;
+import com.livingdocs.modules.user.service.UserResponseMapper;
 import com.livingdocs.modules.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -48,19 +49,22 @@ public class AuthController {
     private final RefreshTokenService refreshTokenService;
     private final UserService userService;
     private final com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository roleAssignmentRepository;
+    private final UserResponseMapper userResponseMapper;
 
     public AuthController(AuthService authService,
                           EmailVerificationService emailVerificationService,
                           PasswordResetService passwordResetService,
                           RefreshTokenService refreshTokenService,
                           UserService userService,
-                          com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository roleAssignmentRepository) {
+                          com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository roleAssignmentRepository,
+                          UserResponseMapper userResponseMapper) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
         this.passwordResetService = passwordResetService;
         this.refreshTokenService = refreshTokenService;
         this.userService = userService;
         this.roleAssignmentRepository = roleAssignmentRepository;
+        this.userResponseMapper = userResponseMapper;
     }
 
     @PostMapping("/register")
@@ -106,7 +110,7 @@ public class AuthController {
                 access.expiresAt().atOffset(ZoneOffset.UTC),
                 rotated.newRawToken(),
                 rotated.newExpiresAt(),
-                UserResponse.from(user, roleCodes)
+                userResponseMapper.toResponse(user, roleCodes)
         ));
     }
 

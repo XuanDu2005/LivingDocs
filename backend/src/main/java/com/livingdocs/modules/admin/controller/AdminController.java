@@ -7,6 +7,7 @@ import com.livingdocs.modules.admin.dto.UpdateUserRoleRequest;
 import com.livingdocs.modules.admin.service.AdminService;
 import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.User;
+import com.livingdocs.modules.user.service.UserResponseMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,16 +36,18 @@ import java.util.UUID;
 public class AdminController {
 
     private final AdminService adminService;
+    private final UserResponseMapper userResponseMapper;
 
-    public AdminController(AdminService adminService) {
+    public AdminController(AdminService adminService, UserResponseMapper userResponseMapper) {
         this.adminService = adminService;
+        this.userResponseMapper = userResponseMapper;
     }
 
     @GetMapping("/admin/users")
     @Operation(summary = "List every user in the system")
     public List<UserResponse> listUsers() {
         return adminService.listUsers().stream()
-                .map(u -> UserResponse.from(u, List.of()))
+                .map(userResponseMapper::toResponse)
                 .toList();
     }
 
@@ -65,6 +68,6 @@ public class AdminController {
     public UserResponse setEnabled(@PathVariable UUID userId,
                                    @Valid @RequestBody SetUserEnabledRequest req) {
         User u = adminService.setEnabled(CurrentUser.requireId(), userId, req.enabled());
-        return UserResponse.from(u, List.of());
+        return userResponseMapper.toResponse(u);
     }
 }

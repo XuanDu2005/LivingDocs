@@ -20,6 +20,7 @@ import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
 import { LoadingState, ErrorState } from '../components/ui/states';
+import { UserAvatar } from '../components/user/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
@@ -184,6 +185,7 @@ export default function AdminUsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12" />
                 <TableHead>{t('adminUsers.colEmail')}</TableHead>
                 <TableHead>{t('adminUsers.colDisplayName')}</TableHead>
                 <TableHead>{t('adminUsers.colRoles')}</TableHead>
@@ -195,7 +197,7 @@ export default function AdminUsersPage() {
             <TableBody>
               {filteredUsers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                     {users.length === 0
                       ? t('adminUsers.noUsers')
                       : t('adminUsers.noMatches')}
@@ -204,6 +206,14 @@ export default function AdminUsersPage() {
               )}
               {filteredUsers.map((u) => (
                 <TableRow key={u.id}>
+                  <TableCell>
+                    <UserAvatar
+                      src={u.avatarUrl}
+                      name={u.displayName}
+                      email={u.email}
+                      size="sm"
+                    />
+                  </TableCell>
                   <TableCell className="font-medium">{u.email}</TableCell>
                   <TableCell>{u.displayName ?? '—'}</TableCell>
                   <TableCell>

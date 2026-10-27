@@ -22,11 +22,16 @@ import java.util.UUID;
  * automatically picks up newly-linked providers the next time it
  * refreshes the current user (e.g. on login, on a manual refresh, or
  * after returning from an OAuth callback).
+ *
+ * <p>{@code avatarUrl} is the public, directly-fetchable URL of the
+ * user's profile picture, or {@code null} when they have not uploaded
+ * one (the UI then falls back to initials).
  */
 public record UserResponse(
         UUID id,
         String email,
         String displayName,
+        String avatarUrl,
         boolean enabled,
         boolean emailVerified,
         OffsetDateTime createdAt,
@@ -44,10 +49,23 @@ public record UserResponse(
     public static UserResponse from(User user,
                                     List<String> roles,
                                     List<LinkedProvidersResponse.LinkedProvider> linkedProviders) {
+        return from(user, roles, linkedProviders, null);
+    }
+
+    /**
+     * Full constructor including the resolved avatar URL.
+     *
+     * @param avatarUrl public URL of the avatar image, or {@code null}
+     */
+    public static UserResponse from(User user,
+                                    List<String> roles,
+                                    List<LinkedProvidersResponse.LinkedProvider> linkedProviders,
+                                    String avatarUrl) {
         return new UserResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getDisplayName(),
+                avatarUrl,
                 user.isEnabled(),
                 user.isEmailVerified(),
                 user.getCreatedAt(),

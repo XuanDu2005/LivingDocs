@@ -11,6 +11,7 @@ import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.repository.UserRepository;
+import com.livingdocs.modules.user.service.AvatarStorageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,15 +38,18 @@ public class RoleService {
     private final UserRoleAssignmentRepository assignmentRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final AvatarStorageService avatarStorageService;
 
     public RoleService(RoleRepository roleRepository,
                        UserRoleAssignmentRepository assignmentRepository,
                        UserRepository userRepository,
-                       AuditLogService auditLogService) {
+                       AuditLogService auditLogService,
+                       AvatarStorageService avatarStorageService) {
         this.roleRepository = roleRepository;
         this.assignmentRepository = assignmentRepository;
         this.userRepository = userRepository;
         this.auditLogService = auditLogService;
+        this.avatarStorageService = avatarStorageService;
     }
 
     // -------- catalogue --------
@@ -162,6 +166,7 @@ public class RoleService {
                         u.getId(),
                         u.getEmail(),
                         u.getDisplayName(),
+                        avatarStorageService.publicUrl(u.getAvatarUrl()),
                         u.isEnabled(),
                         u.getCreatedAt(),
                         assignmentRepository.findActiveRoleCodesByUserId(u.getId())

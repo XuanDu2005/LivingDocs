@@ -108,6 +108,9 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET:-change-me-please-this-is-a-development-only-secret-32b+}
       APP_JWT_EXPIRATION_MINUTES: ${APP_JWT_EXPIRATION_MINUTES:-1440}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:5173}
+      # ---- Profile avatar storage ----
+      APP_AVATAR_STORAGE_DIR: ${APP_AVATAR_STORAGE_DIR:-/app/data/avatars}
+      APP_AVATAR_PUBLIC_BASE_URL: ${APP_AVATAR_PUBLIC_BASE_URL:-/api/v1/users/avatar}
       # ---- Redis cache ----
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
@@ -149,6 +152,9 @@ services:
       AI_SERVICE_CONFIDENCE_THRESHOLD: ${AI_SERVICE_CONFIDENCE_THRESHOLD:-0.65}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      # Persist uploaded profile avatars across container rebuilds.
+      - avatar_data:/app/data/avatars
     networks:
       - livingdocs-net
 
@@ -200,3 +206,4 @@ volumes:
   postgres_data:
   redis_data:
   kafka_data:
+  avatar_data:

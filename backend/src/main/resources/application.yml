@@ -6,6 +6,13 @@ spring:
   application:
     name: livingdocs-backend
 
+  # ---- Multipart uploads (profile avatars) ----
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 5MB
+      max-request-size: 10MB
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/livingdocs}
     username: ${SPRING_DATASOURCE_USERNAME:livingdocs}
@@ -112,6 +119,15 @@ app:
       secret: ${APP_JWT_SECRET:change-me-please-this-is-a-development-only-secret-32b+}
       expiration-minutes: ${APP_JWT_EXPIRATION_MINUTES:1440}
   public-url: ${APP_PUBLIC_URL:http://localhost:8080}
+
+  # ---- Profile avatar storage ----
+  avatar:
+    # Directory where uploaded avatars are written. Mount a Docker volume
+    # here so the images survive container rebuilds.
+    storage-dir: ${APP_AVATAR_STORAGE_DIR:./data/avatars}
+    # Public base URL the frontend uses to fetch the image. The storage
+    # key ("avatars/<user-id>/<file>") is appended to it.
+    public-base-url: ${APP_AVATAR_PUBLIC_BASE_URL:/api/v1/users/avatar}
 
   # ---- Email (SMTP) ----
   mail:

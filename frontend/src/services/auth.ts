@@ -21,6 +21,12 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   displayName: string;
+  /**
+   * Public URL of the user's uploaded profile picture, or `null` when
+   * they have not uploaded one. The UI falls back to initials when
+   * this is missing.
+   */
+  avatarUrl?: string | null;
   enabled: boolean;
   emailVerified?: boolean;
   createdAt: string;

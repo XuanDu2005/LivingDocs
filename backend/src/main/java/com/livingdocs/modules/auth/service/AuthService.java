@@ -11,6 +11,7 @@ import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.EmailVerificationCode;
 import com.livingdocs.modules.user.model.User;
+import com.livingdocs.modules.user.service.UserResponseMapper;
 import com.livingdocs.modules.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +33,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final EmailVerificationService emailVerificationService;
     private final RefreshTokenService refreshTokenService;
+    private final UserResponseMapper userResponseMapper;
     private final int verificationTtlMinutes;
 
     public AuthService(UserService userService,
@@ -39,12 +41,14 @@ public class AuthService {
                        JwtService jwtService,
                        EmailVerificationService emailVerificationService,
                        RefreshTokenService refreshTokenService,
+                       UserResponseMapper userResponseMapper,
                        @Value("${app.auth.email-verification.ttl-minutes:15}") int verificationTtlMinutes) {
         this.userService = userService;
         this.roleAssignmentRepository = roleAssignmentRepository;
         this.jwtService = jwtService;
         this.emailVerificationService = emailVerificationService;
         this.refreshTokenService = refreshTokenService;
+        this.userResponseMapper = userResponseMapper;
         this.verificationTtlMinutes = verificationTtlMinutes;
     }
 
@@ -110,7 +114,7 @@ public class AuthService {
                 issued.expiresAt().atOffset(ZoneOffset.UTC),
                 refresh.rawToken(),
                 refresh.expiresAt(),
-                UserResponse.from(user, roleCodes)
+                userResponseMapper.toResponse(user, roleCodes)
         );
     }
 }

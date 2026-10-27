@@ -80,6 +80,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/*/link/start").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/oauth/*/link").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
+                        // Avatar images are public so that <img src="..."> works
+                        // without attaching an Authorization header.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/users/avatar/*/*").permitAll()
                         .requestMatchers(
                                 "/actuator/health",
                                 "/actuator/info",
