@@ -1,12 +1,9 @@
 package com.livingdocs.modules.analytics.service;
 
-import com.livingdocs.modules.analytics.dto.AnalyticsResponse;
-import com.livingdocs.modules.analytics.dto.AnalyticsResponse.DailyCount;
 import com.livingdocs.modules.ai.indexing.IndexJob;
 import com.livingdocs.modules.ai.indexing.IndexJobRepository;
-import com.livingdocs.modules.audit.repository.AuditLogRepository;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.Query;
+import com.livingdocs.modules.analytics.dto.AnalyticsResponse;
+import com.livingdocs.modules.analytics.dto.AnalyticsResponse.DailyCount;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,19 +18,21 @@ import java.util.UUID;
 
 /**
  * Aggregates analytics for a workspace over a time period.
+ *
+ * <p>All native SQL is delegated to {@link AnalyticsQueryExecutor},
+ * which runs each statement in its own transaction. That keeps a single
+ * broken table from poisoning the transaction that serves the rest of
+ * the dashboard — see that class for the details.
  */
 @Service
 public class AnalyticsService {
 
-    private final EntityManager entityManager;
-    private final AuditLogRepository auditLogRepository;
+    private final AnalyticsQueries queries;
     private final IndexJobRepository indexJobRepository;
 
-    public AnalyticsService(EntityManager entityManager,
-                             AuditLogRepository auditLogRepository,
+    public AnalyticsService(AnalyticsQueries queries,
                              IndexJobRepository indexJobRepository) {
-        this.entityManager = entityManager;
-        this.auditLogRepository = auditLogRepository;
+        this.queries = queries;
         this.indexJobRepository = indexJobRepository;
     }
 
@@ -62,16 +61,10 @@ public class AnalyticsService {
         String sql = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt " +
                 "FROM documents WHERE workspace_id = :ws " +
                 "AND created_at >= :start GROUP BY DATE(created_at) ORDER BY day";
-        Query q = entityManager.createNativeQuery(sql);
-        q.setParameter("ws", workspaceId);
-        q.setParameter("start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = q.getResultList();
-        Map<LocalDate, Long> counts = new HashMap<>();
-        for (Object[] row : rows) {
-            counts.put(((java.sql.Date) row[0]).toLocalDate(), ((Number) row[1]).longValue());
-        }
-        return fillMissingDays(start, end, counts);
+        Map<String, Object> params = Map.of(
+                "ws", workspaceId,
+                "start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
+        return fillMissingDays(start, end, queries.queryCountsByDay(sql, params));
     }
 
     private List<DailyCount> getActiveUsers(UUID workspaceId, OffsetDateTime start) {
@@ -79,37 +72,21 @@ public class AnalyticsService {
         String sql = "SELECT DATE(created_at) AS day, COUNT(DISTINCT actor_user_id) AS cnt " +
                 "FROM audit_logs WHERE workspace_id = :ws " +
                 "AND created_at >= :start GROUP BY DATE(created_at) ORDER BY day";
-        Query q = entityManager.createNativeQuery(sql);
-        q.setParameter("ws", workspaceId);
-        q.setParameter("start", start);
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = q.getResultList();
-        Map<LocalDate, Long> counts = new HashMap<>();
-        for (Object[] row : rows) {
-            counts.put(((java.sql.Date) row[0]).toLocalDate(), ((Number) row[1]).longValue());
-        }
-        LocalDate end = LocalDate.now();
-        return fillMissingDays(start.toLocalDate(), end, counts);
+        Map<String, Object> params = Map.of(
+                "ws", workspaceId,
+                "start", start);
+        return fillMissingDays(start.toLocalDate(), LocalDate.now(),
+                queries.queryCountsByDay(sql, params));
     }
 
     private List<DailyCount> getDriftTrends(UUID workspaceId, LocalDate start, LocalDate end) {
         String sql = "SELECT DATE(detected_at) AS day, COUNT(*) AS cnt " +
                 "FROM drift_alerts WHERE workspace_id = :ws " +
                 "AND detected_at >= :start GROUP BY DATE(detected_at) ORDER BY day";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            q.setParameter("ws", workspaceId);
-            q.setParameter("start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<LocalDate, Long> counts = new HashMap<>();
-            for (Object[] row : rows) {
-                counts.put(((java.sql.Date) row[0]).toLocalDate(), ((Number) row[1]).longValue());
-            }
-            return fillMissingDays(start, end, counts);
-        } catch (Exception e) {
-            return fillMissingDays(start, end, new HashMap<>());
-        }
+        Map<String, Object> params = Map.of(
+                "ws", workspaceId,
+                "start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
+        return fillMissingDays(start, end, queries.queryCountsByDay(sql, params));
     }
 
     private List<DailyCount> getIndexingActivity(UUID workspaceId, LocalDate start, LocalDate end) {
@@ -128,37 +105,15 @@ public class AnalyticsService {
 
     private Map<String, Integer> getDocumentStatusBreakdown(UUID workspaceId) {
         String sql = "SELECT status, COUNT(*) FROM documents WHERE workspace_id = :ws GROUP BY status";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            q.setParameter("ws", workspaceId);
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<String, Integer> map = new HashMap<>();
-            for (Object[] row : rows) {
-                map.put((String) row[0], ((Number) row[1]).intValue());
-            }
-            return map;
-        } catch (Exception e) {
-            return new HashMap<>();
-        }
+        return queries.queryCountsByKey(sql, Map.of("ws", workspaceId));
     }
 
     private Map<String, Integer> getDriftSeverityBreakdown(UUID workspaceId) {
+        // The column is `resolution_status`, not `status` — the drift
+        // alert table stores the workflow state under that name.
         String sql = "SELECT severity, COUNT(*) FROM drift_alerts " +
-                "WHERE workspace_id = :ws AND status = 'OPEN' GROUP BY severity";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            q.setParameter("ws", workspaceId);
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<String, Integer> map = new HashMap<>();
-            for (Object[] row : rows) {
-                map.put((String) row[0], ((Number) row[1]).intValue());
-            }
-            return map;
-        } catch (Exception e) {
-            return new HashMap<>();
-        }
+                "WHERE workspace_id = :ws AND resolution_status = 'OPEN' GROUP BY severity";
+        return queries.queryCountsByKey(sql, Map.of("ws", workspaceId));
     }
 
     private List<DailyCount> fillMissingDays(LocalDate start, LocalDate end, Map<LocalDate, Long> counts) {

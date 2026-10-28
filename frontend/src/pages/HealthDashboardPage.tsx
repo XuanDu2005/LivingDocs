@@ -123,15 +123,13 @@ export default function HealthDashboardPage() {
     })();
   }, []);
 
-  if (!workspaceId) return <EmptyState title={t('common.back')} />;
-  if (loading) return <LoadingState message={t('health.loading')} />;
-  if (error) return <ErrorState message={error} />;
-
-  const publishedCount = docs.filter((d) => d.status === 'PUBLISHED').length;
-  const reviewCount = docs.filter((d) => d.status === 'IN_REVIEW' || d.status === 'APPROVED').length;
-  const bySeverity: Record<DriftSeverity, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-  for (const a of drifts) bySeverity[a.severity]++;
-
+  // The two memoised chart series must be computed before the early
+  // returns below: React requires hooks to be called unconditionally on
+  // every render. When the page first mounts `loading` is true, so the
+  // early return used to skip these hooks entirely — on the next render
+  // (once the data arrives) React then found a different number of
+  // hooks and threw "Rendered more hooks than during the previous
+  // render", blanking the whole dashboard.
   const freshnessData = useMemo(() => {
     const days = 30;
     const counts: Record<string, number> = {};
@@ -152,6 +150,26 @@ export default function HealthDashboardPage() {
     return Object.entries(counts).map(([name, updated]) => ({ name, updated }));
   }, [docs]);
 
+  const driftByRepo = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const repoMap = new Map(repos.map((r) => [r.id, r.fullName]));
+    for (const a of drifts) {
+      const name = repoMap.get(a.repositoryId) ?? a.repositoryId;
+      counts[name] = (counts[name] ?? 0) + 1;
+    }
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count).slice(0, 5);
+  }, [drifts, repos]);
+
+  if (!workspaceId) return <EmptyState title={t('common.back')} />;
+  if (loading) return <LoadingState message={t('health.loading')} />;
+  if (error) return <ErrorState message={error} />;
+
+  const publishedCount = docs.filter((d) => d.status === 'PUBLISHED').length;
+  const reviewCount = docs.filter((d) => d.status === 'IN_REVIEW' || d.status === 'APPROVED').length;
+  const bySeverity: Record<DriftSeverity, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  for (const a of drifts) bySeverity[a.severity]++;
+
   const statusCounts: Record<DocumentStatus, number> = {
     DRAFT: 0, IN_REVIEW: 0, APPROVED: 0, PUBLISHED: 0, REJECTED: 0, ARCHIVED: 0,
   };
@@ -164,17 +182,6 @@ export default function HealthDashboardPage() {
   const severityData = (Object.keys(bySeverity) as DriftSeverity[])
     .filter((s) => bySeverity[s] > 0)
     .map((s) => ({ name: t(SEVERITY_KEY[s]), value: bySeverity[s], color: SEVERITY_COLORS[s] }));
-
-  const driftByRepo = useMemo(() => {
-    const counts: Record<string, number> = {};
-    const repoMap = new Map(repos.map((r) => [r.id, r.fullName]));
-    for (const a of drifts) {
-      const name = repoMap.get(a.repositoryId) ?? a.repositoryId;
-      counts[name] = (counts[name] ?? 0) + 1;
-    }
-    return Object.entries(counts).map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [drifts, repos]);
 
   return (
     <div className="space-y-6">
