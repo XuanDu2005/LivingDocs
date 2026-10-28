@@ -93,9 +93,12 @@ const ADMIN = mint('9b35bb4d-844b-4fc8-af5d-aa20ce41858f', 'admin@livingdocs.com
 const LEAD = mint('11111111-1111-1111-1111-111111111111', 'lead@livingdocs.test', [
   'TECHNICAL_LEAD',
 ]);
-const DEVELOPER = mint('b2ddb3c7-d48a-44dc-961a-f58a5d39c0de', 'dev@livingdocs.test', [
-  'DEVELOPER',
-]);
+// A genuine DEVELOPER: this account holds *only* the DEVELOPER platform
+// role, so a refusal here proves the tier boundary rather than a data
+// accident. Do not point this at a real account — an account that also
+// holds MANAGER would legitimately pass the review guards.
+const DEVELOPER_ID = '33333333-3333-3333-3333-333333333333';
+const DEVELOPER = mint(DEVELOPER_ID, 'puredev@livingdocs.test', ['DEVELOPER']);
 // A genuine STAFF: this user holds *only* the STAFF platform role, so a
 // refusal here proves the tier boundary rather than a data accident.
 const STAFF = mint('22222222-2222-2222-2222-222222222222', 'purestaff@livingdocs.test', [
@@ -105,6 +108,42 @@ const STAFF = mint('22222222-2222-2222-2222-222222222222', 'purestaff@livingdocs
 const WS = WORKSPACE_ID;
 const AUTO_APPLY_DOC = '33333333-3333-3333-3333-333333333333';
 const REVIEW_DOC = '44444444-4444-4444-4444-444444444444';
+
+// ---------------------------------------------------------------------------
+// setup
+// ---------------------------------------------------------------------------
+
+/**
+ * Make sure every test account holds exactly the platform role it is
+ * supposed to test.
+ *
+ * The role guards read the role assignments from the database, not from
+ * the JWT — so an account that somebody promoted to MANAGER during an
+ * earlier manual session would make the "DEVELOPER cannot review"
+ * assertions fail for the wrong reason. Pinning the roles here keeps the
+ * suite deterministic no matter what the database looks like.
+ */
+async function setupTestRoles() {
+  console.log('\n== setup ==');
+
+  const wanted = [
+    [DEVELOPER_ID, 'DEVELOPER'],
+    ['11111111-1111-1111-1111-111111111111', 'TECHNICAL_LEAD'],
+    ['22222222-2222-2222-2222-222222222222', 'STAFF'],
+  ];
+
+  for (const [userId, role] of wanted) {
+    const res = await call(ADMIN, `/admin/users/${userId}/roles`, {
+      method: 'PUT',
+      body: { roles: [role] },
+    });
+    check(
+      `test account ${userId} holds exactly ${role}`,
+      res.status === 200,
+      `HTTP ${res.status} ${JSON.stringify(res.body)}`,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // checks
@@ -262,6 +301,7 @@ async function checkBudget() {
   console.log(`workspace: ${WS}`);
 
   try {
+    await setupTestRoles();
     await checkCapabilities();
     await checkReviewQueues();
     await checkGovernance();

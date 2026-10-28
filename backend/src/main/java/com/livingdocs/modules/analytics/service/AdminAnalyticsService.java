@@ -9,9 +9,6 @@ import com.livingdocs.modules.drift.repository.DriftAlertRepository;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.user.repository.UserRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceRepository;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,16 +25,17 @@ import java.util.Map;
  *
  * <p>Unlike the workspace-level analytics this service deliberately
  * ignores the {@code workspaceId} filter — every count is global. Most
- * queries go through the entity manager to leverage native SQL on the
- * underlying database, which lets us scale to large tables without
- * loading rows into memory.
+ * queries go through native SQL on the underlying database, which lets
+ * us scale to large tables without loading rows into memory.
+ *
+ * <p>As with the workspace-level service, the native SQL is delegated to
+ * {@link AnalyticsQueryExecutor} so a single failing statement cannot
+ * poison the transaction that serves the rest of the dashboard.
  */
 @Service
 public class AdminAnalyticsService {
 
-    @PersistenceContext
-    private EntityManager entityManager;
-
+    private final AnalyticsQueries queries;
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
     private final DocumentRepository documentRepository;
@@ -45,12 +43,14 @@ public class AdminAnalyticsService {
     private final IndexJobRepository indexJobRepository;
     private final AuditLogRepository auditLogRepository;
 
-    public AdminAnalyticsService(UserRepository userRepository,
+    public AdminAnalyticsService(AnalyticsQueries queries,
+                                  UserRepository userRepository,
                                   WorkspaceRepository workspaceRepository,
                                   DocumentRepository documentRepository,
                                   DriftAlertRepository driftAlertRepository,
                                   IndexJobRepository indexJobRepository,
                                   AuditLogRepository auditLogRepository) {
+        this.queries = queries;
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
         this.documentRepository = documentRepository;
@@ -93,32 +93,16 @@ public class AdminAnalyticsService {
     }
 
     private long safeCount(String sql) {
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            Object r = q.getSingleResult();
-            return r == null ? 0L : ((Number) r).longValue();
-        } catch (Exception e) {
-            return 0L;
-        }
+        return queries.queryCount(sql, Map.of());
     }
 
     private List<DailyCount> getDocumentGrowth(LocalDate start, LocalDate end) {
         String sql = "SELECT DATE(created_at) AS day, COUNT(*) AS cnt " +
                 "FROM documents WHERE created_at >= :start " +
                 "GROUP BY DATE(created_at) ORDER BY day";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            q.setParameter("start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<LocalDate, Long> counts = new HashMap<>();
-            for (Object[] row : rows) {
-                counts.put(((java.sql.Date) row[0]).toLocalDate(), ((Number) row[1]).longValue());
-            }
-            return fillMissingDays(start, end, counts);
-        } catch (Exception e) {
-            return fillMissingDays(start, end, new HashMap<>());
-        }
+        Map<String, Object> params = Map.of(
+                "start", start.atStartOfDay().atOffset(ZoneOffset.UTC));
+        return fillMissingDays(start, end, queries.queryCountsByDay(sql, params));
     }
 
     private List<DailyCount> getIndexingActivity(LocalDate start) {
@@ -147,52 +131,20 @@ public class AdminAnalyticsService {
         String sql = "SELECT DATE(created_at) AS day, COUNT(DISTINCT actor_user_id) AS cnt " +
                 "FROM audit_logs WHERE created_at >= :start " +
                 "GROUP BY DATE(created_at) ORDER BY day";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            q.setParameter("start", start);
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<LocalDate, Long> counts = new HashMap<>();
-            for (Object[] row : rows) {
-                counts.put(((java.sql.Date) row[0]).toLocalDate(), ((Number) row[1]).longValue());
-            }
-            return fillMissingDays(start.toLocalDate(), end, counts);
-        } catch (Exception e) {
-            return fillMissingDays(start.toLocalDate(), end, new HashMap<>());
-        }
+        Map<String, Object> params = Map.of("start", start);
+        return fillMissingDays(start.toLocalDate(), end,
+                queries.queryCountsByDay(sql, params));
     }
 
     private Map<String, Integer> getDocumentStatusBreakdown() {
         String sql = "SELECT status, COUNT(*) FROM documents GROUP BY status";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<String, Integer> map = new HashMap<>();
-            for (Object[] row : rows) {
-                map.put((String) row[0], ((Number) row[1]).intValue());
-            }
-            return map;
-        } catch (Exception e) {
-            return new HashMap<>();
-        }
+        return queries.queryCountsByKey(sql, Map.of());
     }
 
     private Map<String, Integer> getDriftSeverityBreakdown() {
         String sql = "SELECT severity, COUNT(*) FROM drift_alerts " +
                 "WHERE resolution_status = 'OPEN' GROUP BY severity";
-        try {
-            Query q = entityManager.createNativeQuery(sql);
-            @SuppressWarnings("unchecked")
-            List<Object[]> rows = q.getResultList();
-            Map<String, Integer> map = new HashMap<>();
-            for (Object[] row : rows) {
-                map.put((String) row[0], ((Number) row[1]).intValue());
-            }
-            return map;
-        } catch (Exception e) {
-            return new HashMap<>();
-        }
+        return queries.queryCountsByKey(sql, Map.of());
     }
 
     private List<DailyCount> fillMissingDays(LocalDate start, LocalDate end, Map<LocalDate, Long> counts) {
