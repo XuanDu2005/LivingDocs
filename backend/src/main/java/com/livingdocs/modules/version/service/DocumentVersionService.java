@@ -2,6 +2,7 @@ package com.livingdocs.modules.version.service;
 
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.model.Commit;
@@ -47,15 +48,18 @@ public class DocumentVersionService {
     private final DocumentRepository documentRepository;
     private final WorkspaceService workspaceService;
     private final CommitRepository commitRepository;
+    private final AuthorizationService authorizationService;
 
     public DocumentVersionService(DocumentVersionRepository versionRepository,
                                   DocumentRepository documentRepository,
                                   WorkspaceService workspaceService,
-                                  CommitRepository commitRepository) {
+                                  CommitRepository commitRepository,
+                                  AuthorizationService authorizationService) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
         this.commitRepository = commitRepository;
+        this.authorizationService = authorizationService;
     }
 
     /**
@@ -109,6 +113,45 @@ public class DocumentVersionService {
                                            Float confidenceScore,
                                            String groundingJson) {
         Document document = loadAndAuthorize(actorUserId, documentId);
+        return buildAiVersion(document, actorUserId, documentId, bodyMarkdown, changeSummary,
+                sourceCommitSha, sourcePrId, confidenceScore, groundingJson);
+    }
+
+    /**
+     * Append an AI-generated version from a background worker.
+     *
+     * <p>Unlike {@link #createAiVersion} this variant does NOT require
+     * the actor to be a workspace member: the Kafka listener acts on
+     * behalf of the system, and the request that triggered it was
+     * already authorised when it was queued.
+     *
+     * @param actorUserId the user who originally requested the generation;
+     *                    may be {@code null} for system-triggered runs
+     */
+    @Transactional
+    public DocumentVersion createAiVersionInternal(UUID actorUserId,
+                                                    UUID documentId,
+                                                    String bodyMarkdown,
+                                                    String changeSummary,
+                                                    String sourceCommitSha,
+                                                    UUID sourcePrId,
+                                                    Float confidenceScore,
+                                                    String groundingJson) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+        return buildAiVersion(document, actorUserId, documentId, bodyMarkdown, changeSummary,
+                sourceCommitSha, sourcePrId, confidenceScore, groundingJson);
+    }
+
+    private DocumentVersion buildAiVersion(Document document,
+                                           UUID actorUserId,
+                                           UUID documentId,
+                                           String bodyMarkdown,
+                                           String changeSummary,
+                                           String sourceCommitSha,
+                                           UUID sourcePrId,
+                                           Float confidenceScore,
+                                           String groundingJson) {
         int next = nextVersionNumber(documentId);
         DocumentVersion version = new DocumentVersion(
                 documentId, next, bodyMarkdown, changeSummary,
@@ -121,6 +164,51 @@ public class DocumentVersionService {
         log.info("AI version created: document={} version={} confidence={}",
                 documentId, next, confidenceScore);
         return saved;
+    }
+
+    /**
+     * Publish an AI-generated version without a human decision.
+     *
+     * <p>Used by the governance policy engine: when a documentation type
+     * is configured for {@code AUTO_APPLY} and the generation met the
+     * workspace's confidence threshold, the version becomes canonical
+     * straight away. The background worker acts on behalf of the system,
+     * so no membership check happens here — the request that triggered
+     * the generation was authorised when it was queued.
+     */
+    @Transactional
+    public void publishAiVersionInternal(UUID documentId, UUID versionId, UUID actorUserId) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+        DocumentVersion target = versionRepository.findById(versionId)
+                .orElseThrow(() -> new NotFoundException("Version not found"));
+        if (!target.getDocumentId().equals(documentId)) {
+            throw new NotFoundException("Version not found");
+        }
+        if (target.getStatus() != VersionStatus.PENDING) {
+            // Someone already handled it — nothing to publish.
+            log.info("Version {} is already {} — skipping auto-publish",
+                    versionId, target.getStatus());
+            return;
+        }
+        promoteToHead(document, target);
+        log.info("AI version auto-published: document={} version={}",
+                documentId, target.getVersionNumber());
+    }
+
+    private void promoteToHead(Document document, DocumentVersion target) {
+        // Mark the previous head as SUPERSEDED.
+        if (document.getHeadVersionId() != null) {
+            versionRepository.findById(document.getHeadVersionId()).ifPresent(prev -> {
+                if (!prev.getId().equals(target.getId())) {
+                    prev.setStatus(VersionStatus.SUPERSEDED);
+                }
+            });
+        }
+        target.setStatus(VersionStatus.PUBLISHED);
+        document.setHeadVersionId(target.getId());
+        document.setPublishedAt(OffsetDateTime.now());
+        document.setStatus(com.livingdocs.modules.document.model.DocumentStatus.PUBLISHED);
     }
 
     @Transactional(readOnly = true)
@@ -189,29 +277,20 @@ public class DocumentVersionService {
     /**
      * Promote a specific version to be the document's head version. Used by
      * the approval workflow after a Manager grants final approval.
+     *
+     * <p>Requires Manager-tier capability: platform role {@code TECHNICAL_LEAD},
+     * {@code MANAGER} or {@code ADMIN} <em>and</em> workspace membership.
      */
     @Transactional
     public void publishVersion(UUID actorId, UUID documentId, Integer versionNumber) {
         Document document = loadAndAuthorize(actorId, documentId);
-        workspaceService.requireRole(actorId, document.getWorkspaceId(),
-                com.livingdocs.modules.workspace.model.WorkspaceRole.MANAGER);
+        authorizationService.requireManagerApprover(actorId, document.getWorkspaceId());
         DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, versionNumber)
                 .orElseThrow(() -> new NotFoundException("Version not found"));
         if (target.getStatus() != VersionStatus.APPROVED) {
             throw new BadRequestException("Only approved versions can be published");
         }
-        // Mark the previous head as SUPERSEDED.
-        if (document.getHeadVersionId() != null) {
-            versionRepository.findById(document.getHeadVersionId()).ifPresent(prev -> {
-                if (!prev.getId().equals(target.getId())) {
-                    prev.setStatus(VersionStatus.SUPERSEDED);
-                }
-            });
-        }
-        target.setStatus(VersionStatus.PUBLISHED);
-        document.setHeadVersionId(target.getId());
-        document.setPublishedAt(OffsetDateTime.now());
-        document.setStatus(com.livingdocs.modules.document.model.DocumentStatus.PUBLISHED);
+        promoteToHead(document, target);
     }
 
     /**
@@ -223,8 +302,7 @@ public class DocumentVersionService {
     @Transactional
     public DocumentVersion rollback(UUID actorId, UUID documentId, Integer targetVersionNumber) {
         Document document = loadAndAuthorize(actorId, documentId);
-        workspaceService.requireRole(actorId, document.getWorkspaceId(),
-                com.livingdocs.modules.workspace.model.WorkspaceRole.MANAGER);
+        authorizationService.requireManagerApprover(actorId, document.getWorkspaceId());
         DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, targetVersionNumber)
                 .orElseThrow(() -> new NotFoundException("Target version not found"));
         if (target.getStatus() != VersionStatus.PUBLISHED && target.getStatus() != VersionStatus.APPROVED) {
@@ -298,7 +376,26 @@ public class DocumentVersionService {
         return document;
     }
 
+    /**
+     * Resolve the {@link ActorRole} recorded on a version.
+     *
+     * <p>Derived from the platform role axis: anyone who can approve
+     * (or holds {@code MANAGER}/{@code ADMIN}) is attributed as
+     * {@link ActorRole#MANAGER}; everyone else as
+     * {@link ActorRole#STAFF}. Falls back to the workspace role when the
+     * user has no platform role assignment.
+     */
     private ActorRole actorRoleFor(UUID actorId, UUID workspaceId) {
+        var roles = authorizationService.platformRoles(actorId);
+        if (roles.contains(AuthorizationService.ROLE_ADMIN)
+                || roles.contains(AuthorizationService.ROLE_MANAGER)
+                || roles.contains(AuthorizationService.ROLE_TECHNICAL_LEAD)) {
+            return ActorRole.MANAGER;
+        }
+        if (roles.contains(AuthorizationService.ROLE_STAFF)
+                || roles.contains(AuthorizationService.ROLE_DEVELOPER)) {
+            return ActorRole.STAFF;
+        }
         var role = workspaceService.requireRole(actorId, workspaceId,
                 com.livingdocs.modules.workspace.model.WorkspaceRole.MEMBER);
         return role == com.livingdocs.modules.workspace.model.WorkspaceRole.MANAGER

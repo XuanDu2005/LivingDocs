@@ -53,6 +53,17 @@ class LLMClient:
         if name == "ollama":
             return OllamaProvider(base_url=self.api_base or "http://localhost:11434",
                                   timeout=self.timeout_seconds)
+        if name == "custom":
+            # A workspace-configured custom endpoint behaves like OpenAI
+            # unless the user points it at something else. The base URL
+            # is mandatory here — there is no sensible default.
+            if not self.api_base:
+                raise ValueError(
+                    "Custom AI provider requires a base URL "
+                    "(set 'baseUrl' in the workspace AI settings)."
+                )
+            return OpenAIProvider(api_key=self.api_key, base_url=self.api_base,
+                                  timeout=self.timeout_seconds)
         return MockProvider()
 
     def complete(self, messages: Iterable[ChatMessage], *,

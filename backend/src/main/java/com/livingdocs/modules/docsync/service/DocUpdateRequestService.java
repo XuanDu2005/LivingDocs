@@ -54,6 +54,15 @@ public class DocUpdateRequestService {
 
     private static final Logger log = LoggerFactory.getLogger(DocUpdateRequestService.class);
 
+    /**
+     * Statuses that count as "a decision is still pending". A file in
+     * one of these states already has a row in the review queue, so
+     * auto-queueing it again would just create a duplicate.
+     */
+    private static final List<DocUpdateStatus> OPEN_STATUSES = List.of(
+            DocUpdateStatus.PENDING_REVIEW,
+            DocUpdateStatus.APPROVED);
+
     private final DocUpdateRequestRepository repository;
     private final RepositoryRepository repositoryRepository;
     private final GithubClient githubClient;
@@ -116,6 +125,37 @@ public class DocUpdateRequestService {
         log.info("Created DocUpdateRequest {} for {}/{} (status=PENDING_REVIEW)",
                 saved.getId(), repositoryId, filePath);
         return DocUpdateRequestDto.from(saved);
+    }
+
+    /**
+     * Queue a proposal for review, but only when the file does not
+     * already have one waiting for a decision.
+     *
+     * <p>Scanning a repository repeatedly would otherwise pile up a
+     * duplicate PENDING_REVIEW row for every drifted file. A file that
+     * was already rejected or applied is allowed through again — the
+     * drift may have come back with a new commit.
+     *
+     * @return the newly created request, or {@code null} when nothing was
+     *         queued (no real change, or a proposal is already pending)
+     */
+    @Transactional
+    public DocUpdateRequestDto createProposalIfNotPending(UUID workspaceId, UUID repositoryId,
+                                                          UUID documentId, String filePath,
+                                                          String currentContent, String proposedContent,
+                                                          String diffSummary, String triggerCommitSha,
+                                                          String triggerBranch, UUID requestedByUserId) {
+        boolean alreadyPending = repository
+                .findFirstByRepositoryIdAndFilePathAndStatusIn(
+                        repositoryId, filePath, OPEN_STATUSES)
+                .isPresent();
+        if (alreadyPending) {
+            log.debug("Skipping DocUpdateRequest for {} — a proposal is already pending", filePath);
+            return null;
+        }
+        return createProposal(workspaceId, repositoryId, documentId, filePath,
+                currentContent, proposedContent, diffSummary,
+                triggerCommitSha, triggerBranch, requestedByUserId);
     }
 
     // ── Approve / Reject (reviewer actions) ─────────────────────────────

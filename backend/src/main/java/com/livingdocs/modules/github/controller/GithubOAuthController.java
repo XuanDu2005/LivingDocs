@@ -45,7 +45,7 @@ public class GithubOAuthController {
     private final String frontendUrl;
 
     public GithubOAuthController(GithubOAuthService oauthService,
-                                 @Value("${app.frontend.url:http://localhost:5173}") String frontendUrl) {
+                                 @Value("${app.frontend-url:http://localhost:5173}") String frontendUrl) {
         this.oauthService = oauthService;
         this.frontendUrl = frontendUrl;
     }

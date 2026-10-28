@@ -20,4 +20,12 @@ public interface DocUpdateRequestRepository extends JpaRepository<DocUpdateReque
             UUID workspaceId, DocUpdateStatus status);
 
     long countByWorkspaceIdAndStatus(UUID workspaceId, DocUpdateStatus status);
+
+    /**
+     * Find an existing proposal for the same file that is still awaiting
+     * a decision. Used to avoid queueing the same file twice when the
+     * user scans a repository repeatedly.
+     */
+    java.util.Optional<DocUpdateRequest> findFirstByRepositoryIdAndFilePathAndStatusIn(
+            UUID repositoryId, String filePath, java.util.Collection<DocUpdateStatus> statuses);
 }

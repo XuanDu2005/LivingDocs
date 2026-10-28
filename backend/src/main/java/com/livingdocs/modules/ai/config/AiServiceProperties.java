@@ -25,6 +25,16 @@ public class AiServiceProperties {
     /** Confidence threshold below which AI suggestions are flagged as low confidence. */
     private double confidenceThreshold = 0.65;
 
+    /**
+     * Shared secret between the backend and the AI service. The AI
+     * service rejects requests that do not carry this token, so a
+     * per-workspace API key is never exposed to an untrusted caller.
+     *
+     * <p>Configure the same value on both sides via
+     * {@code AI_SERVICE_INTERNAL_TOKEN}.
+     */
+    private String internalToken = "";
+
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public String getApiPrefix() { return apiPrefix; }
@@ -37,4 +47,6 @@ public class AiServiceProperties {
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public double getConfidenceThreshold() { return confidenceThreshold; }
     public void setConfidenceThreshold(double v) { this.confidenceThreshold = v; }
+    public String getInternalToken() { return internalToken; }
+    public void setInternalToken(String internalToken) { this.internalToken = internalToken; }
 }

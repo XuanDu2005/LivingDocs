@@ -1,6 +1,8 @@
 package com.livingdocs.modules.user.model;
 
+import com.livingdocs.common.crypto.EncryptedStringConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -49,9 +51,18 @@ public class UserOAuthIdentity {
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;
 
+    /**
+     * The provider's OAuth access token.
+     *
+     * <p>Stored encrypted via {@link EncryptedStringConverter}: the entity
+     * always works with plaintext, the database always holds ciphertext.
+     */
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "access_token", length = 500)
     private String accessToken;
 
+    /** The provider's OAuth refresh token — encrypted for the same reason. */
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "refresh_token", length = 500)
     private String refreshToken;
 

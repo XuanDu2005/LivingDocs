@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -60,6 +62,32 @@ public class EventPublisher {
 
     public void publishNotification(NotificationSendEvent event) {
         send(notificationSendTopic, event.getRecipientUserId().toString(), event);
+    }
+
+    /**
+     * Publish a {@link DocGenerationRequestedEvent} only once the
+     * surrounding transaction has committed.
+     *
+     * <p>This matters: the event's consumer looks up the
+     * {@code doc_generation_jobs} row by correlation id. If the event
+     * were published before the commit, the consumer could pick it up
+     * while the row is still invisible to other transactions — the
+     * job would stay stuck in {@code RUNNING} forever.
+     *
+     * <p>When there is no active transaction the event is published
+     * immediately.
+     */
+    public void publishDocGenerationRequestedAfterCommit(DocGenerationRequestedEvent event) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publishDocGenerationRequested(event);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publishDocGenerationRequested(event);
+            }
+        });
     }
 
     private void send(String topic, String key, Object payload) {

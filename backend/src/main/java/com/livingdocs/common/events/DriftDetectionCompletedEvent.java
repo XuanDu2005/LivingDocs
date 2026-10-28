@@ -1,5 +1,8 @@
 package com.livingdocs.common.events;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -20,24 +23,24 @@ public final class DriftDetectionCompletedEvent extends AbstractEvent {
             String title,
             String description,
             String suggestion,
-            float confidence
-    ) {}
+            float confidence) {}
 
     private final UUID repositoryId;
     private final UUID pullRequestId;
     private final List<DocumentDrift> documents;
 
-    public DriftDetectionCompletedEvent(UUID eventId,
-                                         UUID workspaceId,
-                                         UUID correlationId,
-                                         OffsetDateTime occurredAt,
-                                         UUID repositoryId,
-                                         UUID pullRequestId,
-                                         List<DocumentDrift> documents) {
+    @JsonCreator
+    public DriftDetectionCompletedEvent(@JsonProperty("eventId") UUID eventId,
+                                         @JsonProperty("workspaceId") UUID workspaceId,
+                                         @JsonProperty("correlationId") UUID correlationId,
+                                         @JsonProperty("occurredAt") OffsetDateTime occurredAt,
+                                         @JsonProperty("repositoryId") UUID repositoryId,
+                                         @JsonProperty("pullRequestId") UUID pullRequestId,
+                                         @JsonProperty("documents") List<DocumentDrift> documents) {
         super(eventId, workspaceId, correlationId, occurredAt);
         this.repositoryId = repositoryId;
         this.pullRequestId = pullRequestId;
-        this.documents = documents;
+        this.documents = documents == null ? List.of() : documents;
     }
 
     public UUID getRepositoryId() { return repositoryId; }
@@ -53,6 +56,5 @@ public final class DriftDetectionCompletedEvent extends AbstractEvent {
     public record DocumentDrift(
             UUID documentId,
             String documentTitle,
-            List<Finding> findings
-    ) {}
+            List<Finding> findings) {}
 }

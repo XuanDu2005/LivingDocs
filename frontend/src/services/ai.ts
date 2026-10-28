@@ -3,25 +3,64 @@
  */
 import apiClient from './api';
 
+export interface GenerationJobStatus {
+  id: string;
+  documentId: string;
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED' | 'NONE';
+  template: string | null;
+  documentVersionId: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  createdAt: string;
+  completedAt: string | null;
+  errorMessage?: string | null;
+  message?: string;
+}
+
 export const aiApi = {
+  /**
+   * Queue an AI generation run.
+   *
+   * <p>The call is asynchronous: the backend returns 202 immediately with
+   * a job id, and the LLM work happens on a Kafka worker. Poll
+   * {@link generationStatus} to learn when the version is ready.
+   */
   generate(
     workspaceId: string,
     documentId: string,
     files: { path: string; content: string }[],
     template = 'MODULE_GUIDE',
+    focus?: string,
   ) {
+    const qs = new URLSearchParams({ template });
+    if (focus) qs.set('focus', focus);
     return apiClient
       .post<{
-        id: string;
-        documentId: string;
-        versionNumber: number;
-        bodyMarkdown: string;
-        actorRole: string;
-        confidenceScore: number | null;
         status: string;
+        jobId: string;
+        documentId: string;
+        message: string;
       }>(
-        `/workspaces/${workspaceId}/documents/${documentId}/generate?template=${template}`,
+        `/workspaces/${workspaceId}/documents/${documentId}/generate?${qs.toString()}`,
         files,
+      )
+      .then((r) => r.data);
+  },
+
+  /** Poll the state of the most recent generation run for a document. */
+  generationStatus(workspaceId: string, documentId: string) {
+    return apiClient
+      .get<GenerationJobStatus>(
+        `/workspaces/${workspaceId}/documents/${documentId}/generation-status`,
+      )
+      .then((r) => r.data);
+  },
+
+  /** Manually trigger a regeneration (also asynchronous). */
+  regenerate(workspaceId: string, documentId: string) {
+    return apiClient
+      .post<{ status: string; jobId: string; documentId: string; message: string }>(
+        `/workspaces/${workspaceId}/documents/${documentId}/regenerate`,
       )
       .then((r) => r.data);
   },

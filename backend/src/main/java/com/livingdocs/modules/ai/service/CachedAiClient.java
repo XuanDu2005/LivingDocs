@@ -26,6 +26,11 @@ import java.util.UUID;
  * entry — but minor whitespace / re-ordering changes do NOT, which
  * keeps the cache useful for real workloads.
  *
+ * <p>The template <em>schema</em> is part of the key: two templates
+ * with the same slug but different section/placeholder definitions
+ * must not share a cache entry, otherwise the second generation
+ * would silently reuse the first template's prose.
+ *
  * <h2>Why not annotate {@code AiServiceClient} directly?</h2>
  * That client returns {@code null} on failure to signal "AI down",
  * which is different from "AI returned empty". Caching the null
@@ -51,6 +56,33 @@ public class CachedAiClient {
      */
     @Cacheable(
             cacheNames = "ai-responses",
+            key = "T(java.util.Objects).hash(#workspaceId, #template, #templateSchema, #focus, #languageHint, #sourceFiles.![path], #sourceFiles.![content])",
+            unless = "#result == null"
+    )
+    public AiDtos.GenerateResponse generateCached(UUID workspaceId,
+                                                    List<AiDtos.SourceFile> sourceFiles,
+                                                    String template,
+                                                    String templateSchema,
+                                                    String focus,
+                                                    String languageHint) {
+        log.debug("AI generate cache miss for workspace={}, files={}, template={}",
+                workspaceId,
+                sourceFiles == null ? 0 : sourceFiles.size(),
+                template);
+        return delegate.generate(workspaceId, sourceFiles, template, templateSchema, focus, languageHint);
+    }
+
+    /**
+     * Convenience overload for callers that do not use a custom
+     * template schema (e.g. the repository-wide "generate all" flow).
+     *
+     * <p>This overload carries its own {@code @Cacheable} annotation
+     * rather than delegating to the six-argument method: Spring's
+     * cache proxy is bypassed on internal {@code this} calls, so a
+     * self-delegating method would silently never be cached.
+     */
+    @Cacheable(
+            cacheNames = "ai-responses",
             key = "T(java.util.Objects).hash(#workspaceId, #template, #sourceFiles.![path], #sourceFiles.![content])",
             unless = "#result == null"
     )
@@ -61,7 +93,7 @@ public class CachedAiClient {
                 workspaceId,
                 sourceFiles == null ? 0 : sourceFiles.size(),
                 template);
-        return delegate.generate(workspaceId, sourceFiles, template, null, null);
+        return delegate.generate(workspaceId, sourceFiles, template, null, null, null);
     }
 
     /**

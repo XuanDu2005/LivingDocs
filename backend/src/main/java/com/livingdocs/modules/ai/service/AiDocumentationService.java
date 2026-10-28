@@ -4,6 +4,10 @@ import com.livingdocs.common.events.DocGenerationRequestedEvent;
 import com.livingdocs.common.events.EventPublisher;
 import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.client.AiServiceClient;
+import com.livingdocs.modules.ai.job.DocGenerationJobService;
+import com.livingdocs.modules.ai.settings.AiRateLimitService;
+import com.livingdocs.modules.ai.settings.ConfidenceThresholdService;
+import com.livingdocs.modules.ai.settings.GovernancePolicyService;
 import com.livingdocs.modules.code.model.CodeEntity;
 import com.livingdocs.modules.code.repository.CodeEntityRepository;
 import com.livingdocs.modules.document.model.Document;
@@ -26,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +54,9 @@ public class AiDocumentationService {
 
     private static final Logger log = LoggerFactory.getLogger(AiDocumentationService.class);
 
+    /** Rough USD price per 1k tokens, used only for the admin usage report. */
+    private static final BigDecimal COST_PER_1K_TOKENS = new BigDecimal("0.0005");
+
     private final AiServiceClient aiClient;
     private final CachedAiClient cachedAiClient;
     private final DocumentRepository documentRepository;
@@ -63,6 +71,10 @@ public class AiDocumentationService {
     private final RepositoryRepository repositoryRepository;
     private final GithubClient githubClient;
     private final GithubOAuthService githubOAuthService;
+    private final DocGenerationJobService jobService;
+    private final ConfidenceThresholdService confidenceThresholdService;
+    private final AiRateLimitService rateLimitService;
+    private final GovernancePolicyService governancePolicyService;
 
     public AiDocumentationService(AiServiceClient aiClient,
                                   CachedAiClient cachedAiClient,
@@ -77,7 +89,11 @@ public class AiDocumentationService {
                                   DocumentService documentService,
                                   RepositoryRepository repositoryRepository,
                                   GithubClient githubClient,
-                                  GithubOAuthService githubOAuthService) {
+                                  GithubOAuthService githubOAuthService,
+                                  DocGenerationJobService jobService,
+                                  ConfidenceThresholdService confidenceThresholdService,
+                                  AiRateLimitService rateLimitService,
+                                  GovernancePolicyService governancePolicyService) {
         this.aiClient = aiClient;
         this.cachedAiClient = cachedAiClient;
         this.documentRepository = documentRepository;
@@ -92,25 +108,56 @@ public class AiDocumentationService {
         this.repositoryRepository = repositoryRepository;
         this.githubClient = githubClient;
         this.githubOAuthService = githubOAuthService;
+        this.jobService = jobService;
+        this.confidenceThresholdService = confidenceThresholdService;
+        this.rateLimitService = rateLimitService;
+        this.governancePolicyService = governancePolicyService;
     }
 
     /**
      * Generate documentation from source code and append it as a new
      * PENDING version of the target document.
      *
-     * <p>The AI call is now asynchronous: this method returns 202-style
-     * by creating a placeholder row and publishing a
-     * {@link DocGenerationRequestedEvent} on Kafka. The actual AI call
-     * happens in {@code DocGenerationEventListener}. This keeps the
-     * HTTP request fast and lets AI workers scale independently.
+     * <p>The AI call is asynchronous: this method returns immediately
+     * after publishing a {@link DocGenerationRequestedEvent} on Kafka.
+     * The actual AI call happens in {@code DocGenerationEventListener},
+     * which then persists the resulting version. This keeps the HTTP
+     * request fast and lets AI workers scale independently.
+     *
+     * <p>Returns the id of the {@code doc_generation_jobs} row that
+     * tracks this run — the caller can poll the generation-status
+     * endpoint to know when the version is ready.
      */
     @Transactional
-    public DocumentVersion generateForDocument(UUID actorId, UUID documentId,
-                                                List<AiDtos.SourceFile> sourceFiles,
-                                                String template) {
+    public UUID generateForDocument(UUID actorId, UUID documentId,
+                                    List<AiDtos.SourceFile> sourceFiles,
+                                    String template) {
+        return generateForDocument(actorId, documentId, sourceFiles, template, null, null, null, null);
+    }
+
+    /**
+     * Full form of {@link #generateForDocument(UUID, UUID, List, String)}
+     * with the template schema, focus hint, commit attribution and the
+     * PR that triggered the run.
+     *
+     * @return the correlation id of the generation job
+     */
+    @Transactional
+    public UUID generateForDocument(UUID actorId, UUID documentId,
+                                    List<AiDtos.SourceFile> sourceFiles,
+                                    String template,
+                                    String templateSchema,
+                                    String focus,
+                                    String sourceCommitSha,
+                                    UUID sourcePrId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, document.getWorkspaceId());
+
+        // Governance gate 1: token budget. Refusing here costs nothing —
+        // the user gets an immediate 429 instead of an expensive LLM call
+        // that would blow the budget.
+        governancePolicyService.requireBudget(document.getWorkspaceId());
 
         // Translate the AI client DTOs into the event payload so the
         // listener doesn't have to depend on the AI client package.
@@ -120,32 +167,45 @@ public class AiDocumentationService {
                     sf.path(), sf.content()));
         }
 
-        // Emit the request event. The listener will call the cached
-        // AI client, persist a new DocumentVersion, and emit a
-        // DocGenerationCompletedEvent for any downstream listeners
-        // (notifications, UI updates, etc.).
-        eventPublisher.publishDocGenerationRequested(new DocGenerationRequestedEvent(
-                UUID.randomUUID(),
+        // The job id doubles as the correlation id, so the whole chain
+        // (request → Kafka → AI worker → persistence) is traceable and
+        // a Kafka redelivery cannot create a second version.
+        UUID correlationId = jobService.open(document.getWorkspaceId(), documentId,
+                actorId, template, null);
+
+        // Emit the request event *after* the transaction commits, so the
+        // listener can see the job row we just inserted. The listener
+        // will call the cached AI client, persist a new DocumentVersion,
+        // and emit a DocGenerationCompletedEvent for any downstream
+        // listeners (notifications, UI updates, etc.).
+        eventPublisher.publishDocGenerationRequestedAfterCommit(new DocGenerationRequestedEvent(
+                correlationId,
                 document.getWorkspaceId(),
-                null,           // correlationId — sync HTTP path doesn't carry one
+                correlationId,
                 OffsetDateTime.now(),
                 documentId,
                 actorId,
                 template,
+                templateSchema,
+                focus,
+                null,
+                sourceCommitSha,
+                sourcePrId,
                 payload
         ));
 
-        // Return null to signal "AI work is in flight; poll the
-        // document's version list or subscribe to
-        // DocGenerationCompletedEvent for the real result."
-        log.info("Queued doc generation for document {} (template={}, files={})",
-                documentId, template, sourceFiles.size());
-        return null;
+        log.info("Queued doc generation for document {} (template={}, files={}, correlation={})",
+                documentId, template, sourceFiles.size(), correlationId);
+        return correlationId;
     }
 
     /**
      * Run drift detection against a code change. For each finding, persist
      * a {@code drift_alert} row and notify the document owner.
+     *
+     * <p>Findings below the workspace's confidence threshold are dropped:
+     * a low-confidence drift alert is noise, and ingesting them would
+     * bury the real issues in the review queue.
      */
     @Transactional
     public int detectDriftForPullRequest(UUID actorId, UUID workspaceId, UUID repositoryId,
@@ -167,17 +227,50 @@ public class AiDocumentationService {
             return 0;
         }
 
+        float threshold = confidenceThresholdService.resolve(workspaceId);
+        // The severity gate keeps the review queue focused: a LOW alert
+        // is noise once the workspace has decided that MEDIUM is the
+        // lowest severity worth surfacing.
+        var severityGate = governancePolicyService.driftSeverityThreshold(workspaceId);
         int ingested = 0;
+        int belowThreshold = 0;
+        int belowSeverity = 0;
         for (AiDtos.DriftFinding f : resp.findings()) {
+            float confidence = (float) Math.max(0.0, Math.min(1.0, f.confidence()));
+            if (confidence < threshold) {
+                belowThreshold++;
+                continue;
+            }
+            var severity = _severityOf(f.severity());
+            if (severity.ordinal() < severityGate.ordinal()) {
+                belowSeverity++;
+                continue;
+            }
             Map<String, Object> evidence = f.evidence() == null ? Map.of() : f.evidence();
             driftAlertService.ingest(actorId, workspaceId,
                     new com.livingdocs.modules.drift.dto.IngestDriftAlertRequest(
                             repositoryId, pullRequestId, documentId,
-                            _kindOf(f.driftKind()), _severityOf(f.severity()),
+                            _kindOf(f.driftKind()), severity,
                             f.title(), f.description(),
                             _evidenceToJson(evidence), f.suggestion(),
-                            (float) Math.max(0.0, Math.min(1.0, f.confidence()))));
+                            confidence));
             ingested++;
+        }
+
+        // Account for the tokens the semantic drift pass consumed.
+        _recordUsage(workspaceId, resp.promptTokens(), resp.completionTokens());
+
+        if (belowThreshold > 0) {
+            log.info("Dropped {} drift finding(s) below the confidence threshold {} for workspace {}",
+                    belowThreshold, threshold, workspaceId);
+        }
+        if (belowSeverity > 0) {
+            log.info("Dropped {} drift finding(s) below the severity gate {} for workspace {}",
+                    belowSeverity, severityGate, workspaceId);
+        }
+
+        if (ingested == 0) {
+            return 0;
         }
 
         // Notify the document owner once per run.
@@ -209,9 +302,13 @@ public class AiDocumentationService {
     /**
      * Request AI to automatically rewrite or update a document.
      * (Regenerate on demand).
+     *
+     * <p>Like {@link #generateForDocument} this is asynchronous: the
+     * request is queued on Kafka and the worker performs the actual
+     * LLM call. Returns the generation job's correlation id.
      */
     @Transactional
-    public DocumentVersion regenerateOnDemand(UUID actorId, UUID workspaceId, UUID documentId) {
+    public UUID regenerateOnDemand(UUID actorId, UUID workspaceId, UUID documentId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, workspaceId);
@@ -222,23 +319,9 @@ public class AiDocumentationService {
                 new AiDtos.SourceFile(document.getTitle() + ".md", currentBody)
         );
 
-        AiDtos.GenerateResponse resp = aiClient.generate(
-                workspaceId, sourceFiles, "MODULE_GUIDE", "Please refine, update and regenerate this documentation thoroughly.", null);
-
-        if (resp == null) {
-            throw new RuntimeException("AI service is currently unavailable");
-        }
-
-        DocumentVersion version = versionService.createAiVersion(
-                actorId, documentId,
-                resp.markdown(),
-                "Manual AI Regeneration triggered by user",
-                null, null,
-                (float) Math.max(0.0, Math.min(1.0, resp.confidence())),
-                _sourcesToJson(resp));
-
-        reviewService.markPendingForStaffReview(documentId, version.getId());
-        return version;
+        return generateForDocument(actorId, documentId, sourceFiles, "MODULE_GUIDE", null,
+                "Please refine, update and regenerate this documentation thoroughly.",
+                null, null);
     }
 
     /**
@@ -454,6 +537,25 @@ public class AiDocumentationService {
 
     private String _currentBodyFor(UUID documentId) {
         return versionService.findLatestBody(documentId).orElse("");
+    }
+
+    /**
+     * Roll the token counts reported by the AI service into the
+     * workspace's usage report so the admin dashboard and the budget
+     * guard see the real spend.
+     */
+    private void _recordUsage(UUID workspaceId, int promptTokens, int completionTokens) {
+        if (workspaceId == null) return;
+        int total = promptTokens + completionTokens;
+        if (total <= 0) return;
+        try {
+            BigDecimal cost = BigDecimal.valueOf(total)
+                    .divide(BigDecimal.valueOf(1000), 6, java.math.RoundingMode.HALF_UP)
+                    .multiply(COST_PER_1K_TOKENS);
+            rateLimitService.recordUsage(workspaceId, total, cost);
+        } catch (Exception e) {
+            log.warn("Failed to record AI usage for workspace {}: {}", workspaceId, e.getMessage());
+        }
     }
 
     private static String _sourcesToJson(AiDtos.GenerateResponse resp) {

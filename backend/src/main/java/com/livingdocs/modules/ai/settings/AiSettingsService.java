@@ -86,7 +86,7 @@ public class AiSettingsService {
 
         AiSettings updated = new AiSettings(
                 provider, model, embeddingModel, baseUrl, temperature, maxTokens, hasKey,
-                hasKey ? mask(storedCipher) : null);
+                hasKey ? mask(storedCipher) : null, null);
 
         JsonNode aiNode = toJson(updated, storedCipher);
         com.fasterxml.jackson.databind.node.ObjectNode obj;
@@ -133,10 +133,36 @@ public class AiSettingsService {
      * Internal lookup for the AI service client — skips the membership
      * check because the request is already authorised by the caller
      * (e.g. a controller that has verified the actor).
+     *
+     * <p>The returned settings carry the <em>decrypted</em> API key so
+     * the client can forward it to the AI service. The key never leaves
+     * the backend except in the {@code X-Ai-Api-Key} header of an
+     * internal request.
      */
     @Transactional(readOnly = true)
     public AiSettings resolveForAiClient(UUID workspaceId) {
-        return loadOrDefault(workspaceId);
+        AiSettings settings = loadOrDefault(workspaceId);
+        if (!settings.hasApiKey()) {
+            return settings;
+        }
+        String plaintext = decryptKey(workspaceId);
+        return plaintext == null ? settings : settings.withApiKey(plaintext);
+    }
+
+    /**
+     * Decrypt the stored API key for a workspace, or {@code null} when
+     * no key is configured or the ciphertext cannot be read.
+     */
+    private String decryptKey(UUID workspaceId) {
+        JsonNode root = readExtraRaw(workspaceId);
+        String cipherText = readString(root.path(EXTRA_KEY), "api_key_cipher");
+        if (cipherText == null || cipherText.isBlank()) return null;
+        try {
+            return cipher.decrypt(cipherText);
+        } catch (Exception e) {
+            log.warn("Failed to decrypt AI key for workspace {}", workspaceId, e);
+            return null;
+        }
     }
 
     // ---- internal helpers ----
@@ -174,7 +200,7 @@ public class AiSettingsService {
         String cipherText = readString(n, "api_key_cipher");
         boolean hasKey = cipherText != null && !cipherText.isBlank();
         return new AiSettings(provider, model, embeddingModel, baseUrl, temperature, maxTokens, hasKey,
-                hasKey ? mask(cipherText) : null);
+                hasKey ? mask(cipherText) : null, null);
     }
 
     private JsonNode toJson(AiSettings s, String storedCipher) {

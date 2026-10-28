@@ -1,7 +1,10 @@
 package com.livingdocs.modules.review.controller;
 
+import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.review.dto.DocumentReviewResponse;
+import com.livingdocs.modules.review.dto.ReviewQueueItemResponse;
+import com.livingdocs.modules.review.dto.ReviewQueueResponse;
 import com.livingdocs.modules.review.dto.SubmitReviewRequest;
 import com.livingdocs.modules.review.service.DocumentReviewService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,6 +26,12 @@ import java.util.UUID;
  * <p>The two flows are exposed separately so they can be wired to different
  * UI queues. A Staff reviewer hits {@code /staff/...}, a Manager hits
  * {@code /manager/...}.
+ *
+ * <h2>Role model</h2>
+ * Both the review and the approval tier accept more than one platform role:
+ * {@code STAFF}/{@code TECHNICAL_LEAD}/{@code MANAGER}/{@code ADMIN} for
+ * the first tier and {@code TECHNICAL_LEAD}/{@code MANAGER}/{@code ADMIN}
+ * for the second. Callers must additionally be members of the workspace.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -30,9 +39,12 @@ import java.util.UUID;
 public class DocumentReviewController {
 
     private final DocumentReviewService reviewService;
+    private final AuthorizationService authorizationService;
 
-    public DocumentReviewController(DocumentReviewService reviewService) {
+    public DocumentReviewController(DocumentReviewService reviewService,
+                                    AuthorizationService authorizationService) {
         this.reviewService = reviewService;
+        this.authorizationService = authorizationService;
     }
 
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/versions/{versionId}/staff-review")
@@ -65,5 +77,39 @@ public class DocumentReviewController {
     @Operation(summary = "List the current user's review history")
     public List<DocumentReviewResponse> myReviews() {
         return reviewService.reviewsForReviewer(CurrentUser.requireId());
+    }
+
+    // -----------------------------------------------------------------
+    // queues
+    // -----------------------------------------------------------------
+
+    @GetMapping("/workspaces/{workspaceId}/reviews/pending-on-me")
+    @Operation(summary = "Everything the caller may act on in this workspace, split by review tier")
+    public ReviewQueueResponse pendingOnMe(@PathVariable UUID workspaceId) {
+        return reviewService.pendingOnMe(CurrentUser.requireId(), workspaceId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/reviews/staff-queue")
+    @Operation(summary = "Versions awaiting a first-tier (Staff) review")
+    public List<ReviewQueueItemResponse> staffQueue(@PathVariable UUID workspaceId) {
+        return reviewService.staffQueue(CurrentUser.requireId(), workspaceId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/reviews/manager-queue")
+    @Operation(summary = "Versions awaiting final (Manager) approval")
+    public List<ReviewQueueItemResponse> managerQueue(@PathVariable UUID workspaceId) {
+        return reviewService.managerQueue(CurrentUser.requireId(), workspaceId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/reviews/publish-queue")
+    @Operation(summary = "Versions approved but not yet published")
+    public List<ReviewQueueItemResponse> publishQueue(@PathVariable UUID workspaceId) {
+        return reviewService.publishQueue(CurrentUser.requireId(), workspaceId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/capabilities")
+    @Operation(summary = "Effective capabilities of the caller in this workspace")
+    public AuthorizationService.Capabilities capabilities(@PathVariable UUID workspaceId) {
+        return authorizationService.capabilities(CurrentUser.requireId(), workspaceId);
     }
 }

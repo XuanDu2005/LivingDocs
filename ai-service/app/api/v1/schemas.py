@@ -15,6 +15,11 @@ class SourceFile(BaseModel):
 class GenerateDocumentationRequest(BaseModel):
     files: List[SourceFile]
     template: Optional[str] = Field(default=None, description="Module guide / API / README / ADR / ...")
+    template_schema: Optional[str] = Field(
+        default=None,
+        description="Canonical template JSON (sections + placeholders) as a string. "
+                    "When present the prompt is built from the user's own template.",
+    )
     focus: Optional[str] = Field(default=None, description="Optional focus area")
     language_hint: Optional[str] = Field(default=None, description="Override the auto-detected language")
 
@@ -33,6 +38,10 @@ class GenerateDocumentationResponse(BaseModel):
     model: str
     sources: List[GroundingSource] = Field(default_factory=list)
     notes: List[str] = Field(default_factory=list)
+    # Token counts reported by the provider. The backend rolls these into
+    # the workspace's AI usage report (ai_usage_stats).
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class DriftDetectRequest(BaseModel):
@@ -55,6 +64,10 @@ class DriftFindingPayload(BaseModel):
 class DriftDetectResponse(BaseModel):
     findings: List[DriftFindingPayload]
     markdown_summary: str
+    # Token counts for the semantic (LLM) pass. Zero when the service
+    # runs with the offline mock provider.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class IndexDocumentRequest(BaseModel):

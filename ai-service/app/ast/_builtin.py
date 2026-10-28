@@ -32,11 +32,13 @@ def analyse_python(file_path: str, source: str) -> ParsedFile:
     if i < len(lines) and re.match(r"\s*[ru]?['\"]{3}", lines[i] or ""):
         end_quote = "'''" if "'''" in lines[i] else '"""'
         start = i
-        if idx := lines[i].find(idx_quote := idx_quote_match(lines[i])):
+        # A one-line docstring has its closing quote on the same line; a
+        # multi-line one ends on a later line.
+        if end_quote in lines[i][3:]:
             i += 1
         else:
             i += 1
-            while i < len(lines) and idx_quote not in lines[i]:
+            while i < len(lines) and end_quote not in lines[i]:
                 i += 1
             i += 1
         parsed.module_docstring = "\n".join(lines[start:i]).strip()
@@ -65,6 +67,11 @@ def analyse_python(file_path: str, source: str) -> ParsedFile:
             entity = _parse_python_function(file_path, lines, idx, indent)
             if entity:
                 if parent_qname:
+                    # A function declared inside a class body is a
+                    # method, not a module-level function. The parent is
+                    # only known here, so the kind is corrected after
+                    # parsing rather than guessed from the name.
+                    entity.kind = CodeEntityKind.METHOD
                     entity.parent_qualified_name = parent_qname
                     entity.qualified_name = f"{parent_qname}.{entity.simple_name}"
                 parsed.entities.append(entity)
@@ -121,9 +128,10 @@ def _parse_python_function(file_path: str, lines: List[str], idx: int, indent: i
     end_line = _find_block_end(lines, idx)
     docstring = _extract_python_docstring(lines, idx, end_line)
     decorators = _collect_decorators(lines, idx, indent)
-    is_method = "." in name  # simple heuristic, refined later
     params = _parse_python_params(params_raw)
-    kind = CodeEntityKind.METHOD if is_method else CodeEntityKind.FUNCTION
+    # Whether this is a method is decided by the caller, which knows the
+    # enclosing class. At this level it is always a plain function.
+    kind = CodeEntityKind.FUNCTION
     return CodeEntity(
         qualified_name=name,
         simple_name=name,
@@ -231,6 +239,7 @@ def idx_quote_match(line: str) -> int:
     return -1
 
 
+
 # ----------------------------------------------------------------------------
 # Java
 # ----------------------------------------------------------------------------
@@ -280,7 +289,7 @@ def analyse_java(file_path: str, source: str) -> ParsedFile:
                 start_line=idx,
                 end_line=end_line,
                 signature=line.strip(),
-                modifiers=[w for w in m.group("mods").split() if w],
+                modifiers=_split_modifiers(m.group("mods")),
                 metadata={"package": package_qname},
             )
             if parent:
@@ -303,7 +312,7 @@ def analyse_java(file_path: str, source: str) -> ParsedFile:
                 start_line=idx,
                 end_line=end_line,
                 signature=line.strip(),
-                modifiers=[w for w in m.group("mods").split() if w],
+                modifiers=_split_modifiers(m.group("mods")),
                 return_type=return_type,
                 parameters=_parse_java_params(params_raw),
                 parent_qualified_name=parent,
@@ -311,6 +320,19 @@ def analyse_java(file_path: str, source: str) -> ParsedFile:
             parsed.entities.append(entity)
 
     return parsed
+
+
+def _split_modifiers(raw: str | None) -> List[str]:
+    """Split a captured modifier group into a list of modifier words.
+
+    The modifier group is optional in every regex that captures it, so
+    ``re`` yields ``None`` rather than an empty string when the match
+    succeeds without modifiers. Splitting ``None`` would raise, so it is
+    normalised here.
+    """
+    if not raw:
+        return []
+    return [w for w in raw.split() if w]
 
 
 def _java_indent(line: str) -> int:
