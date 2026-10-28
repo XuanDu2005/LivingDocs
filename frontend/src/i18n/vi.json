@@ -421,7 +421,24 @@
     "approved": "Đã duyệt",
     "rejected": "Bị từ chối",
     "requestChanges": "Yêu cầu sửa",
-    "comment": "Bình luận"
+    "comment": "Bình luận",
+    "colDocType": "Loại tài liệu",
+    "colConfidence": "Độ tin cậy",
+    "colChange": "Thay đổi",
+    "colActions": "Thao tác",
+    "placeholder": {
+      "comment": "Ghi bình luận (không bắt buộc)"
+    },
+    "queue": {
+      "staff": "Duyệt Staff",
+      "manager": "Quyết định Manager",
+      "publish": "Phát hành"
+    },
+    "action": {
+      "approve": "Duyệt",
+      "requestChanges": "Yêu cầu sửa",
+      "publish": "Phát hành"
+    }
   },
   "docUpdates": {
     "title": "Yêu cầu cập nhật tài liệu",
@@ -472,6 +489,20 @@
       "apply": "Áp dụng"
     }
   },
+  "governance": {
+    "title": "Chính sách quản trị đang áp dụng",
+    "subtitle": "Chính sách mà hệ thống thực sự áp dụng cho workspace này, gồm cả ghi đè theo loại tài liệu.",
+    "loading": "Đang tải chính sách quản trị…",
+    "yes": "Bắt buộc",
+    "no": "Không bắt buộc",
+    "requireManagerApproval": "Phê duyệt của Manager",
+    "confidenceThreshold": "Ngưỡng độ tin cậy",
+    "mergePolicy": "Chính sách merge",
+    "driftSeverityThreshold": "Ngưỡng mức độ trôi dạt",
+    "mergeGateBlocked": "Đang chặn merge",
+    "mergeGateOpen": "Cho phép merge",
+    "blockingAlerts": "cảnh báo trôi dạt đang chặn"
+  },
   "drift": {
     "title": "Cảnh báo trôi dạt",
     "subtitle": "Trôi dạt tài liệu phát hiện từ thay đổi mã nguồn.",
@@ -489,6 +520,7 @@
     "confirmResolution": "Xác nhận xử lý",
     "showEvidence": "Hiện bằng chứng",
     "hideEvidence": "Ẩn bằng chứng",
+    "noDiff": "Cảnh báo này không có bản diff mã nguồn nào được ghi nhận.",
     "colSeverity": "Mức độ",
     "colKind": "Loại",
     "colTitle": "Tiêu đề",
@@ -1196,6 +1228,11 @@
   },
   "documentDetail": {
     "generateAi": "Sinh bằng AI",
+    "generationInProgress": "Đang sinh tài liệu bằng AI…",
+    "generationSucceeded": "Đã sinh tài liệu bằng AI",
+    "generationFailed": "Sinh tài liệu bằng AI thất bại",
+    "generationSkipped": "Đã bỏ qua sinh tài liệu",
+    "generationTimeout": "Sinh tài liệu quá thời gian chờ. Hãy kiểm tra lại sau.",
     "addTag": "Thêm thẻ",
     "newTagTitle": "Thêm thẻ mới",
     "newTagDesc": "Tạo thẻ mới và gắn vào tài liệu này.",

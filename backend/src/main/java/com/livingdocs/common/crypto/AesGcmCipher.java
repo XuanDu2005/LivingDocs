@@ -33,6 +33,12 @@ public class AesGcmCipher {
     private static final int GCM_TAG_BITS = 128;
     private static final int IV_LEN = 12;
 
+    /**
+     * Application-wide instance, published for the JPA
+     * {@code AttributeConverter} path (see {@link CryptoConfig}).
+     */
+    private static volatile AesGcmCipher instance;
+
     private final SecureRandom random = new SecureRandom();
     private final String appSecret;
 
@@ -40,6 +46,15 @@ public class AesGcmCipher {
 
     public AesGcmCipher(@Value("${app.security.jwt.secret}") String appSecret) {
         this.appSecret = appSecret;
+        instance = this;
+    }
+
+    /**
+     * The application-wide cipher, or {@code null} before the Spring
+     * context has created it.
+     */
+    public static AesGcmCipher current() {
+        return instance;
     }
 
     @PostConstruct

@@ -164,7 +164,7 @@ public class GithubRepositoryController {
 
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/scan-docs")
     @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/scan-docs")
-    @Operation(summary = "Scan repository for documentation files and code references")
+    @Operation(summary = "Scan repository for documentation files and code references, and queue proposals for drifted files")
     public Map<String, Object> scanDocs(
             @PathVariable UUID workspaceId,
             @PathVariable UUID repositoryId,
@@ -172,30 +172,43 @@ public class GithubRepositoryController {
         // Get the authenticated user's access token from security context
         UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
         String accessToken = repositoryService.getAccessTokenForWorkspace(workspaceId);
-        
+
         DocSyncService.ScanResult result = docSyncService.scanRepository(
                 actorId, workspaceId, repositoryId, accessToken, branch);
-        
+
         int driftCount = (int) result.files().stream().filter(f -> f.hasDrift()).count();
-        
-        return Map.of(
-                "totalFiles", result.totalFiles(),
-                "referencedEntities", result.referencedEntities(),
-                "updatedEntities", result.updatedEntities(),
-                "driftCount", driftCount,
-                "files", result.files().stream()
-                        .map(f -> Map.of(
-                                "path", f.path(),
-                                "type", f.type(),
-                                "size", f.size() != null ? f.size() : 0,
-                                "referencedEntities", f.referencedEntities(),
-                                "foundEntities", f.foundEntities(),
-                                "missingEntities", f.missingEntities(),
-                                "hasDrift", f.hasDrift(),
-                                "driftReason", f.driftReason() != null ? f.driftReason() : ""
-                        ))
-                        .toList()
+
+        // Turn every drifted file into a review proposal so the
+        // "Doc update requests" queue is populated. Files that already
+        // have a pending proposal are skipped, so re-scanning is safe.
+        List<DocSyncService.DocFileInfo> driftedFiles = result.files().stream()
+                .filter(f -> f.hasDrift())
+                .toList();
+        DocSyncService.AutoQueueResult queued = docSyncService.autoQueueDriftedFiles(
+                actorId, workspaceId, repositoryId, accessToken, branch, driftedFiles);
+
+        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("totalFiles", result.totalFiles());
+        body.put("referencedEntities", result.referencedEntities());
+        body.put("updatedEntities", result.updatedEntities());
+        body.put("driftCount", driftCount);
+        body.put("queuedCount", queued.queued());
+        body.put("skippedCount", queued.skipped());
+        body.put("queuedFiles", queued.queuedFiles());
+        body.put("files", result.files().stream()
+                .map(f -> Map.of(
+                        "path", f.path(),
+                        "type", f.type(),
+                        "size", f.size() != null ? f.size() : 0,
+                        "referencedEntities", f.referencedEntities(),
+                        "foundEntities", f.foundEntities(),
+                        "missingEntities", f.missingEntities(),
+                        "hasDrift", f.hasDrift(),
+                        "driftReason", f.driftReason() != null ? f.driftReason() : ""
+                ))
+                .toList()
         );
+        return body;
     }
 
     @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/docs/{path:.*}")
@@ -269,10 +282,13 @@ public class GithubRepositoryController {
                         req.filePath(), req.branch());
 
         if (queued == null) {
+            // Either the AI proposed no real change, or a proposal for
+            // this file is already awaiting a decision.
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "queued", false,
-                    "message", "No changes detected — documentation already matches the code."
+                    "message", "No changes to queue — documentation already matches the code, "
+                            + "or a review request for this file is already pending."
             ));
         }
         return ResponseEntity.ok(Map.of(

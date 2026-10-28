@@ -6,6 +6,9 @@ import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.dto.PreviewGenerateResponse;
+import com.livingdocs.modules.ai.job.DocGenerationJob;
+import com.livingdocs.modules.ai.job.DocGenerationJobResponse;
+import com.livingdocs.modules.ai.job.DocGenerationJobService;
 import com.livingdocs.modules.ai.service.AiDocumentationService;
 import com.livingdocs.modules.drift.dto.DriftAlertResponse;
 import com.livingdocs.modules.drift.service.DriftAlertService;
@@ -16,6 +19,8 @@ import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,29 +47,70 @@ public class AiController {
     private final DocumentVersionRepository versionRepository;
     private final WorkspaceService workspaceService;
     private final ObjectMapper objectMapper;
+    private final DocGenerationJobService jobService;
 
     public AiController(AiDocumentationService aiService,
                         DocumentVersionService versionService,
                         DriftAlertService driftService,
                         DocumentVersionRepository versionRepository,
                         WorkspaceService workspaceService,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        DocGenerationJobService jobService) {
         this.aiService = aiService;
         this.versionService = versionService;
         this.driftService = driftService;
         this.versionRepository = versionRepository;
         this.workspaceService = workspaceService;
         this.objectMapper = objectMapper;
+        this.jobService = jobService;
     }
 
+    /**
+     * Queue an AI generation run.
+     *
+     * <p>Returns <b>202 Accepted</b> because the LLM call is
+     * asynchronous: the request is queued on Kafka and processed by
+     * the generation worker. The response body carries the job id
+     * which can be polled via {@code /generation-status}.
+     */
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/generate")
-    @Operation(summary = "Generate documentation from source files and append as a new version")
-    public DocumentVersionResponse generate(@PathVariable UUID workspaceId,
-                                            @PathVariable UUID documentId,
-                                            @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template,
-                                            @RequestBody List<AiDtos.SourceFile> files) {
-        var v = aiService.generateForDocument(CurrentUser.requireId(), documentId, files, template);
-        return DocumentVersionResponse.from(v);
+    @Operation(summary = "Queue an AI documentation generation run (returns 202)")
+    public ResponseEntity<Map<String, Object>> generate(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID documentId,
+            @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template,
+            @RequestParam(required = false) String focus,
+            @RequestBody List<AiDtos.SourceFile> files) {
+        UUID correlationId = aiService.generateForDocument(
+                CurrentUser.requireId(), documentId, files, template, null, focus, null, null);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", "ACCEPTED",
+                "jobId", correlationId.toString(),
+                "documentId", documentId.toString(),
+                "message", "AI generation queued. Poll the generation-status endpoint for the result."));
+    }
+
+    /**
+     * Poll the state of the most recent generation run for a document.
+     *
+     * <p>Returns {@code status: RUNNING} while the worker is busy,
+     * {@code SUCCEEDED} with a {@code documentVersionId} when the
+     * version has been written, or {@code FAILED} with the error.
+     */
+    @GetMapping("/workspaces/{workspaceId}/documents/{documentId}/generation-status")
+    @Operation(summary = "Poll the status of the latest AI generation run for a document")
+    public ResponseEntity<Map<String, Object>> generationStatus(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID documentId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        DocGenerationJob job = jobService.latestForDocument(documentId).orElse(null);
+        if (job == null) {
+            return ResponseEntity.ok(Map.of(
+                    "status", "NONE",
+                    "documentId", documentId.toString(),
+                    "message", "No generation run has been queued for this document yet."));
+        }
+        return ResponseEntity.ok(DocGenerationJobResponse.from(job).toMap());
     }
 
     @PostMapping("/workspaces/{workspaceId}/drift-alerts/detect")
@@ -86,10 +132,16 @@ public class AiController {
 
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/regenerate")
     @Operation(summary = "Manually trigger AI to regenerate documentation")
-    public DocumentVersionResponse regenerate(@PathVariable UUID workspaceId,
-                                              @PathVariable UUID documentId) {
-        var v = aiService.regenerateOnDemand(CurrentUser.requireId(), workspaceId, documentId);
-        return DocumentVersionResponse.from(v);
+    public ResponseEntity<Map<String, Object>> regenerate(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID documentId) {
+        UUID correlationId = aiService.regenerateOnDemand(
+                CurrentUser.requireId(), workspaceId, documentId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", "ACCEPTED",
+                "jobId", correlationId.toString(),
+                "documentId", documentId.toString(),
+                "message", "Regeneration queued."));
     }
 
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/preview-generate")

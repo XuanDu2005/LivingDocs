@@ -19,6 +19,12 @@ export interface DocScanResult {
   referencedEntities: number;
   updatedEntities: number;
   driftCount: number;
+  /** Number of new review proposals created by this scan. */
+  queuedCount?: number;
+  /** Drifted files that were not queued (already pending, or no real change). */
+  skippedCount?: number;
+  /** Paths of the files that were queued for review. */
+  queuedFiles?: string[];
   files: DocFileInfo[];
 }
 

@@ -391,7 +391,24 @@
     "approved": "Approved",
     "rejected": "Rejected",
     "requestChanges": "Request changes",
-    "comment": "Comment"
+    "comment": "Comment",
+    "colDocType": "Doc type",
+    "colConfidence": "Confidence",
+    "colChange": "Change",
+    "colActions": "Actions",
+    "placeholder": {
+      "comment": "Leave a comment (optional)"
+    },
+    "queue": {
+      "staff": "Staff review",
+      "manager": "Manager decision",
+      "publish": "Publish"
+    },
+    "action": {
+      "approve": "Approve",
+      "requestChanges": "Request changes",
+      "publish": "Publish"
+    }
   },
   "docUpdates": {
     "title": "Doc update requests",
@@ -442,6 +459,20 @@
       "apply": "Apply"
     }
   },
+  "governance": {
+    "title": "Effective governance policy",
+    "subtitle": "The policy the runtime actually enforces for this workspace, including per-doc-type overrides.",
+    "loading": "Loading governance policy…",
+    "yes": "Required",
+    "no": "Not required",
+    "requireManagerApproval": "Manager approval",
+    "confidenceThreshold": "Confidence threshold",
+    "mergePolicy": "Merge policy",
+    "driftSeverityThreshold": "Drift severity threshold",
+    "mergeGateBlocked": "Merge is blocked",
+    "mergeGateOpen": "Merge is allowed",
+    "blockingAlerts": "blocking drift alert(s)"
+  },
   "drift": {
     "title": "Drift alerts",
     "subtitle": "Documentation drift detected from source code changes.",
@@ -459,6 +490,7 @@
     "confirmResolution": "Confirm resolution",
     "showEvidence": "Show evidence",
     "hideEvidence": "Hide evidence",
+    "noDiff": "No code diff was recorded for this alert.",
     "colSeverity": "Severity",
     "colKind": "Kind",
     "colTitle": "Title",
@@ -1092,6 +1124,11 @@
   },
   "documentDetail": {
     "generateAi": "Generate with AI",
+    "generationInProgress": "AI generation in progress…",
+    "generationSucceeded": "AI generation completed",
+    "generationFailed": "AI generation failed",
+    "generationSkipped": "AI generation skipped",
+    "generationTimeout": "AI generation timed out. Check back later.",
     "addTag": "Add Tag",
     "newTagTitle": "Add New Tag",
     "newTagDesc": "Create a new tag and assign it to this document.",

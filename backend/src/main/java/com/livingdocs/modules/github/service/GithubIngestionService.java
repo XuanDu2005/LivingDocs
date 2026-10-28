@@ -27,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -48,6 +49,7 @@ public class GithubIngestionService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final NotificationService notificationService;
     private final GithubOAuthService githubOAuthService;
+    private final DocumentAutoUpdateService autoUpdateService;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
@@ -57,7 +59,8 @@ public class GithubIngestionService {
                                   WorkspaceSettingsRepository workspaceSettingsRepository,
                                   WorkspaceMemberRepository workspaceMemberRepository,
                                   NotificationService notificationService,
-                                  GithubOAuthService githubOAuthService) {
+                                  GithubOAuthService githubOAuthService,
+                                  DocumentAutoUpdateService autoUpdateService) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
@@ -67,6 +70,7 @@ public class GithubIngestionService {
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.notificationService = notificationService;
         this.githubOAuthService = githubOAuthService;
+        this.autoUpdateService = autoUpdateService;
     }
 
     /**
@@ -281,11 +285,11 @@ public class GithubIngestionService {
             notifyWorkspaceOfPush(repo, branch, newlyInserted, headSha, pusherName);
         }
 
-        // 3. Best-effort: trigger AI auto-update if the workspace settings
-        //    and the per-repository toggle are both enabled. We do not
-        //    re-fetch file diffs here (that requires the GitHub contents
-        //    API) — we just create a new PENDING version that the user
-        //    can later trigger drift analysis on.
+        // 3. Trigger AI auto-update if the workspace settings
+        //    and the per-repository toggle are both enabled. We hand the
+        //    changed files to the auto-update service, which downloads the
+        //    new content and queues a regeneration for every linked
+        //    document that opted in.
         if (!repo.isAutoUpdateEnabled()) {
             log.debug("Auto-update disabled for repo {}, skipping push trigger", repo.getFullName());
             return;
@@ -296,9 +300,31 @@ public class GithubIngestionService {
             log.debug("Workspace autoUpdateOnCommit disabled, skipping push trigger");
             return;
         }
-        // Push events persist commits; PR events (which carry a diff)
-        // drive the actual regeneration. We intentionally do not call
-        // AiDocumentationService.regenerateOnDemand() here.
+
+        Set<String> changedFiles = autoUpdateService.changedFilesFromPush(payload);
+        if (changedFiles.isEmpty()) {
+            log.debug("Push webhook carried no added/modified files — nothing to regenerate");
+            return;
+        }
+
+        String accessToken = autoUpdateService.resolveAccessToken(repo.getWorkspaceId());
+        if (accessToken == null || accessToken.isBlank()) {
+            log.warn("No active GitHub connection for workspace {} — "
+                    + "commits were ingested but auto-update was skipped", repo.getWorkspaceId());
+            return;
+        }
+
+        try {
+            int queued = autoUpdateService.triggerAutoUpdate(
+                    repo, changedFiles, branch, headSha, accessToken);
+            log.info("Queued {} document regeneration(s) for repo {} (commit {})",
+                    queued, repo.getFullName(), headSha);
+        } catch (Exception ex) {
+            // A failed auto-update must never fail the webhook — the
+            // commits are already persisted, and the user can always
+            // trigger a regeneration by hand.
+            log.warn("Auto-update failed for repo {}: {}", repo.getFullName(), ex.getMessage());
+        }
     }
 
     private static PullRequest.State mapState(String state, OffsetDateTime mergedAt) {

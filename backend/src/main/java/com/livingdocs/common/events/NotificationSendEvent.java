@@ -1,7 +1,9 @@
 package com.livingdocs.common.events;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.OffsetDateTime;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,17 +30,18 @@ public final class NotificationSendEvent extends AbstractEvent {
     private final String link;
     private final Map<String, String> metadata;
 
-    public NotificationSendEvent(UUID eventId,
-                                  UUID workspaceId,
-                                  UUID correlationId,
-                                  OffsetDateTime occurredAt,
-                                  UUID recipientUserId,
-                                  Channel channel,
-                                  String eventKind,
-                                  String title,
-                                  String body,
-                                  String link,
-                                  Map<String, String> metadata) {
+    @JsonCreator
+    public NotificationSendEvent(@JsonProperty("eventId") UUID eventId,
+                                  @JsonProperty("workspaceId") UUID workspaceId,
+                                  @JsonProperty("correlationId") UUID correlationId,
+                                  @JsonProperty("occurredAt") OffsetDateTime occurredAt,
+                                  @JsonProperty("recipientUserId") UUID recipientUserId,
+                                  @JsonProperty("channel") Channel channel,
+                                  @JsonProperty("eventKind") String eventKind,
+                                  @JsonProperty("title") String title,
+                                  @JsonProperty("body") String body,
+                                  @JsonProperty("link") String link,
+                                  @JsonProperty("metadata") Map<String, String> metadata) {
         super(eventId, workspaceId, correlationId, occurredAt);
         this.recipientUserId = recipientUserId;
         this.channel = channel;

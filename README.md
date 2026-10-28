@@ -28,6 +28,14 @@ repo:
 * **Phase 2** — GitHub OAuth, repository linking, webhook ingestion.
 * **Phase 3** — documents, templates, versions, drift alerts, review workflow,
   audit log, notifications, knowledge base, AI integration, CI/CD generator.
+* **Phase 4+** — asynchronous generation pipeline, two-axis authorization
+  (5 platform roles × 2 workspace roles), enforced governance policies,
+  LLM-assisted semantic drift detection, encrypted secrets at rest.
+
+> **See [docs/architecture.md](./docs/architecture.md)** for how the system
+> behaves at runtime: the authorization model, the generation pipeline, the
+> governance rules that gate automated publishing, and the operations that
+> keep secrets safe.
 
 ---
 
@@ -160,12 +168,15 @@ See `.env.example`. The most important additions over earlier phases:
 | --------------------------------- | ---------------------------------------------------- |
 | `AI_SERVICE_BASE_URL`             | URL the backend uses to reach the AI service         |
 | `AI_SERVICE_ENABLED`              | Disable AI integration to fall back to manual flows  |
-| `AI_SERVICE_CONFIDENCE_THRESHOLD` | Threshold below which AI suggestions are flagged     |
+| `AI_SERVICE_INTERNAL_TOKEN`       | Shared secret for backend → AI service calls         |
 | `LLM_PROVIDER`                    | `openai` / `anthropic` / `ollama` / `mock`           |
 | `LLM_API_KEY` / `LLM_API_BASE`    | Provider credentials                                 |
 | `LLM_MODEL`                       | Default chat model                                   |
 | `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` | Embedding model for RAG                        |
-| `APP_PUBLIC_URL`                  | URL exposed in generated GitHub Actions YAML         |
+| `APP_PUBLIC_URL`                  | Public URL of the **backend** — used for GitHub webhook deliveries and the generated GitHub Actions YAML. Must be reachable from the public internet |
+| `APP_FRONTEND_URL`                | Public URL of the **frontend** — used for browser-facing redirects (OAuth callback). Pointing it at the backend returns a 403 |
+| `APP_CORS_ALLOWED_ORIGINS`        | Comma-separated list of browser origins allowed to call the API |
+| `APP_SECURITY_JWT_SECRET`         | App secret; also the seed for the AES key that encrypts OAuth tokens at rest |
 
 ---
 
@@ -183,6 +194,19 @@ pytest
 
 Both suites boot in isolation; the backend uses H2 in PostgreSQL-compat
 mode, and the AI service runs the mock LLM provider.
+
+If Maven or Python is not installed locally, the same suites run in
+containers:
+
+```bash
+cd backend
+docker run --rm -v "${PWD}:/app" -w /app maven:3.9-eclipse-temurin-21 \
+  mvn -B -ntp test
+
+cd ai-service
+docker run --rm -v "${PWD}:/app" -w /app --entrypoint python \
+  livingdocs-ai-service -m pytest tests/ -q
+```
 
 ---
 

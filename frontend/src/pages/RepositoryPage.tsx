@@ -810,6 +810,24 @@ export default function RepositoryPage() {
                     </span>
                   </div>
                 )}
+                {(docScanResult.queuedCount ?? 0) > 0 && (
+                  <div className="bg-green-500/10 border border-green-500/30 rounded p-2 text-xs text-green-700 flex items-center gap-2">
+                    <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                    <span>
+                      <b>{docScanResult.queuedCount}</b> update request(s) queued for review
+                      {docScanResult.skippedCount
+                        ? ` · ${docScanResult.skippedCount} skipped`
+                        : ''}
+                      .{' '}
+                      <Link
+                        to={`/workspaces/${workspaceId}/doc-updates`}
+                        className="underline font-medium"
+                      >
+                        View queue
+                      </Link>
+                    </span>
+                  </div>
+                )}
                 {docScanResult.files.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {docScanResult.files.slice(0, 10).map((file) => (

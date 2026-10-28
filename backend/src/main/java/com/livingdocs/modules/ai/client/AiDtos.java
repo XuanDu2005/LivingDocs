@@ -24,20 +24,43 @@ public final class AiDtos {
             List<Integer> lines,
             String signature) {}
 
+    /**
+     * Request body for {@code POST /api/v1/generate}.
+     *
+     * <p>{@code templateSchema} carries the canonical template JSON
+     * (sections + placeholders). When present the AI service builds its
+     * prompt from the user's own template instead of a built-in preset.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GenerateRequest(
             List<SourceFile> files,
             String template,
+            String templateSchema,
             String focus,
             @JsonProperty("language_hint") String languageHint) {}
 
+    /**
+     * Response body for {@code POST /api/v1/generate}.
+     *
+     * <p>{@code promptTokens} / {@code completionTokens} are the token
+     * counts reported by the LLM provider; the backend rolls them into
+     * the workspace's AI usage report.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GenerateResponse(
             String markdown,
             double confidence,
             String model,
             List<GroundingSource> sources,
-            List<String> notes) {}
+            List<String> notes,
+            @JsonProperty("prompt_tokens") int promptTokens,
+            @JsonProperty("completion_tokens") int completionTokens) {
+        /** Backwards-compatible constructor for callers that predate token accounting. */
+        public GenerateResponse(String markdown, double confidence, String model,
+                                 List<GroundingSource> sources, List<String> notes) {
+            this(markdown, confidence, model, sources, notes, 0, 0);
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DriftFinding(
@@ -59,7 +82,13 @@ public final class AiDtos {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DriftResponse(
             List<DriftFinding> findings,
-            @JsonProperty("markdown_summary") String markdownSummary) {}
+            @JsonProperty("markdown_summary") String markdownSummary,
+            @JsonProperty("prompt_tokens") int promptTokens,
+            @JsonProperty("completion_tokens") int completionTokens) {
+        public DriftResponse(List<DriftFinding> findings, String markdownSummary) {
+            this(findings, markdownSummary, 0, 0);
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record IndexRequest(

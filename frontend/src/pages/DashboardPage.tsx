@@ -199,10 +199,30 @@ export default function DashboardPage() {
 
   async function loadRecentActivity(ws: Workspace | undefined) {
     try {
-      const reviews = await reviewsApi.myReviews().catch(() => [] as DocumentReview[]);
-      const pending = reviews.filter((r) => r.decision !== 'APPROVED');
-      setPendingReviews(pending.length);
-      setRecentReviews(pending.slice(0, 5));
+      // The pending-on-me endpoint is workspace-scoped and already knows
+      // which tiers the caller may act on, so it is the right source for
+      // the "waiting on you" counters.
+      if (ws) {
+        const queue = await reviewsApi.pendingOnMe(ws.id).catch(() => null);
+        if (queue) {
+          const total =
+            queue.staffQueue.length + queue.managerQueue.length + queue.publishQueue.length;
+          setPendingReviews(total);
+          setRecentReviews(
+            [...queue.staffQueue, ...queue.managerQueue, ...queue.publishQueue]
+              .slice(0, 5)
+              .map((item) => ({
+                id: item.versionId,
+                documentVersionId: `${item.documentTitle} v${item.versionNumber}`,
+                reviewerUserId: '',
+                reviewerRole: item.action,
+                decision: 'COMMENT' as const,
+                comment: item.changeSummary,
+                decidedAt: item.createdAt,
+              })),
+          );
+        }
+      }
     } catch {
       /* ignore */
     }

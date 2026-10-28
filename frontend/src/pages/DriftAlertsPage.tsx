@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { driftApi, DriftAlert, DriftKind, DriftResolution, DriftSeverity } from '../services/drift';
+import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import { describeError } from '../services/auth';
 import { format } from 'date-fns';
 
@@ -55,6 +56,12 @@ function EvidenceRow({ evidenceJson, t }: { evidenceJson: string; t: (k: string)
   const [open, setOpen] = useState(false);
   let parsed: unknown;
   try { parsed = JSON.parse(evidenceJson); } catch { parsed = evidenceJson; }
+
+  // The semantic-drift analyzer stores the raw code diff in the evidence
+  // object. When it is there we render it with the shared diff viewer
+  // instead of a raw JSON dump.
+  const diffText = extractDiff(evidenceJson);
+
   return (
     <div className="mt-2 rounded border bg-muted/50 p-2">
       <button
@@ -66,12 +73,45 @@ function EvidenceRow({ evidenceJson, t }: { evidenceJson: string; t: (k: string)
         {open ? t('drift.hideEvidence') : t('drift.showEvidence')}
       </button>
       {open && (
-        <pre className="mt-2 overflow-auto rounded bg-background p-2 text-xs font-mono max-h-48">
-          {JSON.stringify(parsed, null, 2)}
-        </pre>
+        diffText ? (
+          <div className="mt-2">
+            <UnifiedDiffViewer diff={diffText} emptyMessage={t('drift.noDiff')} />
+          </div>
+        ) : (
+          <pre className="mt-2 overflow-auto rounded bg-background p-2 text-xs font-mono max-h-48">
+            {JSON.stringify(parsed, null, 2)}
+          </pre>
+        )
       )}
     </div>
   );
+}
+
+/**
+ * Pull a unified diff out of a drift alert's evidence JSON.
+ *
+ * <p>The evidence shape differs by producer: the LLM analyzer stores
+ * `{"diff": "..."}`, the AST detector stores the changed symbols. We
+ * look for a string value that actually looks like a diff.
+ */
+function extractDiff(evidenceJson: string): string | null {
+  if (!evidenceJson) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(evidenceJson); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const record = parsed as Record<string, unknown>;
+  for (const key of ['diff', 'unifiedDiff', 'unified_diff', 'patch', 'codeDiff']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.includes('@@')) return value;
+  }
+
+  // The LLM may nest the diff inside an `evidence` object.
+  const nested = record.evidence;
+  if (nested && typeof nested === 'object') {
+    return extractDiff(JSON.stringify(nested));
+  }
+  return null;
 }
 
 export default function DriftAlertsPage() {

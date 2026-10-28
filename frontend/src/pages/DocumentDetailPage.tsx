@@ -4,7 +4,7 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, AlertCircle, Bot, Check, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -25,6 +25,7 @@ import {
 } from '../components/ui/table';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { documentsApi, Document, DocumentVersion, DocumentVersionSummary, ActorRole, VersionStatus } from '../services/documents';
+import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import { driftApi, DriftAlert } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
@@ -74,15 +75,7 @@ function RoleBadge({ role, t }: { role: ActorRole; t: (k: string) => string }) {
 }
 
 function DiffViewer({ diff }: { diff: string }) {
-  return (
-    <pre className="font-mono text-xs whitespace-pre-wrap bg-muted/50 rounded p-3 overflow-auto max-h-96">
-      {diff.split('\n').map((line, i) => {
-        if (line.startsWith('+')) return <div key={i} className="text-green-600 dark:text-green-400">{line}</div>;
-        if (line.startsWith('-')) return <div key={i} className="text-red-600 dark:text-red-400">{line}</div>;
-        return <div key={i} className="text-muted-foreground">{line}</div>;
-      })}
-    </pre>
-  );
+  return <UnifiedDiffViewer diff={diff} />;
 }
 
 export default function DocumentDetailPage() {
@@ -102,6 +95,8 @@ export default function DocumentDetailPage() {
   const [links, setLinks] = useState<CodeDocumentLink[]>([]);
   const [generating, setGenerating] = useState<boolean>(false);
   const [genError, setGenError] = useState<string | null>(null);
+  // Async generation job state (the backend answers 202 and works on a worker).
+  const [genJob, setGenJob] = useState<import('../services/ai').GenerationJobStatus | null>(null);
 
   // Commit-to-GitHub dialog state
   const [showCommitDialog, setShowCommitDialog] = useState<boolean>(false);
@@ -448,14 +443,59 @@ export default function DocumentDetailPage() {
     if (!workspaceId || !documentId || !doc?.repositoryId) return;
     setGenerating(true);
     setGenError(null);
+    setGenJob(null);
     try {
-      await aiApi.generate(workspaceId, documentId, [], selectedTemplate);
-      await load();
+      // 202 Accepted: the LLM run happens on a Kafka worker, so we poll
+      // the generation-status endpoint until the version is persisted.
+      const accepted = await aiApi.generate(workspaceId, documentId, [], selectedTemplate);
+      setGenJob({
+        id: accepted.jobId,
+        documentId: accepted.documentId,
+        status: 'RUNNING',
+        template: selectedTemplate,
+        documentVersionId: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      });
+      await pollGeneration();
     } catch (err) {
       setGenError(describeError(err));
     } finally {
       setGenerating(false);
     }
+  }
+
+  /**
+   * Poll the generation-status endpoint until the run finishes.
+   *
+   * <p>Stops early when the job reaches a terminal state; the caller then
+   * reloads the document so the new version shows up in the timeline.
+   */
+  async function pollGeneration() {
+    if (!workspaceId || !documentId) return;
+    const deadline = Date.now() + 180_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const status = await aiApi.generationStatus(workspaceId, documentId);
+        setGenJob(status);
+        if (
+          status.status === 'SUCCEEDED' ||
+          status.status === 'FAILED' ||
+          status.status === 'SKIPPED'
+        ) {
+          if (status.status === 'SUCCEEDED') await load();
+          else setGenError(status.errorMessage ?? t('documentDetail.generationFailed'));
+          return;
+        }
+      } catch (err) {
+        // Transient failures during polling are not fatal — keep trying
+        // until the deadline expires.
+      }
+    }
+    setGenError(t('documentDetail.generationTimeout'));
   }
 
   async function handlePreviewGenerate() {
@@ -879,6 +919,33 @@ export default function DocumentDetailPage() {
       </div>
 
       {genError && <ErrorState message={genError} />}
+
+      {/* Async generation status bar */}
+      {genJob && (
+        <div className="flex items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-2 text-sm">
+          {genJob.status === 'RUNNING' ? (
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          ) : genJob.status === 'SUCCEEDED' ? (
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+          ) : (
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          )}
+          <span className="font-medium">
+            {genJob.status === 'RUNNING' && t('documentDetail.generationInProgress')}
+            {genJob.status === 'SUCCEEDED' && t('documentDetail.generationSucceeded')}
+            {genJob.status === 'FAILED' && t('documentDetail.generationFailed')}
+            {genJob.status === 'SKIPPED' && t('documentDetail.generationSkipped')}
+          </span>
+          {genJob.template && (
+            <Badge variant="muted">{genJob.template}</Badge>
+          )}
+          {genJob.status === 'SUCCEEDED' && (
+            <span className="text-xs text-muted-foreground">
+              {genJob.promptTokens + genJob.completionTokens} tokens
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Quick Status Bar */}
       {doc.repositoryId && (

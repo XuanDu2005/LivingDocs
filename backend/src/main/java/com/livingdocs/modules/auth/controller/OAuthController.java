@@ -50,7 +50,7 @@ public class OAuthController {
     private final OAuthProperties properties;
     private final JwtService jwtService;
     private final UserRoleAssignmentRepository roleAssignmentRepository;
-    private final String publicUrl;
+    private final String frontendUrl;
 
     public OAuthController(OAuthStateService stateService,
                            OAuthService oauthService,
@@ -58,14 +58,14 @@ public class OAuthController {
                            OAuthProperties properties,
                            JwtService jwtService,
                            UserRoleAssignmentRepository roleAssignmentRepository,
-                           @Value("${app.public-url:http://localhost:8080}") String publicUrl) {
+                           @Value("${app.frontend-url:http://localhost:5173}") String frontendUrl) {
         this.stateService = stateService;
         this.oauthService = oauthService;
         this.adapterFactory = adapterFactory;
         this.properties = properties;
         this.jwtService = jwtService;
         this.roleAssignmentRepository = roleAssignmentRepository;
-        this.publicUrl = publicUrl;
+        this.frontendUrl = frontendUrl;
     }
 
     @GetMapping("/{provider}/start")
@@ -181,7 +181,7 @@ public class OAuthController {
             oauthService.linkIdentityToCurrentUserForce(linkUserId, info);
             log.info("Linked {} identity to user {} via /callback", p, linkUserId);
             return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", publicUrl + "/auth/callback?linked=" + enc(p.wireValue()))
+                    .header("Location", frontendUrl + "/auth/callback?linked=" + enc(p.wireValue()))
                     .build();
         } catch (Exception e) {
             log.error("Link callback failed for {}", p, e);
@@ -203,7 +203,7 @@ public class OAuthController {
                                                    String provider, String expEpoch) {
         String url = String.format(
                 "%s/auth/callback?token=%s&provider=%s&expiresAt=%s",
-                publicUrl,
+                frontendUrl,
                 enc(token), enc(provider), enc(expEpoch));
         if (next != null && !next.isBlank()) {
             url += "&next=" + enc(next);
@@ -213,7 +213,7 @@ public class OAuthController {
 
     private ResponseEntity<Void> redirectWith(String next, String code,
                                               String provider, String message) {
-        String url = String.format("%s/auth/callback?error=%s", publicUrl, enc(code));
+        String url = String.format("%s/auth/callback?error=%s", frontendUrl, enc(code));
         if (provider != null) url += "&provider=" + enc(provider);
         if (message != null) url += "&message=" + enc(message);
         if (next != null && !next.isBlank()) url += "&next=" + enc(next);

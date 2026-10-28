@@ -1,7 +1,9 @@
 package com.livingdocs.modules.github.model;
 
+import com.livingdocs.common.crypto.EncryptedStringConverter;
 import com.livingdocs.common.persistence.UuidGenerator;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -36,6 +38,15 @@ public class GithubConnection {
     @Column(name = "github_login", nullable = false, length = 120)
     private String githubLogin;
 
+    /**
+     * The GitHub OAuth access token.
+     *
+     * <p>Stored encrypted: the {@link EncryptedStringConverter} turns the
+     * plaintext into AES-GCM ciphertext on the way into the database and
+     * back into plaintext on the way out. The entity always works with
+     * the plaintext, so no call site has to remember to decrypt.
+     */
+    @Convert(converter = EncryptedStringConverter.class)
     @Column(name = "access_token", nullable = false, length = 255)
     private String accessToken;
 

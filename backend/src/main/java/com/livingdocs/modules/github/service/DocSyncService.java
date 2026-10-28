@@ -88,6 +88,15 @@ public class DocSyncService {
     ) {}
 
     /**
+     * Summary of the proposals queued by a scan.
+     *
+     * @param queued  number of NEW proposals created
+     * @param skipped number of drifted files that were not queued
+     *                (already pending, or the AI proposed no real change)
+     */
+    public record AutoQueueResult(int queued, int skipped, List<String> queuedFiles) {}
+
+    /**
      * Information about a single documentation file.
      */
     public record DocFileInfo(
@@ -193,6 +202,68 @@ public class DocSyncService {
         // real content, not a half-baked heuristic.
 
         return new ScanResult(allFiles.size(), totalReferenced, matchedEntities, allFiles);
+    }
+
+    /**
+     * After a scan, turn every drifted file into a review proposal.
+     *
+     * <p>This is the "review-before-push" entry point: scanning a
+     * repository queues a PENDING_REVIEW {@link
+     * com.livingdocs.modules.docsync.model.DocUpdateRequest} for each
+     * file whose documentation no longer matches the code. Staff
+     * approve/reject, then a Manager applies it as a real GitHub PR.
+     *
+     * <p>Each file is previewed independently, so a single failure
+     * (e.g. the AI call times out for one file) does not abort the
+     * whole batch. Files that already have a pending proposal are
+     * skipped rather than duplicated.
+     *
+     * @return how many proposals were created and which files they cover
+     */
+    public AutoQueueResult autoQueueDriftedFiles(UUID actorId, UUID workspaceId, UUID repositoryId,
+                                                  String accessToken, String branch,
+                                                  List<DocFileInfo> driftedFiles) {
+        if (driftedFiles == null || driftedFiles.isEmpty()) {
+            return new AutoQueueResult(0, 0, List.of());
+        }
+        int queued = 0;
+        int skipped = 0;
+        List<String> queuedFiles = new ArrayList<>();
+
+        for (DocFileInfo file : driftedFiles) {
+            try {
+                SyncPreviewResult preview = previewSync(
+                        actorId, workspaceId, repositoryId, accessToken, file.path(), branch);
+                if (preview.noEntitiesFound() || preview.proposedContent() == null) {
+                    skipped++;
+                    continue;
+                }
+                String diff = preview.diff();
+                // Each proposal is queued in its own transaction so a
+                // failure for one file does not roll back the others.
+                com.livingdocs.modules.docsync.dto.DocUpdateRequestDto created =
+                        docUpdateRequestService.createProposalIfNotPending(
+                                workspaceId, repositoryId, null,
+                                file.path(), preview.currentContent(), preview.proposedContent(),
+                                diff == null ? null : diff.substring(0, Math.min(500, diff.length())),
+                                null, branch, actorId);
+                if (created != null) {
+                    queued++;
+                    queuedFiles.add(file.path());
+                } else {
+                    skipped++;
+                }
+            } catch (Exception e) {
+                // One bad file must not abort the batch.
+                skipped++;
+                log.warn("Could not queue doc update for {} in {}: {}",
+                        file.path(), repositoryId, e.getMessage());
+            }
+        }
+
+        log.info("Auto-queued {} doc update proposal(s) for repository {} ({} skipped)",
+                queued, repositoryId, skipped);
+        return new AutoQueueResult(queued, skipped, queuedFiles);
     }
 
     private void scanDirectoryRecursive(String dirPath, String branch, String owner, String repo,
@@ -516,7 +587,7 @@ public class DocSyncService {
         SyncPreviewResult preview = previewSync(actorId, workspaceId, repositoryId, accessToken, filePath, branch);
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new RuntimeException("Repository not found"));
-        return docUpdateRequestService.createProposal(
+        return docUpdateRequestService.createProposalIfNotPending(
                 repo.getWorkspaceId(), repo.getId(), null,
                 filePath, preview.currentContent(), preview.proposedContent(),
                 preview.diff() == null ? null

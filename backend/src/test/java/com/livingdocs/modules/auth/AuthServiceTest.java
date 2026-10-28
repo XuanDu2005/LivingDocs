@@ -18,6 +18,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,6 +48,20 @@ class AuthServiceTest {
         emailVerificationService = mock(EmailVerificationService.class);
         refreshTokenService = mock(RefreshTokenService.class);
         UserResponseMapper userResponseMapper = mock(UserResponseMapper.class);
+
+        // The refresh token and the user projection are part of the
+        // response, so the mocks have to produce real values — a Mockito
+        // default of null would blow up while assembling the response.
+        when(refreshTokenService.issue(any(), any(), any()))
+                .thenReturn(new RefreshTokenService.Issued(
+                        "refresh-token", OffsetDateTime.now().plusDays(30)));
+        when(userResponseMapper.toResponse(any(), any()))
+                .thenAnswer(inv -> {
+                    User u = inv.getArgument(0);
+                    return com.livingdocs.modules.user.dto.UserResponse.from(
+                            u, List.of(), List.of(), null);
+                });
+
         authService = new AuthService(userService, roleAssignmentRepository, jwtService, emailVerificationService, refreshTokenService, userResponseMapper, 15);
     }
 
@@ -84,6 +99,9 @@ class AuthServiceTest {
         User existing = new User("alice@example.com", "Alice",
                 new BCryptPasswordEncoder().encode("secret-password"));
         existing.setEmailForTest(UUID.randomUUID());
+        // Login is only allowed for verified accounts — the test predates
+        // that requirement, so the flag has to be set explicitly.
+        existing.markEmailVerified();
         when(userRepository.findByEmailIgnoreCase("alice@example.com"))
                 .thenReturn(Optional.of(existing));
 

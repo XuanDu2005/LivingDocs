@@ -56,6 +56,7 @@ import {
   UpdateWorkspaceSettingsPayload,
 } from '../services/workspaceSettings';
 import { RepositoriesPanel } from '../components/RepositoriesPanel';
+import GovernancePanel from '../components/GovernancePanel';
 import { format } from 'date-fns';
 import { Switch } from '../components/ui/switch';
 
@@ -461,6 +462,10 @@ export default function WorkspaceDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Effective policy — what the runtime actually enforces, including
+          the per-doc-type overrides the settings form does not show. */}
+      {workspaceId && <GovernancePanel workspaceId={workspaceId} />}
 
       <Card>
         <CardHeader>

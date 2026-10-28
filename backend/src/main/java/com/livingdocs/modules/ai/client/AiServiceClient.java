@@ -6,7 +6,9 @@ import com.livingdocs.modules.ai.settings.AiSettings;
 import com.livingdocs.modules.ai.settings.AiSettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
@@ -74,19 +76,39 @@ public class AiServiceClient {
                                             String template,
                                             String focus,
                                             String languageHint) {
+        return generate(workspaceId, files, template, null, focus, languageHint);
+    }
+
+    /**
+     * Generate documentation.
+     *
+     * @param templateSchema canonical template JSON (sections + placeholders);
+     *                       may be {@code null} to use the built-in preset
+     */
+    public AiDtos.GenerateResponse generate(UUID workspaceId,
+                                            List<AiDtos.SourceFile> files,
+                                            String template,
+                                            String templateSchema,
+                                            String focus,
+                                            String languageHint) {
         if (!props.isEnabled()) return null;
         AiSettings settings = resolveSettings(workspaceId);
         try {
-            AiDtos.GenerateRequest req = new AiDtos.GenerateRequest(files, template, focus, languageHint);
+            AiDtos.GenerateRequest req = new AiDtos.GenerateRequest(
+                    files, template, templateSchema, focus, languageHint);
             return restClient.post()
                     .uri(props.getApiPrefix() + "/generate")
-                    .header("X-Workspace-Id", workspaceId == null ? "" : workspaceId.toString())
-                    .header("X-Ai-Provider", settings.provider().name())
-                    .header("X-Ai-Model", settings.model() == null ? "" : settings.model())
-                    .header("X-Ai-Base-Url", settings.baseUrl() == null ? "" : settings.baseUrl())
+                    .headers(h -> applyAiHeaders(h, workspaceId, settings))
                     .body(req)
                     .retrieve()
                     .body(AiDtos.GenerateResponse.class);
+        } catch (RestClientResponseException e) {
+            // The AI service returns 4xx for a misconfiguration (bad
+            // provider, missing key) and 502 for an upstream failure.
+            // Surface that text — it is actionable for the user, whereas
+            // a generic "AI unavailable" is not.
+            log.warn("AI service rejected generate call: {} {}", e.getStatusCode(), e.getResponseBodyAsString());
+            return null;
         } catch (Exception e) {
             log.warn("AI service generate call failed: {}", e.getMessage());
             return null;
@@ -105,9 +127,7 @@ public class AiServiceClient {
                     filesBefore, filesAfter, documentMarkdown, documentTitle);
             return restClient.post()
                     .uri(props.getApiPrefix() + "/drift")
-                    .header("X-Workspace-Id", workspaceId == null ? "" : workspaceId.toString())
-                    .header("X-Ai-Provider", settings.provider().name())
-                    .header("X-Ai-Model", settings.model() == null ? "" : settings.model())
+                    .headers(h -> applyAiHeaders(h, workspaceId, settings))
                     .body(req)
                     .retrieve()
                     .body(AiDtos.DriftResponse.class);
@@ -167,5 +187,60 @@ public class AiServiceClient {
 
     public AiProvider defaultProvider() {
         return AiProvider.SANDBOX;
+    }
+
+    // ------------------------------------------------------------------
+    // headers
+    // ------------------------------------------------------------------
+
+    /**
+     * Propagate the workspace's AI configuration to the AI service.
+     *
+     * <p>The AI service used to read a single global {@code LLM_PROVIDER}
+     * from its environment, which meant a workspace could pick OpenAI
+     * in the UI but the service kept calling the mock provider. These
+     * headers make the per-workspace configuration authoritative:
+     * the AI service prefers them over its own environment.
+     *
+     * <p>The API key travels in a header over the internal network. See
+     * {@code ai-service.internal-token} — the AI service rejects
+     * requests that do not carry the shared secret, so the key is
+     * never exposed to an untrusted caller.
+     */
+    private void applyAiHeaders(HttpHeaders headers, UUID workspaceId, AiSettings settings) {
+        headers.set("X-Workspace-Id", workspaceId == null ? "" : workspaceId.toString());
+        headers.set("X-Ai-Provider", providerWireName(settings.provider()));
+        headers.set("X-Ai-Model", settings.model() == null ? "" : settings.model());
+        headers.set("X-Ai-Base-Url", settings.baseUrl() == null ? "" : settings.baseUrl());
+        headers.set("X-Ai-Temperature",
+                settings.temperature() == null ? "" : String.valueOf(settings.temperature()));
+        headers.set("X-Ai-Max-Tokens",
+                settings.maxTokens() == null ? "" : String.valueOf(settings.maxTokens()));
+        if (settings.embeddingModel() != null) {
+            headers.set("X-Ai-Embedding-Model", settings.embeddingModel());
+        }
+        String internalToken = props.getInternalToken();
+        if (internalToken != null && !internalToken.isBlank()) {
+            headers.set("X-Ai-Internal-Token", internalToken);
+        }
+        String apiKey = settings.apiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            headers.set("X-Ai-Api-Key", apiKey);
+        }
+    }
+
+    /**
+     * Map the platform's provider enum onto the names the AI service
+     * understands.
+     */
+    private static String providerWireName(AiProvider provider) {
+        if (provider == null) return "mock";
+        return switch (provider) {
+            case SANDBOX -> "mock";
+            case OPENAI -> "openai";
+            case ANTHROPIC -> "anthropic";
+            case OLLAMA -> "ollama";
+            case CUSTOM -> "custom";
+        };
     }
 }
