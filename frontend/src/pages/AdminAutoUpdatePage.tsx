@@ -345,14 +345,14 @@ export default function AdminAutoUpdatePage() {
           <div className="space-y-3 rounded-md border p-3">
             <div className="flex items-center gap-2">
               <FileType className="h-4 w-4" />
-              <div className="text-sm font-medium">Documentation generation defaults</div>
+              <div className="text-sm font-medium">{t('adminAutoUpdate.docGenTitle')}</div>
             </div>
             <p className="text-xs text-muted-foreground">
-              These values are copied into every newly-created workspace.
+              {t('adminAutoUpdate.docGenDesc')}
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">Default output format</label>
+                <label className="text-xs font-medium">{t('adminAutoUpdate.defaultOutputFormat')}</label>
                 <Select
                   value={outputFormat}
                   onValueChange={(v) => setOutputFormat(v as DocOutputFormat)}
@@ -366,7 +366,7 @@ export default function AdminAutoUpdatePage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">Default generation trigger</label>
+                <label className="text-xs font-medium">{t('adminAutoUpdate.defaultTrigger')}</label>
                 <Select
                   value={genTrigger}
                   onValueChange={(v) => setGenTrigger(v as GenerationTrigger)}
@@ -381,15 +381,15 @@ export default function AdminAutoUpdatePage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Default template (optional)</label>
+              <label className="text-xs font-medium">{t('adminAutoUpdate.defaultTemplate')}</label>
               <div className="flex gap-2">
                 <Select
                   value={templateId ?? '__none__'}
                   onValueChange={(v) => setTemplateId(v === '__none__' ? null : v)}
                 >
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="(no default template)" /></SelectTrigger>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder={t('adminAutoUpdate.noDefaultTemplate')} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">(no default template)</SelectItem>
+                    <SelectItem value="__none__">{t('adminAutoUpdate.noDefaultTemplate')}</SelectItem>
                     {templateOptions.map((tpl) => (
                       <SelectItem key={tpl.id} value={tpl.id}>
                         {tpl.name} · {DOC_TYPE_LABELS[tpl.docType] ?? tpl.docType} · v{tpl.version}
@@ -403,15 +403,14 @@ export default function AdminAutoUpdatePage() {
                     variant="outline"
                     size="icon"
                     onClick={() => setTemplateId(null)}
-                    title="Clear default template"
+                    title={t('adminAutoUpdate.clearDefaultTemplate')}
                   >
                     <X className="h-4 w-4" />
                   </Button>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                When a workspace is created it inherits this template binding unless
-                overridden. Leave empty to let workspaces pick their own default.
+                {t('adminAutoUpdate.templateHint')}
               </p>
             </div>
           </div>

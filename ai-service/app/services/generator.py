@@ -226,7 +226,7 @@ def _user_prompt_for(parsed: Iterable[ParsedFile],
         if file.module_docstring:
             parts.append(f"Module docstring:\n```\n{file.module_docstring}\n```\n")
         for e in file.entities:
-            parts.append(_entity_to_prompt(e))
+            parts.append(_entity_to_prompt(e, file.source))
     if template_schema:
         parts.append("\n# Required output structure\n")
         parts.append(json.dumps(template_schema, indent=2))
@@ -236,7 +236,7 @@ def _user_prompt_for(parsed: Iterable[ParsedFile],
     return "\n\n".join(parts)
 
 
-def _entity_to_prompt(e: CodeEntity) -> str:
+def _entity_to_prompt(e: CodeEntity, source: str = "") -> str:
     sig = sig_block_lines = "\n".join(f"  {ln}" for ln in (e.signature or "").splitlines())
     docstring = f"\nDocstring:\n```\n{e.docstring}\n```" if e.docstring else ""
     params = ", ".join(f"{p.name}: {p.type_hint or '?'}" for p in e.parameters) if e.parameters else ""
@@ -248,10 +248,32 @@ def _entity_to_prompt(e: CodeEntity) -> str:
         "parent": e.parent_qualified_name,
         "lines": [e.start_line, e.end_line],
     }, indent=2)
+    # The body of the entity — not just its signature — is what lets the
+    # model describe real behaviour instead of guessing from the name.
+    body = _entity_body(e, source)
+    body_block = f"\nImplementation:\n```\n{body}\n```\n" if body else ""
     return (f"### {e.kind.value} `{e.qualified_name}`\n"
             f"Signature:\n```\n{sig}\n```\n"
+            f"{body_block}"
             f"{docstring}\n"
             f"Metadata:\n```json\n{metadata}\n```\n")
+
+
+def _entity_body(e: CodeEntity, source: str) -> str:
+    """Slice the entity's implementation out of the original source.
+
+    Falls back to an empty string when the source is unavailable or the
+    recorded line range does not fit it.
+    """
+
+    if not source:
+        return ""
+    lines = source.splitlines()
+    start = max(0, e.start_line - 1)
+    end = min(len(lines), e.end_line)
+    if start >= end:
+        return ""
+    return "\n".join(lines[start:end]).strip()
 
 
 def _fallback_markdown(parsed: Iterable[ParsedFile], template_name: str) -> str:

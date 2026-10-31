@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Github, Loader2, Unlink, ShieldCheck } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -34,6 +35,7 @@ import { listLinkedProviders } from '../services/authApi';
  * button instead of a full re-link flow.
  */
 export function GithubConnectionCard() {
+  const { t } = useTranslation();
   const [connection, setConnection] = useState<GithubConnection | null>(null);
   const [loginLinked, setLoginLinked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -85,7 +87,7 @@ export function GithubConnectionCard() {
     try {
       await githubApi.disconnect();
       setConnection(null);
-      setInfo('GitHub account unlinked. You can now connect a different account.');
+      setInfo(t('githubCard.unlinkedInfo'));
       setConfirmOpen(false);
     } catch (err) {
       setError(describeError(err));
@@ -103,40 +105,38 @@ export function GithubConnectionCard() {
           <div className="flex items-center gap-2">
             <Github className="h-5 w-5" />
             <CardTitle className="text-base">
-              GitHub <span className="text-xs font-normal text-muted-foreground">(Repository)</span>
+              GitHub <span className="text-xs font-normal text-muted-foreground">{t('githubCard.repositorySuffix')}</span>
             </CardTitle>
           </div>
           {loading ? (
-            <Badge variant="muted">Checking…</Badge>
+            <Badge variant="muted">{t('githubCard.checking')}</Badge>
           ) : isActive ? (
-            <Badge variant="success">Connected</Badge>
+            <Badge variant="success">{t('githubCard.connected')}</Badge>
           ) : connection ? (
             <Badge variant="warning">{connection.status}</Badge>
           ) : (
-            <Badge variant="muted">Not connected</Badge>
+            <Badge variant="muted">{t('githubCard.notConnected')}</Badge>
           )}
         </div>
         <CardDescription>
-          Liên kết GitHub cho <strong>repository</strong>: dùng để duyệt repo và
-          đồng bộ pull request vào workspace. Nếu bạn đã liên kết GitHub ở
-          phần Tài khoản thì chỉ cần bấm “Cấp quyền truy cập repo” một lần.
+          {t('githubCard.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Checking connection status…
+            {t('githubCard.checkingStatus')}
           </div>
         ) : isActive && connection ? (
           <div className="space-y-2">
             <div className="text-sm">
-              <span className="text-muted-foreground">Signed in as </span>
+              <span className="text-muted-foreground">{t('githubCard.signedInAs')} </span>
               <span className="font-semibold">@{connection.githubLogin}</span>
             </div>
             {connection.scope && (
               <div className="text-xs text-muted-foreground">
-                Scope: <span className="font-mono">{connection.scope}</span>
+                {t('githubCard.scope')}: <span className="font-mono">{connection.scope}</span>
               </div>
             )}
             <div className="flex flex-wrap gap-2 pt-1">
@@ -149,12 +149,12 @@ export function GithubConnectionCard() {
                 {connecting ? (
                   <>
                     <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    Redirecting…
+                    {t('githubCard.redirecting')}
                   </>
                 ) : (
                   <>
                     <Github className="mr-1 h-4 w-4" />
-                    Switch account
+                    {t('githubCard.switchAccount')}
                   </>
                 )}
               </Button>
@@ -166,17 +166,13 @@ export function GithubConnectionCard() {
                   onClick={() => setConfirmOpen(true)}
                 >
                   <Unlink className="mr-1 h-4 w-4" />
-                  Unlink
+                  {t('githubCard.unlink')}
                 </Button>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Unlink GitHub account?</DialogTitle>
+                    <DialogTitle>{t('githubCard.unlinkTitle')}</DialogTitle>
                     <DialogDescription>
-                      This will remove the link between your LivingDocs
-                      account (<span className="font-semibold">@{connection.githubLogin}</span>)
-                      and your GitHub access token. Existing imported
-                      repositories will remain, but you will need to
-                      re-authorise to ingest new data.
+                      {t('githubCard.unlinkDesc', { login: `@${connection.githubLogin}` })}
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
@@ -186,7 +182,7 @@ export function GithubConnectionCard() {
                       onClick={() => setConfirmOpen(false)}
                       disabled={disconnecting}
                     >
-                      Cancel
+                      {t('common.actions.cancel')}
                     </Button>
                     <Button
                       type="button"
@@ -197,10 +193,10 @@ export function GithubConnectionCard() {
                       {disconnecting ? (
                         <>
                           <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                          Unlinking…
+                          {t('githubCard.unlinking')}
                         </>
                       ) : (
-                        'Unlink GitHub'
+                        t('githubCard.unlinkGithub')
                       )}
                     </Button>
                   </DialogFooter>
@@ -215,22 +211,21 @@ export function GithubConnectionCard() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <ShieldCheck className="h-4 w-4 text-primary" />
-              GitHub đã được liên kết ở phần Tài khoản.
+              {t('githubCard.linkedInAccount')}
             </div>
             <p className="text-xs text-muted-foreground">
-              Cấp thêm quyền truy cập repository để có thể đồng bộ repo vào
-              workspace.
+              {t('githubCard.grantRepoDesc')}
             </p>
             <Button onClick={onConnect} disabled={connecting} size="sm">
               {connecting ? (
                 <>
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  Redirecting…
+                  {t('githubCard.redirecting')}
                 </>
               ) : (
                 <>
                   <Github className="mr-1 h-4 w-4" />
-                  Cấp quyền truy cập repo
+                  {t('githubCard.grantRepoAccess')}
                 </>
               )}
             </Button>
@@ -240,12 +235,12 @@ export function GithubConnectionCard() {
             {connecting ? (
               <>
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                Redirecting…
+                {t('githubCard.redirecting')}
               </>
             ) : (
               <>
                 <Github className="mr-1 h-4 w-4" />
-                Connect GitHub
+                {t('githubCard.connectGithub')}
               </>
             )}
           </Button>

@@ -13,10 +13,29 @@ export interface AuditLog {
   createdAt: string;
 }
 
-/** Fetch the audit log for a workspace. Requires MANAGER on the workspace. */
-export async function listAuditLogs(workspaceId: string): Promise<AuditLog[]> {
-  const { data } = await apiClient.get<AuditLog[]>(
+/** Paged envelope returned by the audit-log endpoints. */
+export interface AuditLogPage {
+  items: AuditLog[];
+  page: number;
+  size: number;
+  total: number;
+}
+
+/**
+ * Fetch the audit log for a workspace. Requires MANAGER on the workspace.
+ *
+ * The backend returns a paged envelope; this helper unwraps it so callers
+ * keep working with a plain list.
+ */
+export async function listAuditLogs(
+  workspaceId: string,
+  page = 0,
+  size = 200,
+): Promise<AuditLog[]> {
+  const { data } = await apiClient.get<AuditLogPage | AuditLog[]>(
     `/workspaces/${workspaceId}/audit-logs`,
+    { params: { page, size } },
   );
-  return data;
+  if (Array.isArray(data)) return data;
+  return data.items ?? [];
 }

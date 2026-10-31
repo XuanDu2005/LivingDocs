@@ -88,12 +88,13 @@ public class DocumentService {
         );
         Document saved = documentRepository.save(document);
 
-        // Initial version — a draft attributed to the author.
+        // Initial version — a draft attributed to the author. It stays a
+        // draft until the author submits it for review.
         DocumentVersion initial = new DocumentVersion(
                 saved.getId(), 1, req.initialBody(), "Initial version",
                 ActorRole.STAFF, actorId,
                 null, null, saved.getTemplateId(),
-                VersionStatus.PENDING, null
+                VersionStatus.DRAFT, null
         );
         versionRepository.save(initial);
 

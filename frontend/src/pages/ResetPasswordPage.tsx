@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { KeyRound } from 'lucide-react';
 
 import { Button } from '../components/ui/button';
@@ -17,6 +18,7 @@ import { resetPassword } from '../services/authApi';
 import { describeError } from '../services/auth';
 
 export default function ResetPasswordPage() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const email = params.get('email') ?? '';
   const navigate = useNavigate();
@@ -31,15 +33,15 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     setError(null);
     if (code.length !== 6) {
-      setError('Vui lòng nhập đủ 6 chữ số của mã xác nhận.');
+      setError(t('auth.resetPassword.errCodeLength'));
       return;
     }
     if (newPassword.length < 8) {
-      setError('Mật khẩu mới phải có ít nhất 8 ký tự.');
+      setError(t('auth.resetPassword.errPasswordLength'));
       return;
     }
     if (newPassword !== confirm) {
-      setError('Mật khẩu xác nhận không khớp.');
+      setError(t('auth.passwordMismatch'));
       return;
     }
     setSubmitting(true);
@@ -58,14 +60,14 @@ export default function ResetPasswordPage() {
       <div className="flex min-h-[70vh] items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Thiếu địa chỉ email</CardTitle>
+            <CardTitle>{t('auth.resetPassword.missingEmail')}</CardTitle>
             <CardDescription>
-              Vui lòng quay lại trang quên mật khẩu để bắt đầu lại.
+              {t('auth.resetPassword.missingEmailDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
-              <Link to="/forgot-password">Về trang quên mật khẩu</Link>
+              <Link to="/forgot-password">{t('auth.resetPassword.backToForgot')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -80,20 +82,20 @@ export default function ResetPasswordPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <KeyRound className="h-5 w-5" />
           </div>
-          <CardTitle>Đặt lại mật khẩu</CardTitle>
+          <CardTitle>{t('auth.resetPassword.title')}</CardTitle>
           <CardDescription>
-            Nhập mã 6 chữ số đã được gửi đến <b>{email}</b> cùng mật khẩu mới.
+            {t('auth.resetPassword.subtitle', { email })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label>Mã xác nhận</Label>
+              <Label>{t('auth.resetPassword.codeLabel')}</Label>
               <OtpInput value={code} onChange={setCode} length={6} />
             </div>
             <PasswordInput
               id="newPassword"
-              label="Mật khẩu mới"
+              label={t('auth.resetPassword.newPassword')}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
@@ -103,7 +105,7 @@ export default function ResetPasswordPage() {
             />
             <PasswordInput
               id="confirm"
-              label="Xác nhận mật khẩu mới"
+              label={t('auth.resetPassword.confirmPassword')}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required
@@ -116,12 +118,12 @@ export default function ResetPasswordPage() {
               </div>
             )}
             <Button type="submit" disabled={submitting} className="w-full">
-              {submitting ? 'Đang cập nhật…' : 'Đặt lại mật khẩu'}
+              {submitting ? t('auth.resetPassword.submitting') : t('auth.resetPassword.submit')}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             <Link to="/forgot-password" className="hover:underline">
-              ← Yêu cầu mã mới
+              {t('auth.resetPassword.requestNewCode')}
             </Link>
           </p>
         </CardContent>

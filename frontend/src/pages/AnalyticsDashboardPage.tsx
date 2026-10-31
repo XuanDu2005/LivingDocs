@@ -48,7 +48,7 @@ export default function AnalyticsDashboardPage() {
   }, [workspaceId, days]);
 
   if (!workspaceId) return null;
-  if (loading) return <LoadingState message="Loading analytics..." />;
+  if (loading) return <LoadingState message={t('analytics.loading')} />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
@@ -68,10 +68,10 @@ export default function AnalyticsDashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" /> Analytics Dashboard
+            <BarChart3 className="h-5 w-5" /> {t('analytics.title')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Workspace-level insights over the last {days} days.
+            {t('analytics.subtitle', { days })}
           </p>
         </div>
         <Select value={days.toString()} onValueChange={(v) => setDays(Number(v))}>
@@ -79,10 +79,10 @@ export default function AnalyticsDashboardPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="7">7 days</SelectItem>
-            <SelectItem value="30">30 days</SelectItem>
-            <SelectItem value="90">90 days</SelectItem>
-            <SelectItem value="180">180 days</SelectItem>
+            <SelectItem value="7">{t('analytics.rangeDays', { count: 7 })}</SelectItem>
+            <SelectItem value="30">{t('analytics.rangeDays', { count: 30 })}</SelectItem>
+            <SelectItem value="90">{t('analytics.rangeDays', { count: 90 })}</SelectItem>
+            <SelectItem value="180">{t('analytics.rangeDays', { count: 180 })}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -95,7 +95,7 @@ export default function AnalyticsDashboardPage() {
               <FileText className="h-5 w-5 text-primary" />
               <div>
                 <div className="text-2xl font-bold">{totalDocs}</div>
-                <div className="text-xs text-muted-foreground">Total documents</div>
+                <div className="text-xs text-muted-foreground">{t('analytics.totalDocuments')}</div>
               </div>
             </div>
           </CardContent>
@@ -106,7 +106,7 @@ export default function AnalyticsDashboardPage() {
               <Users className="h-5 w-5 text-info" />
               <div>
                 <div className="text-2xl font-bold">{activeToday}</div>
-                <div className="text-xs text-muted-foreground">Active users today</div>
+                <div className="text-xs text-muted-foreground">{t('analytics.activeUsersToday')}</div>
               </div>
             </div>
           </CardContent>
@@ -117,7 +117,7 @@ export default function AnalyticsDashboardPage() {
               <AlertTriangle className="h-5 w-5 text-orange-500" />
               <div>
                 <div className="text-2xl font-bold">{totalDrift}</div>
-                <div className="text-xs text-muted-foreground">Open drift alerts</div>
+                <div className="text-xs text-muted-foreground">{t('analytics.openDriftAlerts')}</div>
               </div>
             </div>
           </CardContent>
@@ -128,7 +128,7 @@ export default function AnalyticsDashboardPage() {
               <Database className="h-5 w-5 text-green-500" />
               <div>
                 <div className="text-2xl font-bold">{totalIndexed}</div>
-                <div className="text-xs text-muted-foreground">Indexing jobs</div>
+                <div className="text-xs text-muted-foreground">{t('analytics.indexingJobs')}</div>
               </div>
             </div>
           </CardContent>
@@ -140,9 +140,9 @@ export default function AnalyticsDashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" /> Document Growth
+              <TrendingUp className="h-4 w-4" /> {t('analytics.docGrowthTitle')}
             </CardTitle>
-            <CardDescription>New documents created per day</CardDescription>
+            <CardDescription>{t('analytics.docGrowthDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
@@ -163,9 +163,9 @@ export default function AnalyticsDashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Users className="h-4 w-4" /> Active Users
+              <Users className="h-4 w-4" /> {t('analytics.activeUsersTitle')}
             </CardTitle>
-            <CardDescription>Distinct users active per day</CardDescription>
+            <CardDescription>{t('analytics.activeUsersDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
@@ -185,8 +185,8 @@ export default function AnalyticsDashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Drift Trends</CardTitle>
-            <CardDescription>New drift alerts per day</CardDescription>
+            <CardTitle className="text-base">{t('analytics.driftTrendsTitle')}</CardTitle>
+            <CardDescription>{t('analytics.driftTrendsDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
@@ -206,8 +206,8 @@ export default function AnalyticsDashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Indexing Activity</CardTitle>
-            <CardDescription>Knowledge-base indexing jobs per day</CardDescription>
+            <CardTitle className="text-base">{t('analytics.indexingActivityTitle')}</CardTitle>
+            <CardDescription>{t('analytics.indexingActivityDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
@@ -230,7 +230,7 @@ export default function AnalyticsDashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Document Status Breakdown</CardTitle>
+            <CardTitle className="text-base">{t('analytics.docStatusTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -243,7 +243,7 @@ export default function AnalyticsDashboardPage() {
                 </div>
               ))}
               {Object.keys(data.documentStatusBreakdown).length === 0 && (
-                <p className="text-sm text-muted-foreground">No documents yet.</p>
+                <p className="text-sm text-muted-foreground">{t('analytics.noDocumentsYet')}</p>
               )}
             </div>
           </CardContent>
@@ -251,7 +251,7 @@ export default function AnalyticsDashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Open Drift by Severity</CardTitle>
+            <CardTitle className="text-base">{t('analytics.driftSeverityTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -268,7 +268,7 @@ export default function AnalyticsDashboardPage() {
                 </div>
               ))}
               {Object.keys(data.driftSeverityBreakdown).length === 0 && (
-                <p className="text-sm text-muted-foreground">No open drift alerts.</p>
+                <p className="text-sm text-muted-foreground">{t('analytics.noOpenDriftAlerts')}</p>
               )}
             </div>
           </CardContent>

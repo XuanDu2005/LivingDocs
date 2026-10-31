@@ -31,6 +31,7 @@ export interface Document {
 
 export type ActorRole = 'AI' | 'STAFF' | 'MANAGER' | 'SYSTEM';
 export type VersionStatus =
+  | 'DRAFT'
   | 'PENDING'
   | 'IN_REVIEW'
   | 'APPROVED'
@@ -181,6 +182,25 @@ export const documentsApi = {
     return apiClient.post<void>(
       `/documents/${documentId}/versions/${versionNumber}/publish`,
     );
+  },
+  /**
+   * Push a draft version into the Staff review queue.
+   *
+   * Versions are created as drafts; only an explicit submit puts them in
+   * front of a reviewer.
+   */
+  submitForReview(workspaceId: string, documentId: string, versionId: string) {
+    return apiClient
+      .post<{
+        documentId: string;
+        versionId: string;
+        versionNumber: number;
+        status: string;
+        message: string;
+      }>(
+        `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/submit-for-review`,
+      )
+      .then((r) => r.data);
   },
   rollback(_workspaceId: string, documentId: string, version: number) {
     return apiClient

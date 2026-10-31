@@ -10,6 +10,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -110,6 +111,19 @@ public class GlobalExceptionHandler {
                 violations
         );
         return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * A required query parameter was not supplied by the caller. This is a
+     * client mistake, not a server fault — map it to 400 so the caller
+     * sees which parameter is missing instead of a generic 500.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> handleMissingParam(MissingServletRequestParameterException ex,
+                                                        HttpServletRequest req) {
+        log.warn("Missing request parameter '{}' on {}", ex.getParameterName(), req.getRequestURI());
+        return build(HttpStatus.BAD_REQUEST,
+                "Required parameter '" + ex.getParameterName() + "' is missing", req);
     }
 
     @ExceptionHandler(Exception.class)

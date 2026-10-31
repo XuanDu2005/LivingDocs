@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -45,6 +46,21 @@ public class DocumentReviewController {
                                     AuthorizationService authorizationService) {
         this.reviewService = reviewService;
         this.authorizationService = authorizationService;
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/versions/{versionId}/submit-for-review")
+    @Operation(summary = "Push a draft version into the Staff review queue")
+    public Map<String, Object> submitForReview(@PathVariable UUID workspaceId,
+                                               @PathVariable UUID documentId,
+                                               @PathVariable UUID versionId) {
+        var version = reviewService.submitForReview(
+                CurrentUser.requireId(), documentId, versionId);
+        return Map.of(
+                "documentId", documentId.toString(),
+                "versionId", version.getId().toString(),
+                "versionNumber", version.getVersionNumber(),
+                "status", version.getStatus().name(),
+                "message", "Version submitted for review.");
     }
 
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/versions/{versionId}/staff-review")

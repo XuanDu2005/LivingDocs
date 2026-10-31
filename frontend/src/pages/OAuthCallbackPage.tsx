@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { TFunction } from 'i18next';
 import { Loader2, ShieldAlert } from 'lucide-react';
 
 import { Button } from '../components/ui/button';
@@ -24,6 +26,7 @@ type Status = 'processing' | 'success' | 'error';
  * populated, then navigate to the original destination.
  */
 export default function OAuthCallbackPage() {
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState<Status>('processing');
@@ -59,7 +62,7 @@ export default function OAuthCallbackPage() {
       setStatus('error');
       setErrorCode('missing_token');
       setErrorMessage(
-        'The OAuth provider did not return an access token. Please try again.',
+        t('auth.oauth.missingToken'),
       );
       return;
     }
@@ -76,7 +79,7 @@ export default function OAuthCallbackPage() {
         authStorage.clearUser();
         setStatus('error');
         setErrorCode('user_load_failed');
-        setErrorMessage(e instanceof Error ? e.message : 'Failed to load profile');
+        setErrorMessage(e instanceof Error ? e.message : t('auth.oauth.failedLoadProfile'));
       });
     void provider;
   }, [params, navigate]);
@@ -89,9 +92,9 @@ export default function OAuthCallbackPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-            <CardTitle>Đang hoàn tất đăng nhập…</CardTitle>
+            <CardTitle>{t('auth.oauth.processing')}</CardTitle>
             <CardDescription>
-              Chúng tôi đang trao đổi mã với nhà cung cấp và tải hồ sơ của bạn.
+              {t('auth.oauth.processingDesc')}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -99,7 +102,7 @@ export default function OAuthCallbackPage() {
     );
   }
   if (status === 'error') {
-    const friendly = friendlyErrorMessage(errorCode, errorMessage);
+    const friendly = friendlyErrorMessage(errorCode, errorMessage, t);
     return (
       <div className="flex min-h-[70vh] items-center justify-center">
         <Card className="w-full max-w-md">
@@ -107,19 +110,19 @@ export default function OAuthCallbackPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-destructive/10 text-destructive">
               <ShieldAlert className="h-5 w-5" />
             </div>
-            <CardTitle>Đăng nhập thất bại</CardTitle>
+            <CardTitle>{t('auth.oauth.failed')}</CardTitle>
             <CardDescription>{friendly}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Button className="w-full" onClick={() => navigate('/login', { replace: true })}>
-              Về trang đăng nhập
+              {t('auth.oauth.backToLogin')}
             </Button>
             <Button
               variant="outline"
               className="w-full"
               onClick={() => navigate('/register', { replace: true })}
             >
-              Tạo tài khoản mới
+              {t('auth.oauth.createAccount')}
             </Button>
           </CardContent>
         </Card>
@@ -130,31 +133,35 @@ export default function OAuthCallbackPage() {
     <div className="flex min-h-[70vh] items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Đăng nhập thành công</CardTitle>
-          <CardDescription>Đang chuyển hướng bạn đến trang chính…</CardDescription>
+        <CardTitle>{t('auth.oauth.success')}</CardTitle>
+        <CardDescription>{t('auth.oauth.redirecting')}</CardDescription>
         </CardHeader>
       </Card>
     </div>
   );
 }
 
-function friendlyErrorMessage(code: string | null, fallback: string | null): string {
+function friendlyErrorMessage(
+  code: string | null,
+  fallback: string | null,
+  t: TFunction,
+): string {
   switch (code) {
     case 'invalid_state':
-      return 'Phiên đăng nhập đã hết hạn. Vui lòng thử lại.';
+      return t('auth.oauth.errInvalidState');
     case 'merge_required':
-      return 'Tài khoản OAuth này đã được liên kết với một tài khoản LivingDocs khác. Vui lòng đăng nhập với tài khoản đó hoặc liên hệ hỗ trợ.';
+      return t('auth.oauth.errMergeRequired');
     case 'link_failed':
-      return 'Không thể liên kết tài khoản. Vui lòng thử lại sau.';
+      return t('auth.oauth.errLinkFailed');
     case 'link_callback_misrouted':
-      return 'Phiên liên kết không hợp lệ. Vui lòng thử lại từ trang hồ sơ.';
+      return t('auth.oauth.errLinkCallbackMisrouted');
     case 'link_session_missing':
-      return 'Phiên đăng nhập đã hết hạn trong khi liên kết. Vui lòng đăng nhập lại rồi thử liên kết.';
+      return t('auth.oauth.errLinkSessionMissing');
     case 'exchange_failed':
-      return 'Nhà cung cấp từ chối trao đổi mã. Vui lòng thử lại.';
+      return t('auth.oauth.errExchangeFailed');
     case 'missing_token':
-      return 'Không nhận được mã truy cập. Vui lòng thử lại.';
+      return t('auth.oauth.errMissingToken');
     default:
-      return fallback ?? 'Đã có lỗi xảy ra trong quá trình đăng nhập.';
+      return fallback ?? t('auth.oauth.errGeneric');
   }
 }

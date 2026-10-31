@@ -1,5 +1,6 @@
 import CoverageGapsPanel from './CoverageGapsPanel';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   GitBranch,
   GitPullRequest,
@@ -55,6 +56,7 @@ const STATUS_VARIANT: Record<Repository['status'], 'success' | 'muted' | 'destru
 };
 
 export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelProps) {
+  const { t } = useTranslation();
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +207,7 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
               Repositories
               <Badge variant="muted">{repos.length}</Badge>
             </CardTitle>
-            <CardDescription>Connect GitHub repositories to enable code ingestion.</CardDescription>
+            <CardDescription>{t('repository.panelDescription')}</CardDescription>
           </div>
           {canManage && !showCatalog && (
             <Button size="sm" onClick={() => void openCatalog()}>
@@ -255,7 +257,7 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
               {urlError && <p className="mt-1.5 text-xs text-destructive">{urlError}</p>}
             </div>
 
-            <div className="mb-2 text-sm text-muted-foreground">— or select from your repositories —</div>
+            <div className="mb-2 text-sm text-muted-foreground">{t('repository.orSelectFromYours')}</div>
 
             {catalogLoading && <LoadingState message="Loading catalog…" />}
             {catalogError && <ErrorState message={catalogError} />}
@@ -296,8 +298,8 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
           <LoadingState message="Loading repositories…" />
         ) : repos.length === 0 ? (
           <EmptyState
-            title="No repositories connected"
-            description="Connect a GitHub repository to start indexing its code."
+            title={t('repository.noReposConnectedTitle')}
+            description={t('repository.noReposConnectedDesc')}
             action={
               canManage ? (
                 <Button onClick={() => void openCatalog()}>
@@ -383,7 +385,7 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
             {pullsLoading ? (
               <LoadingState message="Loading pull requests…" />
             ) : pulls.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No pull requests stored locally yet.</p>
+              <p className="text-sm text-muted-foreground">{t('repository.noPrsStored')}</p>
             ) : (
               <div className="space-y-2">
                 {pulls.map((pr) => (

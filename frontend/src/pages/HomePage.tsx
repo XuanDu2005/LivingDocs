@@ -86,8 +86,8 @@ export default function HomePage() {
                 <span className="h-2 w-2 rounded-full bg-success" />
                 pr-241 · feat(checkout): wallet support
               </div>
-              <CardTitle>Generated first draft</CardTitle>
-              <CardDescription>Linked to 4 code entities · confidence 0.86</CardDescription>
+              <CardTitle>{t('home.demoDraftTitle')}</CardTitle>
+              <CardDescription>{t('home.demoDraftMeta', { count: 4, confidence: '0.86' })}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
@@ -106,8 +106,8 @@ export default function HomePage() {
                 - Refunds settle async
               </div>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>→ In review by @alice</span>
-                <Badge variant="warning">Drift: 2 stale sections</Badge>
+                <span>{t('home.demoInReview', { user: 'alice' })}</span>
+                <Badge variant="warning">{t('home.demoDrift', { count: 2 })}</Badge>
               </div>
             </CardContent>
           </Card>

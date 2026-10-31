@@ -10,6 +10,9 @@ import com.livingdocs.modules.drift.dto.ResolveDriftAlertRequest;
 import com.livingdocs.modules.drift.model.DriftAlert;
 import com.livingdocs.modules.drift.model.DriftResolution;
 import com.livingdocs.modules.drift.repository.DriftAlertRepository;
+import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.github.repository.PullRequestRepository;
+import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,13 +35,22 @@ public class DriftAlertService {
     private static final Logger log = LoggerFactory.getLogger(DriftAlertService.class);
 
     private final DriftAlertRepository driftRepository;
+    private final DocumentRepository documentRepository;
+    private final PullRequestRepository pullRequestRepository;
+    private final RepositoryRepository repositoryRepository;
     private final WorkspaceService workspaceService;
     private final ObjectMapper objectMapper;
 
     public DriftAlertService(DriftAlertRepository driftRepository,
+                             DocumentRepository documentRepository,
+                             PullRequestRepository pullRequestRepository,
+                             RepositoryRepository repositoryRepository,
                              WorkspaceService workspaceService,
                              ObjectMapper objectMapper) {
         this.driftRepository = driftRepository;
+        this.documentRepository = documentRepository;
+        this.pullRequestRepository = pullRequestRepository;
+        this.repositoryRepository = repositoryRepository;
         this.workspaceService = workspaceService;
         this.objectMapper = objectMapper;
     }
@@ -91,12 +103,28 @@ public class DriftAlertService {
 
     @Transactional(readOnly = true)
     public List<DriftAlertResponse> listForDocument(UUID actorId, UUID documentId) {
+        // The document's workspace governs access. Without this check a
+        // caller who knows a document UUID could read another tenant's
+        // drift alerts.
+        UUID workspaceId = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"))
+                .getWorkspaceId();
+        workspaceService.requireMember(actorId, workspaceId);
         return driftRepository.findAllByDocumentIdOrderByDetectedAtDesc(documentId)
                 .stream().map(DriftAlertResponse::from).toList();
     }
 
     @Transactional(readOnly = true)
     public List<DriftAlertResponse> listForPullRequest(UUID actorId, UUID pullRequestId) {
+        UUID workspaceId = pullRequestRepository.findById(pullRequestId)
+                .orElseThrow(() -> new NotFoundException("Pull request not found"))
+                .getRepositoryId();
+        // The pull request points at a repository, which points at a
+        // workspace — resolve it so membership can be enforced.
+        UUID workspaceIdOfRepo = repositoryRepository.findById(workspaceId)
+                .orElseThrow(() -> new NotFoundException("Repository not found"))
+                .getWorkspaceId();
+        workspaceService.requireMember(actorId, workspaceIdOfRepo);
         return driftRepository.findAllByPullRequestIdOrderByDetectedAtDesc(pullRequestId)
                 .stream().map(DriftAlertResponse::from).toList();
     }

@@ -1,7 +1,7 @@
 /**
  * AI-assisted documentation flows (generate / drift detect).
  */
-import apiClient from './api';
+import apiClient, { LONG_TIMEOUT_MS } from './api';
 
 export interface GenerationJobStatus {
   id: string;
@@ -15,6 +15,32 @@ export interface GenerationJobStatus {
   completedAt: string | null;
   errorMessage?: string | null;
   message?: string;
+}
+
+/**
+ * The state of a bulk "generate all docs" run.
+ */
+export interface BulkGenerationJobStatus {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+  repositoryId: string;
+  template: string | null;
+  totalEntities: number;
+  processedEntities: number;
+  generated: number;
+  skipped: number;
+  failed: number;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errors?: string[];
+  documents?: Array<{
+    documentId: string;
+    title: string;
+    entity: string;
+    versionNumber: number;
+  }>;
 }
 
 export const aiApi = {
@@ -56,14 +82,6 @@ export const aiApi = {
       .then((r) => r.data);
   },
 
-  /** Manually trigger a regeneration (also asynchronous). */
-  regenerate(workspaceId: string, documentId: string) {
-    return apiClient
-      .post<{ status: string; jobId: string; documentId: string; message: string }>(
-        `/workspaces/${workspaceId}/documents/${documentId}/regenerate`,
-      )
-      .then((r) => r.data);
-  },
   detectDrift(
     workspaceId: string,
     payload: {
@@ -80,6 +98,7 @@ export const aiApi = {
           payload.pullRequestId ? `&pullRequestId=${payload.pullRequestId}` : ''
         }&documentId=${payload.documentId}`,
         { filesBefore: payload.filesBefore, filesAfter: payload.filesAfter },
+        { timeout: LONG_TIMEOUT_MS },
       )
       .then((r) => r.data);
   },
@@ -112,13 +131,17 @@ export const aiApi = {
       }>(
         `/workspaces/${workspaceId}/documents/${documentId}/preview-generate?template=${template}`,
         files,
+        { timeout: LONG_TIMEOUT_MS },
       )
       .then((r) => r.data);
   },
 
   /**
-   * Generate documentation for all undocumented code entities in a repository.
-   * Creates new documents or updates existing ones.
+   * Queue a bulk documentation generation run for a repository.
+   *
+   * <p>This is asynchronous: the backend answers 202 with a job id and
+   * the actual LLM work happens on a background worker. Poll
+   * {@link bulkGenerationStatus} to follow the progress.
    */
   generateAllForRepository(
     workspaceId: string,
@@ -127,18 +150,36 @@ export const aiApi = {
   ) {
     return apiClient
       .post<{
-        generated: number;
-        skipped: number;
-        errors: string[];
-        documents: Array<{
-          documentId: string;
-          title: string;
-          entity: string;
-          versionNumber: number;
-        }>;
+        status: string;
+        jobId: string;
+        repositoryId: string;
+        totalEntities: number;
+        message: string;
       }>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/generate-all?template=${template}`,
         {},
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * Poll the progress of a bulk generation run.
+   */
+  bulkGenerationStatus(workspaceId: string, jobId: string) {
+    return apiClient
+      .get<BulkGenerationJobStatus>(
+        `/workspaces/${workspaceId}/bulk-generation-jobs/${jobId}`,
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * List the recent bulk generation runs of a workspace.
+   */
+  bulkGenerationJobs(workspaceId: string) {
+    return apiClient
+      .get<BulkGenerationJobStatus[]>(
+        `/workspaces/${workspaceId}/bulk-generation-jobs`,
       )
       .then((r) => r.data);
   },

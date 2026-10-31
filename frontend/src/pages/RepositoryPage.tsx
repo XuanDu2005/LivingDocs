@@ -39,7 +39,7 @@ import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi } from '../services/documents';
 import { driftApi } from '../services/drift';
 import { docSyncApi, DocScanResult } from '../services/docSync';
-import { aiApi } from '../services/ai';
+import { aiApi, BulkGenerationJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import { describeError } from '../services/auth';
 
@@ -352,36 +352,76 @@ export default function RepositoryPage() {
     setGeneratingAll(true);
     setGenerateResult(null);
     try {
-      // Call the backend endpoint to generate docs for all undocumented entities
-      const result = await aiApi.generateAllForRepository(workspaceId, selected.id);
+      // The backend enqueues a background job and answers 202 — the LLM
+      // work (one call per undocumented entity) takes far longer than a
+      // single request may block.
+      const queued = await aiApi.generateAllForRepository(workspaceId, selected.id);
 
-      if (result.generated === 0 && result.skipped === 0) {
+      if (queued.totalEntities === 0) {
         setGenerateResult('No undocumented code entities found. All entities are already documented.');
         return;
       }
 
-      let message = `Generated ${result.generated} document(s) for ${selected.fullName}`;
-      if (result.skipped > 0) {
-        message += ` (${result.skipped} skipped - already documented)`;
-      }
-      if (result.errors.length > 0) {
-        message += `\n${result.errors.length} error(s): ${result.errors.slice(0, 3).join(', ')}`;
-        if (result.errors.length > 3) {
-          message += ` and ${result.errors.length - 3} more`;
-        }
-      }
-      setGenerateResult(message);
-
-      // Auto-clear the result after 10 seconds
-      setTimeout(() => {
-        setGenerateResult(null);
-      }, 10000);
-
+      const final = await pollBulkGeneration(workspaceId, queued.jobId);
+      renderBulkResult(final);
     } catch (err) {
       setGenerateResult(describeError(err));
     } finally {
       setGeneratingAll(false);
     }
+  }
+
+  /**
+   * Follow a bulk generation run until it finishes.
+   *
+   * <p>Polls every 2 seconds. The run can take a minute or more for a
+   * repository with a dozen undocumented entities, so the poll loop is
+   * deliberately generous about how long it waits — but it always ends,
+   * even if the backend never reports a terminal state.
+   */
+  async function pollBulkGeneration(wsId: string, jobId: string) {
+    const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    // ~5 minutes worth of polls; a long run should still finish, and a
+    // stuck one should not hang the UI forever.
+    const maxAttempts = 150;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const job = await aiApi.bulkGenerationStatus(wsId, jobId);
+      if (terminal.has(job.status)) {
+        return job;
+      }
+      setGenerateResult(
+        `Generating documentation... ${job.processedEntities}/${job.totalEntities} entities processed`,
+      );
+    }
+
+    throw new Error('Bulk generation is taking longer than expected. Check back shortly.');
+  }
+
+  function renderBulkResult(job: BulkGenerationJobStatus) {
+    if (job.status === 'FAILED' && job.generated === 0) {
+      setGenerateResult(
+        `Generation failed: ${job.errorMessage ?? 'unknown error'}`,
+      );
+      return;
+    }
+
+    let message = `Generated ${job.generated} document(s) for ${selected?.fullName}`;
+    if (job.skipped > 0) {
+      message += ` (${job.skipped} skipped - already documented)`;
+    }
+    if (job.failed > 0) {
+      message += `, ${job.failed} failed`;
+      if (job.errors && job.errors.length > 0) {
+        message += `\n${job.errors.slice(0, 3).join(', ')}`;
+        if (job.errors.length > 3) {
+          message += ` and ${job.errors.length - 3} more`;
+        }
+      }
+    }
+    setGenerateResult(message);
+    void loadEntities(selected!);
   }
 
   async function handleScanDriftForRepo() {
@@ -423,8 +463,18 @@ export default function RepositoryPage() {
     try {
       const result = await docSyncApi.scan(workspaceId, selected.id);
       setDocScanResult(result);
-    } catch (err) {
-      setDocScanError(describeError(err));
+    } catch (err: any) {
+      // A scan that runs out of time still finished on the server — the
+      // proposals it created are in the queue. Say so instead of showing
+      // a bare "timeout", which reads like a failure.
+      if (err?.code === 'ECONNABORTED') {
+        setDocScanError(
+          t('repository.scanTimeout', 'The scan took too long and was stopped on this side. ' +
+            'It may still have completed on the server — check the update queue, or narrow the scan and try again.'),
+        );
+      } else {
+        setDocScanError(describeError(err));
+      }
     } finally {
       setScanningDocs(false);
     }
@@ -692,22 +742,22 @@ export default function RepositoryPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Sparkles className="h-4 w-4" /> Documentation Coverage
+                <Sparkles className="h-4 w-4" /> {t('repository.coverageTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {coverageStats ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Total entities</span>
+                    <span className="text-muted-foreground">{t('repository.coverageTotalEntities')}</span>
                     <span className="font-medium">{coverageStats.total}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Documented</span>
+                    <span className="text-muted-foreground">{t('repository.coverageDocumented')}</span>
                     <span className="font-medium text-green-600">{coverageStats.documented}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Undocumented</span>
+                    <span className="text-muted-foreground">{t('repository.coverageUndocumented')}</span>
                     <span className="font-medium text-amber-600">{coverageStats.undocumented}</span>
                   </div>
                   <div className="pt-2">
@@ -718,13 +768,19 @@ export default function RepositoryPage() {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {coverageStats.total > 0 ? Math.round((coverageStats.documented / coverageStats.total) * 100) : 0}% documented
+                      {t('repository.coveragePercent', {
+                        percent: coverageStats.total > 0
+                          ? Math.round((coverageStats.documented / coverageStats.total) * 100)
+                          : 0,
+                      })}
                     </p>
                   </div>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {entities.length > 0 ? 'Calculating...' : 'No entities loaded yet'}
+                  {entities.length > 0
+                    ? t('repository.coverageCalculating')
+                    : t('repository.coverageNoEntities')}
                 </p>
               )}
             </CardContent>
@@ -733,7 +789,7 @@ export default function RepositoryPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Play className="h-4 w-4" /> Quick Actions
+                <Play className="h-4 w-4" /> {t('repository.quickActions')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -745,7 +801,7 @@ export default function RepositoryPage() {
                 disabled={generatingAll}
               >
                 <Sparkles className="mr-2 h-4 w-4" />
-                {generatingAll ? 'Processing...' : 'Generate All Docs'}
+                {generatingAll ? t('repository.actionProcessing') : t('repository.actionGenerateAll')}
               </Button>
               <Button
                 size="sm"
@@ -755,7 +811,7 @@ export default function RepositoryPage() {
                 disabled={generatingAll}
               >
                 <Shield className="mr-2 h-4 w-4" />
-                {generatingAll ? 'Scanning...' : 'Scan for Drift'}
+                {generatingAll ? t('repository.actionScanning') : t('repository.actionScanDrift')}
               </Button>
               <Button
                 size="sm"
@@ -765,7 +821,7 @@ export default function RepositoryPage() {
                 disabled={scanningDocs}
               >
                 <Loader2 className={`mr-2 h-4 w-4 ${scanningDocs ? 'animate-spin' : ''}`} />
-                {scanningDocs ? 'Scanning docs...' : 'Sync Docs'}
+                {scanningDocs ? t('repository.actionScanningDocs') : t('repository.actionSyncDocs')}
               </Button>
               {generateResult && (
                 <div className={`text-xs p-2 rounded ${generateResult.includes('complete') || generateResult.includes('Generated') ? 'bg-green-500/10 text-green-700' : 'bg-destructive/10 text-destructive'}`}>
@@ -780,33 +836,34 @@ export default function RepositoryPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" /> Doc Sync Results
+                  <BookOpen className="h-4 w-4" /> {t('repository.docSyncResults')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-4 gap-2 text-center">
                   <div className="bg-muted/50 rounded p-2">
                     <div className="text-lg font-bold">{docScanResult.totalFiles}</div>
-                    <div className="text-xs text-muted-foreground">Doc Files</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncFiles')}</div>
                   </div>
                   <div className="bg-muted/50 rounded p-2">
                     <div className="text-lg font-bold">{docScanResult.referencedEntities}</div>
-                    <div className="text-xs text-muted-foreground">References</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncReferences')}</div>
                   </div>
                   <div className="bg-muted/50 rounded p-2">
                     <div className="text-lg font-bold">{docScanResult.updatedEntities}</div>
-                    <div className="text-xs text-muted-foreground">Matched</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncMatched')}</div>
                   </div>
                   <div className={`rounded p-2 ${docScanResult.driftCount > 0 ? 'bg-amber-500/20 text-amber-700' : 'bg-muted/50'}`}>
                     <div className="text-lg font-bold">{docScanResult.driftCount}</div>
-                    <div className="text-xs">Need Update</div>
+                    <div className="text-xs">{t('repository.docSyncNeedUpdate')}</div>
                   </div>
                 </div>
                 {docScanResult.driftCount > 0 && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 text-xs text-amber-700 flex items-center gap-2">
                     <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                     <span>
-                      <b>{docScanResult.driftCount}</b> file(s) may need updating to match the latest code.
+                      <b>{docScanResult.driftCount}</b>{' '}
+                      {t('repository.docSyncFilesNeedUpdate')}
                     </span>
                   </div>
                 )}
@@ -814,16 +871,17 @@ export default function RepositoryPage() {
                   <div className="bg-green-500/10 border border-green-500/30 rounded p-2 text-xs text-green-700 flex items-center gap-2">
                     <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
                     <span>
-                      <b>{docScanResult.queuedCount}</b> update request(s) queued for review
+                      <b>{docScanResult.queuedCount}</b>{' '}
+                      {t('repository.docSyncQueued')}
                       {docScanResult.skippedCount
-                        ? ` · ${docScanResult.skippedCount} skipped`
+                        ? ` ${t('repository.docSyncSkipped', { count: docScanResult.skippedCount })}`
                         : ''}
                       .{' '}
                       <Link
                         to={`/workspaces/${workspaceId}/doc-updates`}
                         className="underline font-medium"
                       >
-                        View queue
+                        {t('repository.viewQueue')}
                       </Link>
                     </span>
                   </div>
@@ -846,7 +904,7 @@ export default function RepositoryPage() {
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <Badge variant="outline" className="text-xs">
-                              {file.foundEntities.length} refs
+                              {t('repository.refsCount', { count: file.foundEntities.length })}
                             </Badge>
                             <Button
                               size="sm"
@@ -854,7 +912,7 @@ export default function RepositoryPage() {
                               className="h-6 px-2 text-xs"
                               onClick={() => setPreviewingFile(file.path)}
                             >
-                              {t('repository.reviewAndUpdate', 'Review & Update')}
+                              {t('repository.reviewAndUpdate')}
                             </Button>
                           </div>
                         </div>
@@ -867,7 +925,7 @@ export default function RepositoryPage() {
                     ))}
                     {docScanResult.files.length > 10 && (
                       <p className="text-xs text-muted-foreground text-center">
-                        +{docScanResult.files.length - 10} more files
+                        {t('repository.moreFiles', { count: docScanResult.files.length - 10 })}
                       </p>
                     )}
                   </div>
@@ -885,26 +943,32 @@ export default function RepositoryPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <BookOpen className="h-4 w-4" /> Repository Info
+                <BookOpen className="h-4 w-4" /> {t('repository.repoInfo')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Status</span>
+                <span className="text-muted-foreground">{t('repository.infoStatus')}</span>
                 <Badge variant={selected.status === 'CONNECTED' ? 'success' : 'muted'}>{selected.status}</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Branch</span>
+                <span className="text-muted-foreground">{t('repository.infoBranch')}</span>
                 <span className="font-mono text-xs">{selected.defaultBranch}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Last synced</span>
-                <span className="text-xs">{selected.lastSyncedAt ? new Date(selected.lastSyncedAt).toLocaleDateString() : 'Never'}</span>
+                <span className="text-muted-foreground">{t('repository.infoLastSynced')}</span>
+                <span className="text-xs">
+                  {selected.lastSyncedAt
+                    ? new Date(selected.lastSyncedAt).toLocaleDateString()
+                    : t('repository.never')}
+                </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Visibility</span>
+                <span className="text-muted-foreground">{t('repository.infoVisibility')}</span>
                 <Badge variant={selected.isPrivate ? 'destructive' : 'success'} className="text-xs">
-                  {selected.isPrivate ? 'Private' : 'Public'}
+                  {selected.isPrivate
+                    ? t('repository.visibilityPrivate')
+                    : t('repository.visibilityPublic')}
                 </Badge>
               </div>
             </CardContent>
@@ -1434,7 +1498,7 @@ export default function RepositoryPage() {
               </div>
               {entityDetail.signature && (
                 <div>
-                  <div className="text-xs font-semibold text-muted-foreground mb-1">Signature</div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">{t('repository.entitySignature')}</div>
                   <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/40 rounded p-2 break-words">
                     {entityDetail.signature}
                   </pre>
@@ -1442,7 +1506,7 @@ export default function RepositoryPage() {
               )}
               {entityDetail.docstring && (
                 <div>
-                  <div className="text-xs font-semibold text-muted-foreground mb-1">Docstring</div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">{t('repository.entityDocstring')}</div>
                   <pre className="text-xs whitespace-pre-wrap bg-muted/30 rounded p-2">
                     {entityDetail.docstring}
                   </pre>
@@ -1450,7 +1514,7 @@ export default function RepositoryPage() {
               )}
               {entityDetail.metadata && (
                 <div>
-                  <div className="text-xs font-semibold text-muted-foreground mb-1">Metadata</div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-1">{t('repository.entityMetadata')}</div>
                   <pre className="text-[10px] font-mono whitespace-pre-wrap bg-muted/30 rounded p-2 break-words">
                     {entityDetail.metadata}
                   </pre>
@@ -1459,7 +1523,6 @@ export default function RepositoryPage() {
               <div className="text-xs text-muted-foreground">
                 {t('repository.entityIngestedAt', {
                   when: new Date(entityDetail.ingestedAt).toLocaleString(),
-                  defaultValue: `Ingested at ${new Date(entityDetail.ingestedAt).toLocaleString()}`,
                 })}
               </div>
             </div>

@@ -5,6 +5,7 @@ import {
   useCallback,
   useRef,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '../../lib/utils';
 
@@ -39,6 +40,7 @@ export function OtpInput({
   className,
   onComplete,
 }: OtpInputProps) {
+  const { t } = useTranslation();
   const refs = useRef<Array<HTMLInputElement | null>>([]);
 
   const digits = Array.from(value.padEnd(length, ' ').slice(0, length));
@@ -95,7 +97,7 @@ export function OtpInput({
     <div
       className={cn('flex items-center justify-center gap-2', className)}
       role="group"
-      aria-label="One-time code"
+      aria-label={t('otp.oneTimeCode')}
     >
       {digits.map((d, i) => (
         <input
@@ -111,7 +113,7 @@ export function OtpInput({
           onChange={onChangeOne(i)}
           onKeyDown={onKeyDown(i)}
           onPaste={onPaste}
-          aria-label={`Digit ${i + 1}`}
+          aria-label={t('otp.digit', { number: i + 1 })}
           className={cn(
             'h-12 w-12 rounded-md border border-input bg-background text-center text-xl font-semibold',
             'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30',

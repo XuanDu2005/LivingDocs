@@ -1,10 +1,9 @@
-import RegenerateDocButton from '../components/RegenerateDocButton';
 import { tagsApi, DocumentTag } from '../services/tags';
 import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -35,6 +34,7 @@ import { describeError } from '../services/auth';
 import { templatesApi, DocTemplate } from '../services/templates';
 import { format } from 'date-fns';
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
+  DRAFT: 'secondary',
   PENDING: 'warning',
   IN_REVIEW: 'info',
   APPROVED: 'success',
@@ -51,6 +51,7 @@ const ROLE_VARIANT: Record<ActorRole, 'muted' | 'warning' | 'success' | 'info' |
 };
 
 const VERSION_STATUS_KEY: Record<VersionStatus, string> = {
+  DRAFT: 'documentDetail.statusDraft',
   PENDING: 'documentDetail.statusPending',
   IN_REVIEW: 'documentDetail.statusInReview',
   APPROVED: 'documentDetail.statusApproved',
@@ -138,7 +139,7 @@ export default function DocumentDetailPage() {
       setNewTagColor('#3b82f6');
     } catch (err) {
       console.error("Lỗi thêm thẻ:", err);
-      alert("Lỗi khi thêm thẻ: " + describeError(err));
+      alert(t('documentDetail.addTagError', { message: describeError(err) }));
     } finally {
       setAddingTag(false);
     }
@@ -439,8 +440,32 @@ export default function DocumentDetailPage() {
     }
   }
 
+  /**
+   * Push a draft version into the Staff review queue.
+   *
+   * Versions are born as drafts; the author decides when a reviewer
+   * should look at them.
+   */
+  async function handleSubmitForReview(versionId: string) {
+    if (!workspaceId || !documentId) return;
+    try {
+      await documentsApi.submitForReview(workspaceId, documentId, versionId);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }
+
   async function handleGenerateWithAI() {
-    if (!workspaceId || !documentId || !doc?.repositoryId) return;
+    if (!workspaceId || !documentId) return;
+    // Without a repository there is no code to ground the AI on, so the
+    // run would come back with a placeholder. Say so instead of failing
+    // silently on the click.
+    if (!doc?.repositoryId) {
+      setGenError(t('documentDetail.generateNeedsRepo',
+        'Gắn repository vào tài liệu trước khi sinh bằng AI.'));
+      return;
+    }
     setGenerating(true);
     setGenError(null);
     setGenJob(null);
@@ -748,11 +773,11 @@ export default function DocumentDetailPage() {
                   const updatedDoc = await documentsApi.toggleAutoUpdate(workspaceId, documentId, !doc.autoUpdateEnabled);
                   setDoc(updatedDoc);
                 } catch (err) {
-                  alert("Lỗi khi thay đổi trạng thái tự động cập nhật.");
+                  alert(t('documentDetail.autoUpdateToggleError'));
                 }
               }}
               className="transition-transform active:scale-95 outline-none"
-              title="Nhấn để Bật/Tắt chế độ tự động cập nhật bằng AI khi có code mới"
+              title={t('documentDetail.autoUpdateToggleTitle')}
             >
               <Badge 
                 variant={doc.autoUpdateEnabled ? 'info' : 'muted'} 
@@ -867,7 +892,6 @@ export default function DocumentDetailPage() {
           >
             <Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitToGithub', 'Commit to GitHub')}
           </Button>
-          <RegenerateDocButton workspaceId={workspaceId} documentId={documentId} />
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
@@ -1028,13 +1052,24 @@ export default function DocumentDetailPage() {
                           type="button"
                           onClick={(e) => { e.stopPropagation(); void handleShowTriggerCommit(v.versionNumber); }}
                           className="mt-1 inline-flex items-center gap-1 text-[10px] font-mono text-blue-600 dark:text-blue-400 hover:underline"
-                          title="Click to view the commit that triggered this auto-update"
+                          title={t('documentDetail.triggerCommitTitle')}
                         >
                           <Bot className="h-2.5 w-2.5" /> triggered by {v.sourceCommitShort}
                         </button>
                       )}
                       <div className="flex gap-1 mt-1.5">
-                        {v.status !== 'PUBLISHED' && (
+                        {v.status === 'DRAFT' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs px-1.5 text-amber-600 dark:text-amber-400"
+                            onClick={(e) => { e.stopPropagation(); void handleSubmitForReview(v.id); }}
+                            title={t('documentDetail.submitForReviewTitle')}
+                          >
+                            <Send className="h-3 w-3 mr-0.5" /> Submit for review
+                          </Button>
+                        )}
+                        {v.status !== 'PUBLISHED' && v.status !== 'DRAFT' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1058,7 +1093,7 @@ export default function DocumentDetailPage() {
                             variant="ghost"
                             className="h-6 text-xs px-1.5"
                             onClick={(e) => { e.stopPropagation(); void handleShowGrounding(v.id); }}
-                            title="View grounding evidence — source code references used by the AI"
+                            title={t('documentDetail.groundingTitle')}
                           >
                             <Sparkles className="h-3 w-3 mr-0.5" /> Grounding
                           </Button>
@@ -1086,19 +1121,19 @@ export default function DocumentDetailPage() {
                               : 'destructive'
                         }
                         className="text-[10px]"
-                        title="AI confidence score for this version"
+                        title={t('documentDetail.confidenceTitle')}
                       >
                         {Math.round((selectedVersion.confidenceScore ?? 0) * 100)}% confidence
                       </Badge>
                     )}
                   </CardTitle>
                   <div className="flex items-center gap-2">
-                    {saving && <span className="text-xs text-muted-foreground animate-pulse">Saving…</span>}
-                    {saveSuccess && <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" /> Saved</span>}
+                    {saving && <span className="text-xs text-muted-foreground animate-pulse">{t('common.saving')}</span>}
+                    {saveSuccess && <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" /> {t('documentDetail.saved')}</span>}
                     <Button size="sm" variant="outline" onClick={() => void handleViewDiff()} disabled={diffLoading}>
                       <Eye className="mr-1 h-4 w-4" /> View diff
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => void handleCompareAiVsPublished()} disabled={diffLoading} title="Compare the most recent AI version against the most recent published version">
+                    <Button size="sm" variant="outline" onClick={() => void handleCompareAiVsPublished()} disabled={diffLoading} title={t('documentDetail.compareAiVsPublishedTitle')}>
                       <Sparkles className="mr-1 h-4 w-4" /> AI vs Published
                     </Button>
                   </div>
@@ -1154,7 +1189,7 @@ export default function DocumentDetailPage() {
                       <TableHead>Summary</TableHead>
                       <TableHead>Confidence</TableHead>
                       <TableHead>Created</TableHead>
-                      <TableHead>Commit</TableHead>
+                      <TableHead>{t('documentDetail.colCommit')}</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1178,7 +1213,18 @@ export default function DocumentDetailPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
-                            {v.status !== 'PUBLISHED' && (
+                            {v.status === 'DRAFT' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs text-amber-600 dark:text-amber-400"
+                                onClick={() => void handleSubmitForReview(v.id)}
+                                title={t('documentDetail.submitForReviewTitle')}
+                              >
+                                <Send className="h-3 w-3 mr-1" /> Submit for review
+                              </Button>
+                            )}
+                            {v.status !== 'PUBLISHED' && v.status !== 'DRAFT' && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1261,9 +1307,9 @@ export default function DocumentDetailPage() {
                             </div>
                             {/* Debug info so the user can see exactly what backend returned */}
                             <div className="rounded-md border border-dashed bg-muted/30 p-2 text-[10px] font-mono text-muted-foreground space-y-0.5">
-                              <div>workspaceId: <span className="text-foreground">{workspaceId}</span></div>
-                              <div>repositoryId: <span className="text-foreground">{doc?.repositoryId || '(none)'}</span></div>
-                              <div>entity count: <span className="text-foreground">{codeEntities.length}</span></div>
+                              <div>{t('documentDetail.debugWorkspaceId')} <span className="text-foreground">{workspaceId}</span></div>
+                              <div>{t('documentDetail.debugRepositoryId')} <span className="text-foreground">{doc?.repositoryId || '(none)'}</span></div>
+                              <div>{t('documentDetail.debugEntityCount')} <span className="text-foreground">{codeEntities.length}</span></div>
                             </div>
                             <Button
                               size="sm"
@@ -1304,7 +1350,7 @@ export default function DocumentDetailPage() {
                                 onClick={() => void loadCodeEntities()}
                                 disabled={entitiesLoading}
                                 aria-label="Refresh"
-                                title="Refresh entities"
+                                title={t('repository.refreshEntities')}
                               >
                                 <Loader2 className={`h-4 w-4 ${entitiesLoading ? 'animate-spin' : ''}`} />
                               </Button>
@@ -1568,7 +1614,7 @@ export default function DocumentDetailPage() {
                             </DialogTrigger>
                             <DialogContent>
                               <DialogHeader>
-                                <DialogTitle>Resolve drift alert</DialogTitle>
+                                <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
                                 <DialogDescription>{a.title}</DialogDescription>
                               </DialogHeader>
                               <div className="space-y-3">
@@ -1714,7 +1760,7 @@ export default function DocumentDetailPage() {
                   value={prBody}
                   onChange={(e) => setPrBody(e.target.value)}
                   rows={4}
-                  placeholder="Why is this change needed?"
+                  placeholder={t('documentDetail.prBodyPlaceholder')}
                 />
               </div>
               {commitError && (
@@ -1890,13 +1936,13 @@ export default function DocumentDetailPage() {
               )}
               {commitFor.commit.authorName && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Author:</span>
+                  <span className="text-xs text-muted-foreground">{t('documentDetail.authorLabel')}</span>
                   <span className="text-xs">{commitFor.commit.authorName}</span>
                 </div>
               )}
               {commitFor.commit.authoredAt && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Date:</span>
+                  <span className="text-xs text-muted-foreground">{t('documentDetail.dateLabel')}</span>
                   <span className="text-xs">{format(new Date(commitFor.commit.authoredAt), 'MMM d, yyyy HH:mm')}</span>
                 </div>
               )}

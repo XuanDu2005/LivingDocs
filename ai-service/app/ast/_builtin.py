@@ -22,7 +22,7 @@ from .registry import register_analyser
 
 @register_analyser("python")
 def analyse_python(file_path: str, source: str) -> ParsedFile:
-    parsed = ParsedFile(file_path=file_path, language="python")
+    parsed = ParsedFile(file_path=file_path, language="python", source=source)
     lines = source.splitlines()
 
     # Detect module docstring (first statement if it is a literal string).
@@ -247,7 +247,7 @@ def idx_quote_match(line: str) -> int:
 
 @register_analyser("java")
 def analyse_java(file_path: str, source: str) -> ParsedFile:
-    parsed = ParsedFile(file_path=file_path, language="java")
+    parsed = ParsedFile(file_path=file_path, language="java", source=source)
     lines = source.splitlines()
 
     package_qname = ""
@@ -380,7 +380,7 @@ def _find_brace_end(lines: List[str], start_idx: int) -> int:
 @register_analyser("javascript")
 def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
     language = "typescript" if file_path.endswith((".ts", ".tsx")) else "javascript"
-    parsed = ParsedFile(file_path=file_path, language=language)
+    parsed = ParsedFile(file_path=file_path, language=language, source=source)
     lines = source.splitlines()
 
     import_re = re.compile(r"^\s*import\s+(?:.+?\s+from\s+)?['\"]([^'\"]+)['\"]")

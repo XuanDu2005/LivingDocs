@@ -85,6 +85,10 @@ class ParsedFile:
     entities: List[CodeEntity] = field(default_factory=list)
     imports: List[str] = field(default_factory=list)
     module_docstring: Optional[str] = None
+    #: The raw source the entities were extracted from. The generator
+    #: slices entity bodies out of this — without it the LLM only ever
+    #: sees a signature and cannot describe what the code actually does.
+    source: str = ""
 
     def to_dict(self) -> dict:
         return {

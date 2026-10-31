@@ -153,7 +153,7 @@ export default function AdminOverviewPage() {
                         <div className="text-sm font-medium">{roleName(r.code, meta?.name ?? r.code, t)}</div>
                         <div className="text-xs text-muted-foreground">
                           <code>{r.code}</code>
-                          {meta?.system && <span className="ml-2">· system</span>}
+                          {meta?.system && <span className="ml-2">· {t('adminRoles.system')}</span>}
                         </div>
                       </div>
                       <Badge variant="info">{r.count}</Badge>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from './ui/dialog';
@@ -21,6 +22,7 @@ interface VersionHistoryDialogProps {
 export function VersionHistoryDialog({
   workspaceId, templateId, open, onOpenChange, onRollback,
 }: VersionHistoryDialogProps) {
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<DocTemplate[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export function VersionHistoryDialog({
 
   async function rollback(version: number) {
     if (!templateId) return;
-    if (!confirm(`Roll back to version ${version}? This creates a new version with the older content.`)) return;
+    if (!confirm(t('versionHistory.rollbackConfirm', { version }))) return;
     setBusy(version);
     try {
       await templatesApi.rollback(workspaceId, templateId, version);
@@ -59,7 +61,7 @@ export function VersionHistoryDialog({
 
   async function cloneTemplate() {
     if (!templateId) return;
-    const newName = prompt('Enter name for the cloned template:');
+    const newName = prompt(t('versionHistory.clonePrompt'));
     if (!newName) return;
     setBusy(-1);
     try {
@@ -77,18 +79,18 @@ export function VersionHistoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Template Version History</DialogTitle>
+          <DialogTitle>{t('versionHistory.title')}</DialogTitle>
           <DialogDescription>
-            Each save creates a new version. Roll back to a previous version, or clone this template.
+            {t('versionHistory.description')}
           </DialogDescription>
         </DialogHeader>
 
         {loading ? (
-          <LoadingState message="Loading versions..." />
+          <LoadingState message={t('versionHistory.loading')} />
         ) : error ? (
           <ErrorState message={error} />
         ) : versions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No versions found.</p>
+          <p className="text-sm text-muted-foreground">{t('versionHistory.empty')}</p>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {versions.map((v) => (
@@ -99,7 +101,7 @@ export function VersionHistoryDialog({
                       v{v.version}
                     </Badge>
                     {v.id === templateId && (
-                      <span className="text-xs text-muted-foreground">(current)</span>
+                      <span className="text-xs text-muted-foreground">{t('versionHistory.current')}</span>
                     )}
                   </div>
                   <div className="text-sm font-medium mt-1">{v.name}</div>
@@ -115,7 +117,7 @@ export function VersionHistoryDialog({
                       onClick={() => void rollback(v.version)}
                       disabled={busy === v.version}
                     >
-                      <RotateCcw className="mr-1 h-3 w-3" /> Rollback
+                      <RotateCcw className="mr-1 h-3 w-3" /> {t('versionHistory.rollback')}
                     </Button>
                   )}
                 </div>
@@ -126,7 +128,7 @@ export function VersionHistoryDialog({
 
         <div className="flex justify-end pt-2 border-t">
           <Button variant="outline" onClick={() => void cloneTemplate()} disabled={busy === -1}>
-            <Copy className="mr-1 h-3 w-3" /> Clone template
+            <Copy className="mr-1 h-3 w-3" /> {t('versionHistory.cloneTemplate')}
           </Button>
         </div>
       </DialogContent>

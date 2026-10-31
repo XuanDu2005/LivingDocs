@@ -5,6 +5,7 @@ import { Bell, Check, RefreshCw, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { notificationsApi, Notification } from '../services/notifications';
+import { notificationKindLabelKey } from '../services/notificationPolicies';
 import { authStorage } from '../services/auth';
 import { describeError } from '../services/auth';
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -334,7 +335,9 @@ export function NotificationBell({ compact = false }: NotificationBellProps) {
                       )}
                       <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
                         <Badge variant="muted" className="text-[9px]">
-                          {t(`notifications.kindLabels.${n.kind}`, { defaultValue: n.kind })}
+                          {t(`notifications.kindLabels.${notificationKindLabelKey(n.kind)}`, {
+                            defaultValue: n.kind,
+                          })}
                         </Badge>
                         <span>{formatDistanceToNow(parseISO(n.createdAt), { addSuffix: true })}</span>
                       </div>

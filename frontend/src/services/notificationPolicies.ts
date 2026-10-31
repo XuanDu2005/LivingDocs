@@ -47,23 +47,57 @@ export const notificationPoliciesApi = {
   },
 };
 
-/** Pretty label for each known notification kind. The server is the source
- *  of truth for which kinds exist; this map is purely cosmetic. */
-export const NOTIFICATION_KIND_LABELS: Record<string, string> = {
-  ADMIN_BROADCAST: 'Admin broadcast',
-  'drift.detected': 'Drift detected',
-  SCM_PR_EVENT: 'Pull request event (SCM)',
-  SCM_PUSH: 'Push (SCM)',
-  SCM_ISSUE_EVENT: 'Issue event (SCM)',
-  SCM_RELEASE: 'Release published (SCM)',
-  JIRA_ISSUE_EVENT: 'Jira issue updated',
-  REVIEW_ASSIGNED: 'Review assigned',
-  INDEXING_DONE: 'Indexing finished',
+/**
+ * Every notification kind the platform can emit, mapped to the i18n key
+ * that holds its human-readable label.
+ *
+ * The event kinds are chosen by the backend and mix two styles:
+ * SCREAMING_SNAKE_CASE constants (`ADMIN_BROADCAST`) and dotted paths
+ * (`drift.detected`). A dot is i18next's key separator, so it cannot be
+ * used verbatim inside a translation key — it is normalised to `_` here.
+ *
+ * The backend is the source of truth for which kinds exist; a kind that is
+ * missing from this map falls back to a normalised key.
+ */
+export const NOTIFICATION_KIND_LABEL_KEYS: Record<string, string> = {
+  ADMIN_BROADCAST: 'ADMIN_BROADCAST',
+  'drift.detected': 'drift_detected',
+  'doc.generation.failed': 'doc_generation_failed',
+  'github.tokenInvalid': 'github_tokenInvalid',
+  'system.test': 'system_test',
+  SCM_PR_EVENT: 'SCM_PR_EVENT',
+  SCM_PUSH: 'SCM_PUSH',
+  SCM_ISSUE_EVENT: 'SCM_ISSUE_EVENT',
+  SCM_RELEASE: 'SCM_RELEASE',
+  JIRA_ISSUE_EVENT: 'JIRA_ISSUE_EVENT',
+  REVIEW_ASSIGNED: 'REVIEW_ASSIGNED',
+  INDEXING_DONE: 'INDEXING_DONE',
+  GITHUB_PR_EVENT: 'GITHUB_PR_EVENT',
+  GITHUB_PUSH: 'GITHUB_PUSH',
+  GITHUB_ISSUE_EVENT: 'GITHUB_ISSUE_EVENT',
+  GITHUB_RELEASE: 'GITHUB_RELEASE',
+  GITLAB_PUSH: 'GITLAB_PUSH',
+  GITLAB_MR_EVENT: 'GITLAB_MR_EVENT',
+  GITLAB_ISSUE_EVENT: 'GITLAB_ISSUE_EVENT',
 };
 
-export const SCOPE_LABELS: Record<NotificationPolicy['scope'], string> = {
-  PLATFORM: 'Platform default',
-  WORKSPACE: 'Workspace override',
-  INHERITED: 'Inherited from platform',
-  DEFAULT: 'Default (enabled)',
+/**
+ * Build the i18n key holding the label for a notification event kind.
+ *
+ * @param eventKind raw kind as returned by the backend
+ * @returns the key under `notifications.kindLabels`
+ */
+export function notificationKindLabelKey(eventKind: string): string {
+  const known = NOTIFICATION_KIND_LABEL_KEYS[eventKind];
+  if (known) return known;
+  // Unknown kinds still need a translatable key — normalise whatever the
+  // server sent into a flat, separator-free identifier.
+  return eventKind.replace(/\./g, '_');
+}
+
+export const SCOPE_LABEL_KEYS: Record<NotificationPolicy['scope'], string> = {
+  PLATFORM: 'PLATFORM',
+  WORKSPACE: 'WORKSPACE',
+  INHERITED: 'INHERITED',
+  DEFAULT: 'DEFAULT',
 };

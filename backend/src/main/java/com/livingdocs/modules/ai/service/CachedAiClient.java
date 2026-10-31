@@ -100,10 +100,16 @@ public class CachedAiClient {
      * Cache wrapper around {@link AiServiceClient#detectDrift}. Only
      * non-null responses are cached so a transient outage doesn't
      * pin a "no drift" result.
+     *
+     * <p>The cache key MUST include the file <em>contents</em>, not just
+     * their paths. Keying on paths alone means a commit that edits a
+     * file without renaming it resolves to the previous run's verdict
+     * — the drift result would silently lag behind the code. This is
+     * the same key shape {@link #generateCached} uses.
      */
     @Cacheable(
             cacheNames = "ai-responses",
-            key = "T(java.util.Objects).hash(#workspaceId, #docTitle, #currentBody, #filesBefore.![path], #filesAfter.![path])",
+            key = "T(java.util.Objects).hash(#workspaceId, #docTitle, #currentBody, #filesBefore.![content], #filesAfter.![content])",
             unless = "#result == null"
     )
     public AiDtos.DriftResponse detectDriftCached(UUID workspaceId,

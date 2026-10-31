@@ -9,8 +9,8 @@ import { Switch2 } from '../components/ui/switch2';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import {
-  NOTIFICATION_KIND_LABELS,
-  SCOPE_LABELS,
+  notificationKindLabelKey,
+  SCOPE_LABEL_KEYS,
   NotificationPolicy,
   notificationPoliciesApi,
 } from '../services/notificationPolicies';
@@ -101,16 +101,18 @@ export default function AdminNotificationPoliciesPage() {
           </CardHeader>
           <CardContent>
             <ul className="divide-y">
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const kindLabel = t(`notifications.kindLabels.${notificationKindLabelKey(row.eventKind)}`, {
+                  defaultValue: row.eventKind,
+                });
+                return (
                 <li key={row.eventKind} className="flex items-center gap-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {NOTIFICATION_KIND_LABELS[row.eventKind] ?? row.eventKind}
-                    </div>
+                    <div className="text-sm font-medium">{kindLabel}</div>
                     <code className="text-xs text-muted-foreground">{row.eventKind}</code>
                   </div>
                   <Badge variant={row.scope === 'PLATFORM' ? 'info' : 'muted'} className="text-[10px]">
-                    {SCOPE_LABELS[row.scope]}
+                    {t(`notificationPolicies.scope.${SCOPE_LABEL_KEYS[row.scope]}`)}
                   </Badge>
                   <div className="flex items-center gap-2">
                     {row.enabled ? (
@@ -126,11 +128,12 @@ export default function AdminNotificationPoliciesPage() {
                       checked={row.enabled}
                       onCheckedChange={() => void toggle(row)}
                       disabled={busy === row.eventKind}
-                      label={NOTIFICATION_KIND_LABELS[row.eventKind] ?? row.eventKind}
+                      label={kindLabel}
                     />
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </CardContent>
         </Card>

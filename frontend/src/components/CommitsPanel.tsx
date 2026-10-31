@@ -124,7 +124,7 @@ export default function CommitsPanel({ workspaceId, repositoryId }: Props) {
                 </code>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm truncate">
-                    {c.message || <span className="text-muted-foreground italic">(no message)</span>}
+                    {c.message || <span className="text-muted-foreground italic">{t('commits.noMessage')}</span>}
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
                     <span>{c.authorName || '—'}</span>
@@ -140,7 +140,7 @@ export default function CommitsPanel({ workspaceId, repositoryId }: Props) {
                     target="_blank"
                     rel="noreferrer noopener"
                     className="shrink-0 text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-xs"
-                    title="View commit on GitHub"
+                    title={t('commits.viewOnGithub')}
                   >
                     <ExternalLink className="h-3 w-3" />
                   </a>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -9,6 +10,7 @@ import { describeError } from '../services/auth';
 import { AiUsageSummary, aiUsageApi, UpdateLimitsPayload } from '../services/aiUsage';
 
 export function AiUsageCard() {
+  const { t } = useTranslation();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const [summary, setSummary] = useState<AiUsageSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -52,7 +54,7 @@ export function AiUsageCard() {
       };
       const updated = await aiUsageApi.updateLimits(workspaceId, payload);
       setSummary(updated);
-      setInfo('Limits saved.');
+      setInfo(t('aiUsage.limitsSaved'));
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -71,20 +73,20 @@ export function AiUsageCard() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Gauge className="h-4 w-4" /> Usage & Limits
+          <Gauge className="h-4 w-4" /> {t('aiUsage.title')}
         </CardTitle>
         <CardDescription>
-          Track AI token usage and configure daily/monthly budget limits.
+          {t('aiUsage.description')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading || !summary ? (
-          <p className="text-sm text-muted-foreground">Loading usage...</p>
+          <p className="text-sm text-muted-foreground">{t('aiUsage.loading')}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Today</div>
+                <div className="text-xs text-muted-foreground">{t('aiUsage.today')}</div>
                 <div className="text-lg font-bold">{summary.todayTokens.toLocaleString()}</div>
                 {summary.dailyLimit && (
                   <div className="mt-2">
@@ -95,13 +97,16 @@ export function AiUsageCard() {
                       />
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      of {summary.dailyLimit.toLocaleString()} ({dailyPct.toFixed(0)}%)
+                      {t('aiUsage.ofLimit', {
+                        limit: summary.dailyLimit.toLocaleString(),
+                        percent: dailyPct.toFixed(0),
+                      })}
                     </div>
                   </div>
                 )}
               </div>
               <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">This month</div>
+                <div className="text-xs text-muted-foreground">{t('aiUsage.thisMonth')}</div>
                 <div className="text-lg font-bold">{summary.monthTokens.toLocaleString()}</div>
                 {summary.monthlyLimit && (
                   <div className="mt-2">
@@ -112,7 +117,10 @@ export function AiUsageCard() {
                       />
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      of {summary.monthlyLimit.toLocaleString()} ({monthlyPct.toFixed(0)}%)
+                      {t('aiUsage.ofLimit', {
+                        limit: summary.monthlyLimit.toLocaleString(),
+                        percent: monthlyPct.toFixed(0),
+                      })}
                     </div>
                   </div>
                 )}
@@ -121,29 +129,29 @@ export function AiUsageCard() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label htmlFor="daily-limit">Daily token limit</Label>
+                <Label htmlFor="daily-limit">{t('aiUsage.dailyLimit')}</Label>
                 <Input
                   id="daily-limit"
                   type="number"
                   min={0}
                   value={dailyLimit}
                   onChange={(e) => setDailyLimit(e.target.value)}
-                  placeholder="Unlimited"
+                  placeholder={t('aiUsage.unlimited')}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="monthly-limit">Monthly token limit</Label>
+                <Label htmlFor="monthly-limit">{t('aiUsage.monthlyLimit')}</Label>
                 <Input
                   id="monthly-limit"
                   type="number"
                   min={0}
                   value={monthlyLimit}
                   onChange={(e) => setMonthlyLimit(e.target.value)}
-                  placeholder="Unlimited"
+                  placeholder={t('aiUsage.unlimited')}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="rate-limit">Requests / min</Label>
+                <Label htmlFor="rate-limit">{t('aiUsage.rateLimit')}</Label>
                 <Input
                   id="rate-limit"
                   type="number"
@@ -168,7 +176,7 @@ export function AiUsageCard() {
 
             <Button onClick={() => void save()} disabled={saving}>
               {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-              Save limits
+              {t('aiUsage.saveLimits')}
             </Button>
           </>
         )}

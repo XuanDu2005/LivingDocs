@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Badge } from '../components/ui/badge';
 
 interface Tag {
@@ -12,6 +13,7 @@ interface DocumentTagsProps {
 }
 
 export function DocumentTags({ tags, onRemove }: DocumentTagsProps) {
+  const { t } = useTranslation();
   if (!tags || tags.length === 0) return null;
 
   return (
@@ -27,7 +29,7 @@ export function DocumentTags({ tags, onRemove }: DocumentTagsProps) {
             <button 
               onClick={() => onRemove(tag.id)} 
               className="ml-1 hover:text-red-300 focus:outline-none"
-              title="Remove tag"
+              title={t('documentTags.removeTag')}
             >
               ×
             </button>

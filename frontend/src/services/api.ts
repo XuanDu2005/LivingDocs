@@ -28,4 +28,23 @@ export const apiClient: AxiosInstance = axios.create({
 
 installAuthInterceptor(apiClient);
 
+/**
+ * Timeouts for calls that legitimately take longer than a normal API
+ * round-trip.
+ *
+ * The default 10s is right for a simple read, but a few operations do
+ * real work on the server and are not instant:
+ *
+ *   - `scan-docs` walks the repository's Markdown files, compares them
+ *     against the indexed code, and then asks the AI to propose an
+ *     update for every drifted file. On a repository with a handful of
+ *     drifted files that is well over ten seconds.
+ *   - `doc-sync/preview` performs one AI call.
+ *
+ * Without a longer budget these calls abort client-side while the
+ * server is still working, and the user sees a bare "timeout" even
+ * though the scan completes moments later.
+ */
+export const LONG_TIMEOUT_MS = 120_000;
+
 export default apiClient;

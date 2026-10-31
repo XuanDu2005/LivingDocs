@@ -10,8 +10,8 @@ import { Input } from '../components/ui/input';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import {
-  NOTIFICATION_KIND_LABELS,
-  SCOPE_LABELS,
+  notificationKindLabelKey,
+  SCOPE_LABEL_KEYS,
   NotificationPolicy,
   notificationPoliciesApi,
 } from '../services/notificationPolicies';
@@ -157,12 +157,14 @@ export default function WorkspaceNotificationPoliciesPage() {
           </CardHeader>
           <CardContent>
             <ul className="divide-y">
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const kindLabel = t(`notifications.kindLabels.${notificationKindLabelKey(row.eventKind)}`, {
+                  defaultValue: row.eventKind,
+                });
+                return (
                 <li key={row.eventKind} className="flex items-center gap-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {NOTIFICATION_KIND_LABELS[row.eventKind] ?? row.eventKind}
-                    </div>
+                    <div className="text-sm font-medium">{kindLabel}</div>
                     <code className="text-xs text-muted-foreground">{row.eventKind}</code>
                   </div>
                   <Badge
@@ -172,7 +174,7 @@ export default function WorkspaceNotificationPoliciesPage() {
                       : 'muted'}
                     className="text-[10px]"
                   >
-                    {SCOPE_LABELS[row.scope]}
+                    {t(`notificationPolicies.scope.${SCOPE_LABEL_KEYS[row.scope]}`)}
                   </Badge>
                   <div className="flex items-center gap-2">
                     {row.enabled ? (
@@ -188,14 +190,15 @@ export default function WorkspaceNotificationPoliciesPage() {
                       checked={row.enabled}
                       onCheckedChange={() => void toggle(row)}
                       disabled={busy === row.eventKind}
-                      label={NOTIFICATION_KIND_LABELS[row.eventKind] ?? row.eventKind}
+                      label={kindLabel}
                     />
                     {busy === row.eventKind ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : null}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
@@ -205,44 +208,47 @@ export default function WorkspaceNotificationPoliciesPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Mail className="h-4 w-4" /> Delivery Channels
+            <Mail className="h-4 w-4" /> {t('notificationPolicies.channelsTitle')}
           </CardTitle>
           <CardDescription>
-            Configure which channels (in-app, email) are used to deliver each
-            notification type. Leave email recipients blank to notify all workspace members.
+            {t('notificationPolicies.channelsDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {editingChannel ? (
             <div className="space-y-4 rounded-md border p-4">
               <div className="text-sm font-medium">
-                Configure: {NOTIFICATION_KIND_LABELS[editingChannel] ?? editingChannel}
+                {t('notificationPolicies.configureLabel', {
+                  kind: t(`notifications.kindLabels.${notificationKindLabelKey(editingChannel)}`, {
+                    defaultValue: editingChannel,
+                  }),
+                })}
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium">In-app notification</div>
-                  <div className="text-xs text-muted-foreground">Show in the notification bell.</div>
+                  <div className="text-sm font-medium">{t('notificationPolicies.inAppTitle')}</div>
+                  <div className="text-xs text-muted-foreground">{t('notificationPolicies.inAppDesc')}</div>
                 </div>
                 <Switch2
                   checked={editInApp}
                   onCheckedChange={() => setEditInApp(!editInApp)}
-                  label="In-app"
+                  label={t('notificationPolicies.inAppShort')}
                 />
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium">Email notification</div>
-                  <div className="text-xs text-muted-foreground">Send via email.</div>
+                  <div className="text-sm font-medium">{t('notificationPolicies.emailTitle')}</div>
+                  <div className="text-xs text-muted-foreground">{t('notificationPolicies.emailShortDesc')}</div>
                 </div>
                 <Switch2
                   checked={editEmail}
                   onCheckedChange={() => setEditEmail(!editEmail)}
-                  label="Email"
+                  label={t('notificationPolicies.emailShort')}
                 />
               </div>
               {editEmail && (
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium">Email recipients (optional)</label>
+                  <label className="text-xs font-medium">{t('notificationPolicies.recipientsLabel')}</label>
                   <Input
                     type="text"
                     value={editEmailRecipients}
@@ -250,16 +256,16 @@ export default function WorkspaceNotificationPoliciesPage() {
                     placeholder="user1@example.com, user2@example.com"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Comma-separated. Leave blank to send to all workspace members.
+                    {t('notificationPolicies.recipientsHint')}
                   </p>
                 </div>
               )}
               <div className="flex gap-2">
                 <Button size="sm" onClick={() => void saveChannel()} disabled={savingChannel}>
-                  <Save className="mr-1 h-3 w-3" /> Save
+                  <Save className="mr-1 h-3 w-3" /> {t('common.actions.save')}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setEditingChannel(null)}>
-                  Cancel
+                  {t('common.actions.cancel')}
                 </Button>
               </div>
             </div>
@@ -271,23 +277,25 @@ export default function WorkspaceNotificationPoliciesPage() {
                   <li key={row.eventKind} className="flex items-center gap-4 py-3">
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium">
-                        {NOTIFICATION_KIND_LABELS[row.eventKind] ?? row.eventKind}
+                        {t(`notifications.kindLabels.${notificationKindLabelKey(row.eventKind)}`, {
+                          defaultValue: row.eventKind,
+                        })}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
                       {channel?.inAppEnabled !== false ? (
                         <Badge variant="info" className="text-[10px]">
-                          <Inbox className="mr-1 h-3 w-3" /> In-app
+                          <Inbox className="mr-1 h-3 w-3" /> {t('notificationPolicies.inAppShort')}
                         </Badge>
                       ) : (
-                        <Badge variant="muted" className="text-[10px]">No in-app</Badge>
+                        <Badge variant="muted" className="text-[10px]">{t('notificationPolicies.noInApp')}</Badge>
                       )}
                       {channel?.emailEnabled ? (
                         <Badge variant="info" className="text-[10px]">
-                          <Mail className="mr-1 h-3 w-3" /> Email
+                          <Mail className="mr-1 h-3 w-3" /> {t('notificationPolicies.emailShort')}
                         </Badge>
                       ) : (
-                        <Badge variant="muted" className="text-[10px]">No email</Badge>
+                        <Badge variant="muted" className="text-[10px]">{t('notificationPolicies.noEmail')}</Badge>
                       )}
                     </div>
                     <Button
@@ -295,7 +303,7 @@ export default function WorkspaceNotificationPoliciesPage() {
                       variant="outline"
                       onClick={() => openChannelEditor(row.eventKind)}
                     >
-                      Configure
+                      {t('notificationPolicies.configure')}
                     </Button>
                   </li>
                 );
