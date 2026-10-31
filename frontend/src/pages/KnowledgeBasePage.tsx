@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
 import { ErrorState, EmptyState } from '../components/ui/states';
-import { knowledgeApi, KnowledgeHit, IndexJob, IndexJobStatus } from '../services/knowledge';
+import { knowledgeApi, KnowledgeHit, IndexJob, IndexJobStatus, IndexJobKind } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi, Document } from '../services/documents';
 import { githubApi } from '../services/github';
@@ -112,6 +112,22 @@ export default function KnowledgeBasePage() {
 
   function jobStatusKey(status: IndexJobStatus): string {
     return `knowledge.status${status.charAt(0) + status.slice(1).toLowerCase()}`;
+  }
+
+  /**
+   * Build the translation key for an index-job kind.
+   *
+   * <p>The kind is SCREAMING_SNAKE_CASE (`INDEX`, `REINDEX_ALL`), so it has
+   * to be converted to camelCase. A naive `charAt(0) + slice(1).toLowerCase()`
+   * would produce `Reindex_all` and miss the `kindReindexAll` key.
+   */
+  function jobKindKey(kind: IndexJobKind): string {
+    const camel = kind
+      .toLowerCase()
+      .split('_')
+      .map((part, index) => (index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join('');
+    return `knowledge.kind${camel.charAt(0).toUpperCase()}${camel.slice(1)}`;
   }
 
   async function runSearch(e: FormEvent<HTMLFormElement>) {
@@ -277,8 +293,8 @@ export default function KnowledgeBasePage() {
         <Card>
           <CardContent className="pt-6">
             <EmptyState
-              title="No results"
-              description="Try a different query or index more documents first."
+              title={t('knowledge.noResults')}
+              description={t('knowledge.noResultsDesc')}
             />
           </CardContent>
         </Card>
@@ -373,7 +389,7 @@ export default function KnowledgeBasePage() {
         </CardHeader>
         <CardContent>
           {docs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No documents found in this workspace.</p>
+            <p className="text-sm text-muted-foreground">{t('knowledge.noDocuments')}</p>
           ) : (
             <div className="space-y-1">
               {docs.map((d) => (
@@ -486,7 +502,7 @@ export default function KnowledgeBasePage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {t(`knowledge.kind${j.kind.charAt(0) + j.kind.slice(1).toLowerCase()}`)}
+                      {t(jobKindKey(j.kind))}
                     </TableCell>
                     <TableCell className="text-xs">
                       {t('knowledge.progressOf', { processed: j.processedTargets, total: j.totalTargets })}

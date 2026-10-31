@@ -92,7 +92,7 @@ export const WebhookModal: React.FC<WebhookModalProps> = ({ isOpen, onClose, wor
               {webhooks.map((wh, index) => (
                 <li key={index} className="bg-gray-50 p-2 rounded border text-sm flex justify-between items-center">
                   <span className="font-semibold">{wh.name}</span>
-                  <span className="text-green-600 text-xs px-2 py-1 bg-green-100 rounded-full">Active</span>
+                  <span className="text-green-600 text-xs px-2 py-1 bg-green-100 rounded-full">{t('webhook.active')}</span>
                 </li>
               ))}
             </ul>

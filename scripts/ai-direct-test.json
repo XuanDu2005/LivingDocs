@@ -1,0 +1,10 @@
+{
+  "template": "MODULE_GUIDE",
+  "focus": "Document the validation utilities",
+  "files": [
+    {
+      "path": "src/utils/validation.ts",
+      "content": "/**\n * Utilities for validating and normalising user input.\n */\n\nexport interface ValidationResult {\n  valid: boolean;\n  errors: string[];\n}\n\n/**\n * Validate an email address.\n */\nexport function validateEmail(email: string): ValidationResult {\n  const errors: string[] = [];\n  if (!email || email.trim().length === 0) {\n    errors.push('Email must not be empty');\n  } else if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n    errors.push('Email is not a valid address');\n  }\n  return { valid: errors.length === 0, errors };\n}\n\n/**\n * Validate a password against the minimum policy.\n */\nexport function validatePassword(password: string): ValidationResult {\n  const errors: string[] = [];\n  if (password.length < 8) {\n    errors.push('Password must be at least 8 characters long');\n  }\n  if (!/[A-Z]/.test(password)) {\n    errors.push('Password must contain an uppercase letter');\n  }\n  if (!/[0-9]/.test(password)) {\n    errors.push('Password must contain a digit');\n  }\n  return { valid: errors.length === 0, errors };\n}\n"
+    }
+  ]
+}

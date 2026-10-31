@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -72,6 +73,7 @@ const toolLinks = (workspaceId: string) => [
 ];
 
 export default function WorkspaceDetailPage() {
+  const { t } = useTranslation();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -277,7 +279,7 @@ export default function WorkspaceDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Workspace settings</CardTitle>
-            <CardDescription>Update the name and description visible to members.</CardDescription>
+            <CardDescription>{t('workspaceDetail.settingsDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSave} className="space-y-3">
@@ -323,13 +325,13 @@ export default function WorkspaceDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Governance settings</CardTitle>
-            <CardDescription>Configure document update and approval workflows.</CardDescription>
+            <CardDescription>{t('workspaceDetail.governanceDesc')}</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={onSaveSettings} className="space-y-4">
               {/* Drift Severity Threshold */}
               <div className="space-y-1.5">
-                <Label htmlFor="drift-threshold">Drift severity threshold</Label>
+                <Label htmlFor="drift-threshold">{t('governance.driftSeverityThreshold')}</Label>
                 <Select
                   value={driftSeverityThreshold}
                   onValueChange={setDriftSeverityThreshold}
@@ -338,10 +340,10 @@ export default function WorkspaceDetailPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="LOW">Low (all alerts)</SelectItem>
-                    <SelectItem value="MEDIUM">Medium+</SelectItem>
-                    <SelectItem value="HIGH">High+</SelectItem>
-                    <SelectItem value="CRITICAL">Critical only</SelectItem>
+                    <SelectItem value="LOW">{t('workspaceDetail.driftSeverityLow')}</SelectItem>
+                    <SelectItem value="MEDIUM">{t('workspaceDetail.driftSeverityMedium')}</SelectItem>
+                    <SelectItem value="HIGH">{t('workspaceDetail.driftSeverityHigh')}</SelectItem>
+                    <SelectItem value="CRITICAL">{t('workspaceDetail.driftSeverityCritical')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -355,7 +357,7 @@ export default function WorkspaceDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between rounded-md border p-3">
                     <div className="space-y-0.5">
-                      <div className="text-sm">Auto-update on Pull Request</div>
+                      <div className="text-sm">{t('workspaceDetail.autoUpdateOnPr')}</div>
                       <p className="text-xs text-muted-foreground">
                         Automatically check and update docs when PRs are opened.
                       </p>
@@ -367,7 +369,7 @@ export default function WorkspaceDetailPage() {
                   </div>
                   <div className="flex items-center justify-between rounded-md border p-3">
                     <div className="space-y-0.5">
-                      <div className="text-sm">Auto-update on Commit</div>
+                      <div className="text-sm">{t('workspaceDetail.autoUpdateOnCommit')}</div>
                       <p className="text-xs text-muted-foreground">
                         Automatically check and update docs on every push.
                       </p>
@@ -386,7 +388,7 @@ export default function WorkspaceDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between rounded-md border p-3">
                     <div className="space-y-0.5">
-                      <div className="text-sm">Require manager approval</div>
+                      <div className="text-sm">{t('workspaceDetail.requireManagerApproval')}</div>
                       <p className="text-xs text-muted-foreground">
                         Documents must be approved by a Manager before publishing.
                       </p>
@@ -401,7 +403,7 @@ export default function WorkspaceDetailPage() {
 
               {/* Merge Policy for Critical */}
               <div className="space-y-1.5">
-                <Label htmlFor="merge-policy">Merge policy for critical drift</Label>
+                <Label htmlFor="merge-policy">{t('workspaceDetail.mergePolicyCritical')}</Label>
                 <Select
                   value={mergePolicyCritical}
                   onValueChange={setMergePolicyCritical}
@@ -410,8 +412,8 @@ export default function WorkspaceDetailPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="WARN">Warn only</SelectItem>
-                    <SelectItem value="BLOCK">Block merge</SelectItem>
+                    <SelectItem value="WARN">{t('workspaceDetail.warnOnly')}</SelectItem>
+                    <SelectItem value="BLOCK">{t('workspaceDetail.blockMerge')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

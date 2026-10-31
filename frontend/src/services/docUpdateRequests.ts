@@ -14,7 +14,7 @@
  *   POST /api/v1/workspaces/{wsId}/repositories/{repoId}/doc-updates/{id}/reject
  *   POST /api/v1/workspaces/{wsId}/repositories/{repoId}/doc-updates/{id}/apply
  */
-import apiClient from './api';
+import apiClient, { LONG_TIMEOUT_MS } from './api';
 
 export type DocUpdateStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'APPLIED';
 
@@ -96,12 +96,16 @@ export const docUpdateRequestApi = {
   /**
    * Manager-only: push the approved content to GitHub as a PR.
    * Backend returns the updated request with `appliedPrUrl` set.
+   *
+   * Creating the branch and the pull request is several GitHub API
+   * round-trips, so this needs the long timeout.
    */
   apply(workspaceId: string, repositoryId: string, requestId: string) {
     return apiClient
       .post<DocUpdateRequest>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/doc-updates/${requestId}/apply`,
         {},
+        { timeout: LONG_TIMEOUT_MS },
       )
       .then((r) => r.data);
   },

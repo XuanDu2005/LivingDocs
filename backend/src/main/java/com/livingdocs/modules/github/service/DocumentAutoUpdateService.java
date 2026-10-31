@@ -14,6 +14,7 @@ import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.GithubConnectionRepository;
 import com.livingdocs.modules.link.model.CodeDocumentLink;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
+import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -64,6 +65,7 @@ public class DocumentAutoUpdateService {
     private final CodeDocumentLinkRepository linkRepository;
     private final DocumentRepository documentRepository;
     private final GithubConnectionRepository githubConnectionRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
     private final GithubClient githubClient;
     private final AiDocumentationService aiDocumentationService;
 
@@ -72,6 +74,7 @@ public class DocumentAutoUpdateService {
                                      CodeDocumentLinkRepository linkRepository,
                                      DocumentRepository documentRepository,
                                      GithubConnectionRepository githubConnectionRepository,
+                                     WorkspaceMemberRepository workspaceMemberRepository,
                                      GithubClient githubClient,
                                      AiDocumentationService aiDocumentationService) {
         this.objectMapper = objectMapper;
@@ -79,6 +82,7 @@ public class DocumentAutoUpdateService {
         this.linkRepository = linkRepository;
         this.documentRepository = documentRepository;
         this.githubConnectionRepository = githubConnectionRepository;
+        this.workspaceMemberRepository = workspaceMemberRepository;
         this.githubClient = githubClient;
         this.aiDocumentationService = aiDocumentationService;
     }
@@ -191,6 +195,35 @@ public class DocumentAutoUpdateService {
         return changed;
     }
 
+    /**
+     * Extract the set of files a pull request touches.
+     *
+     * <p>The pull-request webhook payload carries a {@code changed_files}
+     * count but not the file list itself, so the list is derived from the
+     * {@code added}/{@code modified}/{@code removed} arrays of each commit
+     * in the PR. Pull-request payloads always include the commit list,
+     * unlike the shallow push payload.
+     */
+    public Set<String> changedFilesFromPullRequest(JsonNode payload) {
+        Set<String> changed = new LinkedHashSet<>();
+        JsonNode commits = payload.path("commits");
+        if (commits.isArray()) {
+            for (JsonNode commit : commits) {
+                commit.path("added").forEach(n -> changed.add(n.asText()));
+                commit.path("modified").forEach(n -> changed.add(n.asText()));
+                commit.path("removed").forEach(n -> changed.add(n.asText()));
+            }
+        }
+        // Fall back to the head-commit payload when the PR payload does
+        // not enumerate its commits.
+        if (changed.isEmpty()) {
+            JsonNode headCommit = payload.path("pull_request").path("head");
+            headCommit.path("added").forEach(n -> changed.add(n.asText()));
+            headCommit.path("modified").forEach(n -> changed.add(n.asText()));
+        }
+        return changed;
+    }
+
     // -----------------------------------------------------------------
     // helpers
     // -----------------------------------------------------------------
@@ -224,16 +257,31 @@ public class DocumentAutoUpdateService {
     /**
      * Find a usable GitHub access token for the repository.
      *
-     * <p>Webhooks are not associated with a user, so we look for any
-     * active connection in the workspace. Returns {@code null} when
-     * nobody has connected GitHub — the caller then skips the
-     * download step instead of failing the whole webhook.
+     * <p>Webhooks are not associated with a user, so we look for an
+     * active connection belonging to one of the workspace's members.
+     * Returns {@code null} when nobody in the workspace has connected
+     * GitHub — the caller then skips the download step instead of
+     * failing the whole webhook.
+     *
+     * <p>The lookup MUST be scoped to the workspace. Returning an
+     * arbitrary platform-wide token would let one workspace's webhook
+     * read source code with another tenant's GitHub credential.
      */
     @Transactional(readOnly = true)
     public String resolveAccessToken(UUID workspaceId) {
         List<GithubConnection> active = githubConnectionRepository.findAllByStatus(
                 GithubConnection.Status.ACTIVE);
+        if (workspaceId == null) {
+            return null;
+        }
+        Set<UUID> memberIds = workspaceMemberRepository.findAllByWorkspaceId(workspaceId).stream()
+                .map(m -> m.getUserId())
+                .collect(Collectors.toSet());
+        if (memberIds.isEmpty()) {
+            return null;
+        }
         return active.stream()
+                .filter(c -> memberIds.contains(c.getUserId()))
                 .map(GithubConnection::getAccessToken)
                 .filter(t -> t != null && !t.isBlank())
                 .findFirst()

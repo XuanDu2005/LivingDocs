@@ -10,6 +10,7 @@ import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubClient.GithubRepositoryContent;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -548,23 +549,41 @@ public class DocSyncService {
         List<CodeEntity> relevantEntities = filterRelevantEntities(entities, docName, currentContent);
 
         // Call AI to generate updated documentation
-        String proposedContent = generateUpdatedDoc(currentContent, relevantEntities, workspaceId);
+        String proposedContent = generateUpdatedDoc(currentContent, relevantEntities, workspaceId,
+                accessToken, repo, scanBranch);
 
-        // Check if no entities were found
-        boolean noEntitiesFound = (proposedContent == null);
+        // Two distinct "nothing to propose" reasons:
+        //   - no code entity is related to this document at all;
+        //   - the AI call failed, so no content could be produced.
+        // Both yield no proposal, but they must be reported differently —
+        // conflating them hid AI outages behind a benign-looking message.
+        boolean noEntitiesFound = relevantEntities.isEmpty();
+        boolean aiUnavailable = !noEntitiesFound && proposedContent == null;
 
         // Generate diff (only if there's proposed content)
-        String diff = noEntitiesFound ? null : generateDiff(currentContent, proposedContent);
+        String diff = proposedContent == null ? null : generateDiff(currentContent, proposedContent);
 
-        // Extract findings from AI response (only if there's proposed content)
-        List<DriftFindingDto> findings = noEntitiesFound
-                ? List.of(new DriftFindingDto(
-                        "NO_ENTITIES",
-                        "INFO",
-                        "No code entities found",
-                        "This documentation file does not reference any code entities in the repository. It may be unrelated to code (e.g., onboarding, deployment guide) or already up to date.",
-                        "Review if this file should reference any code entities, or mark it as reviewed."))
-                : extractFindings(proposedContent);
+        // Drift findings are computed from the CURRENT content against the
+        // indexed entities — they are meaningful even when the AI produced
+        // no proposal.
+        List<DriftFindingDto> findings;
+        if (noEntitiesFound) {
+            findings = List.of(new DriftFindingDto(
+                    "NO_ENTITIES",
+                    "INFO",
+                    "No code entities found",
+                    "This documentation file does not reference any code entities in the repository. It may be unrelated to code (e.g., onboarding, deployment guide) or already up to date.",
+                    "Review if this file should reference any code entities, or mark it as reviewed."));
+        } else if (aiUnavailable) {
+            findings = List.of(new DriftFindingDto(
+                    "AI_UNAVAILABLE",
+                    "INFO",
+                    "AI service did not return a proposal",
+                    "The AI service was contacted but returned no usable content, so no documentation update could be proposed. The findings below were computed from the current document against the indexed code.",
+                    "Retry the preview. If the problem persists, check the AI service configuration."));
+        } else {
+            findings = extractFindings(currentContent, relevantEntities);
+        }
 
         return new SyncPreviewResult(filePath, currentContent, proposedContent, diff, findings, noEntitiesFound);
     }
@@ -664,21 +683,73 @@ public class DocSyncService {
         return name.trim();
     }
 
-    private List<CodeEntity> filterRelevantEntities(List<CodeEntity> entities, String docName, String docContent) {
+    /**
+     * Pick the code entities a documentation file is about.
+     *
+     * <p>Three signals are used, from strongest to weakest:
+     * <ol>
+     *   <li>the entity's name appears in the documentation body — the
+     *       file explicitly documents it;</li>
+     *   <li>the entity's name appears in the documentation's file name
+     *       ({@code docs/api-client.md} → {@code ApiClient});</li>
+     *   <li>the entity's <em>source file path</em> matches the
+     *       documentation's file name ({@code docs/components.md} →
+     *       everything under {@code src/components/}).</li>
+     * </ol>
+     *
+     * <p>The third signal matters for documentation whose file name
+     * describes a <em>directory</em> rather than an entity. Without it,
+     * such a file matched nothing, the AI was never called, and the scan
+     * reported the file as drifted while quietly producing no proposal.
+     */
+    private List<CodeEntity> filterRelevantEntities(List<CodeEntity> entities,
+                                                    String docName,
+                                                    String docContent) {
         Set<String> docNameWords = Set.of(docName.toLowerCase().split("\\s+"));
-        
+        String contentLower = docContent.toLowerCase();
+
         return entities.stream()
                 .filter(e -> {
                     String simpleName = e.getSimpleName().toLowerCase();
-                    // Match if entity name appears in doc name or doc content
-                    return docNameWords.stream().anyMatch(w -> simpleName.contains(w) || w.contains(simpleName))
-                            || docContent.toLowerCase().contains(simpleName);
+                    if (contentLower.contains(simpleName)) {
+                        return true;
+                    }
+                    if (docNameWords.stream().anyMatch(w ->
+                            w.length() > 2
+                                    && (simpleName.contains(w) || w.contains(simpleName)))) {
+                        return true;
+                    }
+                    // Fall back to the source path: "components" matches
+                    // "src/components/StatCard.tsx".
+                    String filePath = e.getFilePath() != null
+                            ? e.getFilePath().toLowerCase() : "";
+                    return !filePath.isEmpty() && docNameWords.stream().anyMatch(w ->
+                            w.length() > 2 && filePath.contains(w));
                 })
                 .limit(20) // Limit to top 20 most relevant
                 .collect(Collectors.toList());
     }
 
-    private String generateUpdatedDoc(String currentContent, List<CodeEntity> entities, UUID workspaceId) {
+    /**
+     * Ask the AI to rewrite a documentation file so it matches the code.
+     *
+     * <p>The AI is grounded on the <em>actual source code</em> of the
+     * entities, fetched from GitHub. Feeding it entity metadata instead
+     * (name, kind, signature) produced a degenerate result: the generator
+     * had nothing to parse, so it echoed the template back verbatim —
+     * including the {@code {{#sources}}} placeholder and the "no source
+     * provided" note. The proposal then looked like a real change to a
+     * reviewer even though it carried no information.
+     *
+     * @return the proposed markdown, or {@code null} when the AI produced
+     *         nothing usable
+     */
+    private String generateUpdatedDoc(String currentContent,
+                                      List<CodeEntity> entities,
+                                      UUID workspaceId,
+                                      String accessToken,
+                                      Repository repo,
+                                      String branch) {
         if (entities.isEmpty()) {
             // No code entities are related to this file. Return null so the caller
             // knows there is nothing to propose and the modal can show a proper
@@ -686,54 +757,127 @@ public class DocSyncService {
             return null;
         }
 
-        // Build context from code entities
-        List<AiDtos.SourceFile> files = entities.stream()
-                .map(e -> new AiDtos.SourceFile(
-                        e.getFilePath(),
-                        buildEntityContext(e)))
-                .collect(Collectors.toList());
+        // Ground the AI on the real source of each entity. The entity's
+        // file path keeps the extension, so the AI service picks the
+        // right analyser and can extract the entity's body.
+        List<AiDtos.SourceFile> files = new ArrayList<>();
+        for (CodeEntity entity : entities) {
+            String source = fetchEntitySource(accessToken, repo, entity, branch);
+            files.add(new AiDtos.SourceFile(entity.getFilePath(), source));
+        }
 
-        String template = """
-                ## Code Entity Reference
+        // The current documentation is part of the context: the AI has to
+        // preserve whatever prose is still accurate and only fix what
+        // drifted. It travels in the focus prompt rather than as a source
+        // file, because a .md file has no analyser and would simply be
+        // skipped by the generator.
+        String focus = "Update the documentation below so it accurately reflects the "
+                + "current implementation of the referenced code. Keep the existing "
+                + "structure and prose wherever it is still correct; only correct "
+                + "what the code contradicts. Output the complete Markdown document, "
+                + "not a diff and not a fragment.\n\n"
+                + "--- CURRENT DOCUMENTATION ---\n"
+                + currentContent;
 
-                The following code entities are referenced in this documentation:
-
-                {{#sources}}
-                - `{{qualified_name}}` ({{kind}}) - {{signature}}
-                {{/sources}}
-
-                Please ensure the documentation above accurately reflects the current implementation.
-                """;
-
+        // Use a template the AI service actually knows how to render.
+        // "MODULE_GUIDE" is the built-in preset; passing a free-form
+        // template string made the generator fall back to echoing it.
+        //
+        // The language hint must stay null: the AI service applies the hint
+        // to *every* source file, and no analyser exists for "markdown",
+        // so every file was skipped and the generator returned its empty
+        // response. Letting it infer the language from each file's
+        // extension is what makes the sources parseable.
         AiDtos.GenerateResponse response = aiServiceClient.generate(
-                workspaceId, files, template, "Update documentation to match code", "markdown");
+                workspaceId, files, "MODULE_GUIDE", focus, null);
 
-        if (response != null && response.markdown() != null) {
-            // Merge AI response with current content if it doesn't completely replace it
-            if (response.markdown().length() < currentContent.length() * 0.5) {
-                // AI suggestion is much shorter, append it
-                return currentContent + "\n\n" + response.markdown();
+        if (response != null && response.markdown() != null && !response.markdown().isBlank()) {
+            String proposed = response.markdown().strip();
+            if (looksLikeUnrenderedTemplate(proposed)) {
+                // The generator echoed a template back — that is not a
+                // proposal, and queueing it would put an empty change in
+                // front of a reviewer.
+                log.warn("AI returned an unrendered template for {} entities — no proposal produced",
+                        entities.size());
+                return null;
             }
-            return response.markdown();
+            // The AI often returns only the section it rewrote. When it
+            // returns less than half of the current document, keep the
+            // original prose and append the new section rather than
+            // silently dropping the rest of the file.
+            if (proposed.length() < currentContent.length() * 0.5) {
+                return currentContent.strip() + "\n\n" + proposed + "\n";
+            }
+            return proposed + "\n";
         }
 
-        // Fallback: append a real "Referenced Code Entities" section so that
-        // the proposed content is GUARANTEED to differ from currentContent
-        // when the document is missing entity references. Without this, the
-        // diff is empty and the user sees a useless modal.
-        StringBuilder sb = new StringBuilder(currentContent);
-        if (!currentContent.endsWith("\n")) sb.append("\n");
-        sb.append("\n## Referenced Code Entities\n\n");
-        sb.append("_Auto-generated by LivingDocs — this section lists code entities related to this document._\n\n");
-        for (CodeEntity e : entities) {
-            sb.append("- `").append(e.getQualifiedName()).append("` (")
-              .append(e.getEntityType()).append(")");
-            if (e.getSignature() != null && !e.getSignature().isBlank()) {
-                sb.append(" — ").append(e.getSignature());
+        // Fallback: the AI did not return a usable result. Return {@code null}
+        // so the caller knows no proposal was produced.
+        //
+        // The previous implementation appended a synthetic "Referenced Code
+        // Entities" section so the diff was guaranteed to be non-empty.
+        // That fabricated a content change and let it be queued as a real
+        // review proposal, which meant reviewers could approve a "change"
+        // that the AI never produced. Returning null surfaces the real
+        // state: nothing was proposed.
+        log.warn("AI did not return usable content for {} entities — no proposal produced",
+                entities.size());
+        return null;
+    }
+
+    /**
+     * Fetch the real source of an entity from GitHub.
+     *
+     * <p>Only the entity's line range is returned, so the AI service sees
+     * the implementation rather than the whole file. When the fetch fails
+     * the entity's metadata is used as a last resort — clearly marked, so
+     * the model does not mistake it for code.
+     */
+    private String fetchEntitySource(String accessToken,
+                                     Repository repo,
+                                     CodeEntity entity,
+                                     String branch) {
+        try {
+            String fullContent = githubClient.getFileContent(
+                    accessToken, repo.getOwner(), repo.getName(),
+                    entity.getFilePath(), branch);
+            if (fullContent == null || fullContent.isBlank()) {
+                return buildEntityContext(entity);
             }
-            sb.append("\n");
+            Integer start = entity.getStartLine();
+            Integer end = entity.getEndLine();
+            if (start == null || end == null || start <= 0 || end < start) {
+                return fullContent;
+            }
+            String[] lines = fullContent.split("\n");
+            StringBuilder sb = new StringBuilder();
+            int from = Math.max(0, start - 1);
+            int to = Math.min(lines.length, end);
+            for (int i = from; i < to; i++) {
+                sb.append(lines[i]).append("\n");
+            }
+            String snippet = sb.toString();
+            return snippet.isBlank() ? buildEntityContext(entity) : snippet;
+        } catch (Exception e) {
+            log.debug("Could not fetch source for {}: {}", entity.getFilePath(), e.getMessage());
+            return buildEntityContext(entity);
         }
-        return sb.toString();
+    }
+
+    /**
+     * Whether the AI's answer is clearly an unrendered template rather
+     * than documentation.
+     *
+     * <p>These markers show up when the generator had no usable source
+     * and fell back to its "empty" response.
+     */
+    private boolean looksLikeUnrenderedTemplate(String markdown) {
+        String lower = markdown.toLowerCase();
+        return lower.contains("no source provided")
+                || lower.contains("no parsable source")
+                || lower.contains("{{#")
+                || lower.contains("{{qualified_name}}")
+                || lower.contains("{{/sources}}");
     }
 
     private String buildEntityContext(CodeEntity entity) {
@@ -750,57 +894,132 @@ public class DocSyncService {
         return sb.toString();
     }
 
+    /**
+     * Produce a unified diff between the current and the proposed content.
+     *
+     * <p>Delegates to {@link DocumentVersionService#computeUnifiedDiff} so
+     * the whole platform renders a single diff format. The previous
+     * implementation compared lines by index, which meant a single
+     * inserted line shifted every following line and the whole file was
+     * reported as replaced.
+     */
     private String generateDiff(String oldContent, String newContent) {
-        StringBuilder diff = new StringBuilder();
-        diff.append("--- a/original\n");
-        diff.append("+++ b/proposed\n");
+        return DocumentVersionService.computeUnifiedDiff(oldContent, newContent);
+    }
 
-        String[] oldLines = oldContent.split("\n");
-        String[] newLines = newContent.split("\n");
+    /**
+     * Detect documentation drift by comparing the code entities the
+     * document references against the entities that actually exist.
+     *
+     * <p>The previous implementation only looked for the literal strings
+     * {@code TODO}/{@code FIXME} in the proposed content, which produced
+     * a single hard-coded "incomplete" finding and never used the
+     * platform's drift taxonomy. It now performs real referential and
+     * signature drift detection:
+     * <ul>
+     *   <li><b>Referential</b> — the document names an entity that no
+     *       longer exists in the indexed code.</li>
+     *   <li><b>Signature</b> — the document quotes a signature that no
+     *       longer matches the indexed one.</li>
+     * </ul>
+     *
+     * @param currentContent the documentation as it exists today
+     * @param relevantEntities the entities indexed for this repository
+     */
+    private List<DriftFindingDto> extractFindings(String currentContent,
+                                                  List<CodeEntity> relevantEntities) {
+        List<DriftFindingDto> findings = new ArrayList<>();
+        if (currentContent == null || currentContent.isBlank()
+                || relevantEntities == null || relevantEntities.isEmpty()) {
+            return findings;
+        }
 
-        // Simple line-by-line diff
-        int i = 0, j = 0;
-        while (i < oldLines.length || j < newLines.length) {
-            if (i >= oldLines.length) {
-                // Addition
-                diff.append("+ ").append(newLines[j]).append("\n");
-                j++;
-            } else if (j >= newLines.length) {
-                // Deletion
-                diff.append("- ").append(oldLines[i]).append("\n");
-                i++;
-            } else if (oldLines[i].equals(newLines[j])) {
-                // Unchanged
-                diff.append("  ").append(oldLines[i]).append("\n");
-                i++;
-                j++;
-            } else {
-                // Changed
-                diff.append("- ").append(oldLines[i]).append("\n");
-                diff.append("+ ").append(newLines[j]).append("\n");
-                i++;
-                j++;
+        // Index the known entities by simple name so a mention in the
+        // document can be resolved to an entity (or ruled out).
+        Map<String, CodeEntity> bySimpleName = new LinkedHashMap<>();
+        for (CodeEntity e : relevantEntities) {
+            if (e.getSimpleName() != null && !e.getSimpleName().isBlank()) {
+                bySimpleName.putIfAbsent(e.getSimpleName().toLowerCase(Locale.ROOT), e);
             }
         }
 
-        return diff.toString();
+        // Referential drift: an identifier the document mentions that
+        // matches no known entity. The existing CODE_PATTERNS already
+        // encode the project's definition of "a code reference" (backticked
+        // class names, camelCase identifiers, class declarations in code
+        // blocks) and deliberately avoid matching ordinary prose words.
+        Set<String> reported = new HashSet<>();
+        for (Pattern pattern : CODE_PATTERNS) {
+            Matcher mention = pattern.matcher(currentContent);
+            while (mention.find()) {
+                String name = mention.group(1);
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                name = name.trim();
+                int paren = name.indexOf('(');
+                if (paren > 0) {
+                    name = name.substring(0, paren).trim();
+                }
+                int dot = name.lastIndexOf('.');
+                if (dot > 0) {
+                    name = name.substring(dot + 1).trim();
+                }
+                if (name.isEmpty() || name.length() < 3) {
+                    continue;
+                }
+                String key = name.toLowerCase(Locale.ROOT);
+                if (bySimpleName.containsKey(key)) {
+                    // The entity exists — check for a signature mismatch.
+                    CodeEntity entity = bySimpleName.get(key);
+                    String signature = entity.getSignature();
+                    if (signature != null && !signature.isBlank()
+                            && currentContent.contains(name)
+                            && !currentContent.contains(signature.trim())) {
+                        if (reported.add("sig:" + key)) {
+                            findings.add(new DriftFindingDto(
+                                    "SIGNATURE",
+                                    "MEDIUM",
+                                    "Signature of `" + name + "` may be outdated",
+                                    "The document mentions `" + name + "` but the indexed signature is `"
+                                            + signature.trim() + "`.",
+                                    "Update the documented signature of `" + name + "`."));
+                        }
+                    }
+                    continue;
+                }
+                // Only report as drift when the name looks like a real code
+                // identifier (CamelCase or snake_case) — otherwise every
+                // English word in the document becomes a false positive.
+                if (!looksLikeCodeIdentifier(name)) {
+                    continue;
+                }
+                if (!reported.add("ref:" + key)) {
+                    continue;
+                }
+                findings.add(new DriftFindingDto(
+                        "REFERENTIAL",
+                        "HIGH",
+                        "Referenced entity `" + name + "` no longer exists",
+                        "The document references `" + name + "`, but no code entity with that name is "
+                                + "indexed for this repository. It was most likely removed or renamed.",
+                        "Remove or update the reference to `" + name + "`."));
+            }
+        }
+        return findings;
     }
 
-    private List<DriftFindingDto> extractFindings(String content) {
-        List<DriftFindingDto> findings = new ArrayList<>();
-
-        // Simple heuristic: check for common patterns
-        if (content.contains("TODO") || content.contains("FIXME")) {
-            findings.add(new DriftFindingDto(
-                    "incomplete",
-                    "medium",
-                    "Documentation may be incomplete",
-                    "The document contains TODO/FIXME markers",
-                    "Consider completing the documentation before syncing"
-            ));
+    /**
+     * A name that plausibly denotes a code element rather than prose.
+     */
+    private boolean looksLikeCodeIdentifier(String name) {
+        if (name.isEmpty()) {
+            return false;
         }
-
-        return findings;
+        boolean hasUpper = name.chars().anyMatch(Character::isUpperCase);
+        boolean hasUnderscore = name.indexOf('_') >= 0;
+        boolean hasLetter = name.chars().anyMatch(Character::isLetter);
+        return hasLetter && (hasUpper || hasUnderscore);
     }
 
     private String generatePrBody(String filePath) {

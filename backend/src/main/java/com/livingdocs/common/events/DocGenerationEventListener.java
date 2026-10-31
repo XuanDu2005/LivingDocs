@@ -7,7 +7,12 @@ import com.livingdocs.modules.ai.service.AiDocumentationService;
 import com.livingdocs.modules.ai.service.CachedAiClient;
 import com.livingdocs.modules.ai.settings.AiRateLimitService;
 import com.livingdocs.modules.ai.settings.GovernancePolicyService;
+import com.livingdocs.modules.audit.service.AuditLogService;
+import com.livingdocs.modules.code.model.CodeEntity;
+import com.livingdocs.modules.code.repository.CodeEntityRepository;
 import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.link.model.CodeDocumentLink;
+import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
 import com.livingdocs.modules.notification.service.NotificationService;
 import com.livingdocs.modules.review.service.DocumentReviewService;
 import com.livingdocs.modules.version.model.DocumentVersion;
@@ -20,7 +25,9 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -66,6 +73,9 @@ public class DocGenerationEventListener {
     private final AiRateLimitService rateLimitService;
     private final DocumentRepository documentRepository;
     private final GovernancePolicyService governancePolicyService;
+    private final CodeEntityRepository codeEntityRepository;
+    private final CodeDocumentLinkRepository codeDocumentLinkRepository;
+    private final AuditLogService auditLogService;
 
     public DocGenerationEventListener(CachedAiClient cachedAiClient,
                                        AiDocumentationService aiDocumentationService,
@@ -76,7 +86,10 @@ public class DocGenerationEventListener {
                                        NotificationService notificationService,
                                        AiRateLimitService rateLimitService,
                                        DocumentRepository documentRepository,
-                                       GovernancePolicyService governancePolicyService) {
+                                       GovernancePolicyService governancePolicyService,
+                                       CodeEntityRepository codeEntityRepository,
+                                       CodeDocumentLinkRepository codeDocumentLinkRepository,
+                                       AuditLogService auditLogService) {
         this.cachedAiClient = cachedAiClient;
         this.aiDocumentationService = aiDocumentationService;
         this.eventPublisher = eventPublisher;
@@ -87,6 +100,9 @@ public class DocGenerationEventListener {
         this.rateLimitService = rateLimitService;
         this.documentRepository = documentRepository;
         this.governancePolicyService = governancePolicyService;
+        this.codeEntityRepository = codeEntityRepository;
+        this.codeDocumentLinkRepository = codeDocumentLinkRepository;
+        this.auditLogService = auditLogService;
     }
 
     @KafkaListener(
@@ -217,11 +233,15 @@ public class DocGenerationEventListener {
 
             // Governance gate 2 & 3: doc-type workflow and confidence
             // threshold decide whether this version is published
-            // automatically or queued for a human.
+            // automatically or left as a draft.
             //
             //   - AUTO_APPLY policy + confidence at or above the
             //     workspace threshold → publish straight away.
-            //   - anything else → enter the Staff review queue.
+            //   - anything else → stay a DRAFT. The version does NOT
+            //     enter the review queue on its own; the author decides
+            //     when to submit it. Pushing every generated version
+            //     into the queue automatically meant reviewers were
+            //     flooded with drafts nobody had looked at yet.
             //
             // A low-confidence result is never auto-applied, even when
             // the doc type is configured for auto-apply: the whole
@@ -241,20 +261,46 @@ public class DocGenerationEventListener {
                         governancePolicyService.confidenceThreshold(event.getWorkspaceId()),
                         event.getDocumentId(), version.getVersionNumber());
             } else {
-                // Put the version into the Staff review queue. When the
-                // workspace has disabled manager approval this still
-                // works — the governance policy decides what happens
-                // afterwards.
-                reviewService.markPendingForStaffReview(event.getDocumentId(), version.getId());
+                // Leave the version as a draft. The author submits it
+                // from the document page when they are happy with it.
                 if (!confident) {
-                    log.info("AI version routed to review (confidence {} below threshold {})",
+                    log.info("AI version kept as draft (confidence {} below threshold {})",
                             confidence,
                             governancePolicyService.confidenceThreshold(event.getWorkspaceId()));
+                } else {
+                    log.info("AI version kept as draft (docType={} requires review): "
+                                    + "document={} version={}",
+                            documentDocType, event.getDocumentId(), version.getVersionNumber());
                 }
             }
 
             log.info("AI version persisted: document={} version={}",
                     event.getDocumentId(), version.getVersionNumber());
+
+            // The audit trail must cover the AI path too, otherwise the
+            // change log shows what Staff and Manager did but not what the
+            // AI produced — the requirement is a complete trail per change.
+            try {
+                auditLogService.record(
+                        event.getRequestedByUserId(),
+                        "AI",
+                        "document.ai_generated",
+                        "document_version",
+                        version.getId().toString(),
+                        event.getWorkspaceId(),
+                        Map.of(
+                                "documentId", event.getDocumentId().toString(),
+                                "versionNumber", version.getVersionNumber(),
+                                "confidence", confidence == null ? 0.0f : confidence,
+                                "sourceCommitSha", event.getSourceCommitSha() == null
+                                        ? "" : event.getSourceCommitSha(),
+                                "groundingCount", grounding == null ? 0 : grounding.size()));
+            } catch (Exception e) {
+                log.warn("Failed to write audit log for AI generation on document {}: {}",
+                        event.getDocumentId(), e.getMessage());
+            }
+
+            linkGroundingEntities(event.getDocumentId(), grounding);
             return version.getId();
         } catch (Exception e) {
             log.error("Failed to persist AI version for document {}: {}",
@@ -262,6 +308,84 @@ public class DocGenerationEventListener {
             jobService.fail(event.getCorrelationId(), "Failed to persist version: " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Persist document ↔ code-entity links for the entities the AI grounded
+     * the document on.
+     *
+     * <p>Without this step the {@code code_document_links} table stays empty,
+     * which breaks two downstream features: coverage-gap detection (every
+     * entity looks undocumented) and the self-update loop (the webhook
+     * handler resolves "which documents cover this file?" through this
+     * table and finds nothing, so no document is ever auto-updated).
+     *
+     * <p>Matching is by file path first and by simple entity name as a
+     * fallback, because the AI reports the qualified name it saw.
+     */
+    private void linkGroundingEntities(UUID documentId,
+                                       List<DocGenerationCompletedEvent.Grounding> grounding) {
+        if (grounding == null || grounding.isEmpty()) {
+            return;
+        }
+        try {
+            List<String> paths = grounding.stream()
+                    .map(DocGenerationCompletedEvent.Grounding::file)
+                    .filter(f -> f != null && !f.isBlank())
+                    .distinct()
+                    .toList();
+            Map<String, List<CodeEntity>> byPath = new HashMap<>();
+            if (!paths.isEmpty()) {
+                for (CodeEntity e : codeEntityRepository.findByFilePathIn(paths)) {
+                    byPath.computeIfAbsent(e.getFilePath(), k -> new ArrayList<>()).add(e);
+                }
+            }
+
+            int linked = 0;
+            for (DocGenerationCompletedEvent.Grounding g : grounding) {
+                List<CodeEntity> candidates = byPath.get(g.file());
+                if (candidates == null || candidates.isEmpty()) {
+                    candidates = resolveBySimpleName(g.qualifiedName());
+                }
+                for (CodeEntity entity : candidates) {
+                    if (codeDocumentLinkRepository
+                            .findByDocumentIdAndCodeEntityId(documentId, entity.getId())
+                            .isPresent()) {
+                        continue;
+                    }
+                    codeDocumentLinkRepository.save(new CodeDocumentLink(
+                            documentId, entity.getId(), "AI_GROUNDED", null));
+                    linked++;
+                }
+            }
+            if (linked > 0) {
+                log.info("Linked {} grounding source(s) to document {}", linked, documentId);
+            }
+        } catch (Exception e) {
+            // Linking is best-effort: a failure here must not fail the
+            // generation itself, otherwise the document would be lost.
+            log.warn("Failed to link grounding entities for document {}: {}",
+                    documentId, e.getMessage());
+        }
+    }
+
+    /**
+     * Fallback matcher for grounding that names an entity without a known
+     * file path. Matches on the trailing simple name of the qualified name.
+     */
+    private List<CodeEntity> resolveBySimpleName(String qualifiedName) {
+        if (qualifiedName == null || qualifiedName.isBlank()) {
+            return List.of();
+        }
+        String simpleName = qualifiedName;
+        int lastDot = simpleName.lastIndexOf('.');
+        if (lastDot >= 0) {
+            simpleName = simpleName.substring(lastDot + 1);
+        }
+        if (simpleName.isBlank()) {
+            return List.of();
+        }
+        return codeEntityRepository.findAllBySimpleNameIgnoreCase(simpleName);
     }
 
     private String buildChangeSummary(DocGenerationRequestedEvent event) {

@@ -384,7 +384,7 @@ export default function AdminTemplatesPage() {
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="adm-tpl-name">Name *</Label>
+                <Label htmlFor="adm-tpl-name">{t('templates.fieldName')} *</Label>
                 <Input
                   id="adm-tpl-name"
                   value={form.name}
@@ -406,7 +406,7 @@ export default function AdminTemplatesPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="adm-tpl-type">Doc type</Label>
+                <Label htmlFor="adm-tpl-type">{t('templates.fieldDocType')}</Label>
                 <Select
                   value={form.docType}
                   onValueChange={(v) => setForm({ ...form, docType: v })}
@@ -421,7 +421,7 @@ export default function AdminTemplatesPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="adm-tpl-output">Output format</Label>
+                <Label htmlFor="adm-tpl-output">{t('templates.outputFormat')}</Label>
                 <Select
                   value={form.outputFormat}
                   onValueChange={(v) => setForm({ ...form, outputFormat: v as OutputFormat })}
@@ -447,7 +447,7 @@ export default function AdminTemplatesPage() {
             </div>
 
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-              <div className="text-sm font-medium">Auto-generation triggers</div>
+              <div className="text-sm font-medium">{t('templates.autoTriggers')}</div>
               <div className="grid grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <Switch
@@ -474,7 +474,7 @@ export default function AdminTemplatesPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="adm-tpl-body">Body (JSON)</Label>
+              <Label htmlFor="adm-tpl-body">{t('templates.fieldBodyJson')}</Label>
               <Textarea
                 id="adm-tpl-body"
                 value={form.bodyJson}

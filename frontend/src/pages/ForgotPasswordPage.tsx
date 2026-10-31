@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { KeyRound } from 'lucide-react';
 
 import { Button } from '../components/ui/button';
@@ -22,6 +23,7 @@ import { describeError } from '../services/auth';
  * of whether the account exists.
  */
 export default function ForgotPasswordPage() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [done, setDone] = useState<boolean>(false);
@@ -49,21 +51,20 @@ export default function ForgotPasswordPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
               <KeyRound className="h-5 w-5" />
             </div>
-            <CardTitle>Kiểm tra email của bạn</CardTitle>
+            <CardTitle>{t('auth.forgotPassword.checkEmail')}</CardTitle>
             <CardDescription>
-              Nếu tài khoản <b>{email}</b> tồn tại, chúng tôi đã gửi mã đặt lại mật khẩu
-              đến email đó. Mã có hiệu lực trong 30 phút.
+              {t('auth.forgotPassword.sentDesc', { email })}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
               <Link to={`/reset-password?email=${encodeURIComponent(email)}`}>
-                Tôi đã có mã — đặt lại mật khẩu
+                {t('auth.forgotPassword.haveCode')}
               </Link>
             </Button>
             <p className="mt-4 text-center text-sm text-muted-foreground">
               <Link to="/login" className="hover:underline">
-                ← Quay lại đăng nhập
+                {t('auth.forgotPassword.backToLogin')}
               </Link>
             </p>
           </CardContent>
@@ -79,9 +80,9 @@ export default function ForgotPasswordPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <KeyRound className="h-5 w-5" />
           </div>
-          <CardTitle>Quên mật khẩu</CardTitle>
+          <CardTitle>{t('auth.forgotPassword.title')}</CardTitle>
           <CardDescription>
-            Nhập email đã đăng ký. Chúng tôi sẽ gửi mã xác nhận để bạn đặt lại mật khẩu.
+            {t('auth.forgotPassword.subtitle')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -104,13 +105,13 @@ export default function ForgotPasswordPage() {
               </div>
             )}
             <Button type="submit" disabled={submitting} className="w-full">
-              {submitting ? 'Đang gửi…' : 'Gửi mã đặt lại'}
+              {submitting ? t('auth.forgotPassword.submitting') : t('auth.forgotPassword.submit')}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Nhớ mật khẩu rồi?{' '}
+            {t('auth.forgotPassword.remembered')}{' '}
             <Link to="/login" className="text-primary hover:underline">
-              Đăng nhập
+              {t('auth.forgotPassword.loginLink')}
             </Link>
             .
           </p>

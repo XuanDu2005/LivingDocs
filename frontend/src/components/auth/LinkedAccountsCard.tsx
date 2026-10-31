@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { FaGithub, FaGoogle } from 'react-icons/fa';
 import { Link2, Loader2, Unlink } from 'lucide-react';
 
@@ -20,22 +21,21 @@ const ALL_PROVIDERS: Array<{
   name: string;
   shortLabel: string;
   icon: React.ReactNode;
-  hint: string;
+  hintKey: string;
 }> = [
   {
     id: 'google',
     name: 'Google',
     shortLabel: 'Google',
     icon: <FaGoogle className="h-5 w-5" />,
-    hint: 'Liên kết Google để đăng nhập nhanh.',
+    hintKey: 'linkedAccounts.hintGoogle',
   },
   {
     id: 'github',
     name: 'GitHub',
     shortLabel: 'GitHub',
     icon: <FaGithub className="h-5 w-5" />,
-    hint:
-      'Liên kết GitHub để đăng nhập nhanh. Khi gỡ liên kết tại đây, kết nối GitHub cho repository cũng sẽ tự động bị gỡ.',
+    hintKey: 'linkedAccounts.hintGithub',
   },
 ];
 
@@ -63,6 +63,7 @@ export interface LinkedAccountsCardProps {
 export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps = {}) {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [params] = useSearchParams();
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +77,7 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
     const linkedProv = params.get('linked');
     const err = params.get('error');
     if (linkedProv) {
-      setInfo(`Đã liên kết ${linkedProv} thành công.`);
+      setInfo(t('linkedAccounts.linkedOk', { provider: linkedProv }));
       const next = new URLSearchParams(params);
       next.delete('linked');
       next.delete('error');
@@ -86,9 +87,9 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
     } else if (err) {
       setError(
         err === 'invalid_state'
-          ? 'Phiên liên kết đã hết hạn. Vui lòng thử lại.'
+          ? t('linkedAccounts.sessionExpired')
           : err === 'link_failed'
-            ? 'Không thể liên kết tài khoản. Vui lòng thử lại.'
+            ? t('linkedAccounts.linkFailed')
             : describeError(new Error(err)),
       );
       const next = new URLSearchParams(params);
@@ -113,14 +114,14 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
   const handleUnlink = async (provider: 'google' | 'github') => {
     const confirmMessage =
       provider === 'github'
-        ? 'Gỡ liên kết GitHub?\n\nKết nối GitHub cho repository trong workspace cũng sẽ bị gỡ theo. Bạn sẽ cần liên kết lại để truy cập repo.'
-        : `Gỡ liên kết ${provider} khỏi tài khoản?`;
+        ? t('linkedAccounts.unlinkConfirmGithub')
+        : t('linkedAccounts.unlinkConfirm', { provider });
     if (!window.confirm(confirmMessage)) return;
     setBusyProvider(provider);
     setError(null);
     try {
       await unlinkProvider(provider);
-      setInfo(`Đã gỡ liên kết ${provider}.`);
+      setInfo(t('linkedAccounts.unlinkedOk', { provider }));
       // Re-fetch so user.linkedProviders no longer includes the
       // freshly-unlinked identity.
       await refreshUser();
@@ -150,8 +151,8 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
                 {variant !== 'menu' && (
                   <div className="text-xs text-muted-foreground">
                     {connection
-                      ? connection.providerEmail ?? 'Đã liên kết'
-                      : p.hint}
+                      ? connection.providerEmail ?? t('linkedAccounts.linked')
+                      : t(p.hintKey)}
                   </div>
                 )}
               </div>
@@ -164,7 +165,7 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
                 onClick={() => handleUnlink(p.id)}
               >
                 {variant !== 'menu' && <Unlink className="mr-2 h-4 w-4" />}
-                Gỡ liên kết
+                {t('linkedAccounts.unlink')}
               </Button>
             ) : (
               <Button
@@ -176,7 +177,7 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
                 {busyProvider === p.id ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}
-                Liên kết
+                {t('linkedAccounts.link')}
               </Button>
             )}
           </div>
@@ -206,10 +207,10 @@ export function LinkedAccountsCard({ variant = 'card' }: LinkedAccountsCardProps
         <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
           <Link2 className="h-5 w-5" />
         </div>
-        <CardTitle>Tài khoản đã liên kết</CardTitle>
+        <CardTitle>{t('linkedAccounts.title')}</CardTitle>
         {variant === 'card' && (
           <CardDescription>
-            Kết nối Google hoặc GitHub để đăng nhập nhanh hơn và xác thực email tự động.
+            {t('linkedAccounts.description')}
           </CardDescription>
         )}
       </CardHeader>

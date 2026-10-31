@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, FilePlus } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,6 +15,7 @@ import { githubApi } from '../services/github';
 import { describeError } from '../services/auth';
 
 export default function NewDocumentPage() {
+  const { t } = useTranslation();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
 
@@ -126,7 +128,7 @@ export default function NewDocumentPage() {
       </Button>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">New document</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('documents.newCta')}</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Fill in the metadata and the initial body. You can publish once you have reviewed it.
         </p>
@@ -137,7 +139,7 @@ export default function NewDocumentPage() {
           <CardTitle className="text-base flex items-center gap-2">
             <FilePlus className="h-4 w-4" /> Document details
           </CardTitle>
-          <CardDescription>All fields except the initial body are optional and can be changed later.</CardDescription>
+          <CardDescription>{t('newDocument.fieldsOptional')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
@@ -149,7 +151,7 @@ export default function NewDocumentPage() {
                 type="text"
                 value={title}
                 onChange={(e) => handleTitleChange(e.target.value)}
-                placeholder="My awesome document"
+                placeholder={t('newDocument.titlePlaceholder')}
                 required
                 maxLength={120}
               />
@@ -165,7 +167,7 @@ export default function NewDocumentPage() {
                 onChange={(e) => handleSlugChange(e.target.value)}
                 placeholder="my-awesome-document"
                 pattern="^[a-z0-9][a-z0-9-]*$"
-                title="Lowercase letters, numbers, and hyphens. Must start with a letter or number."
+                title={t('newDocument.slugTitle')}
               />
               <p className="text-xs text-muted-foreground">
                 Lowercase letters, numbers, and hyphens. Auto-generated from title.
@@ -179,7 +181,7 @@ export default function NewDocumentPage() {
                 id="summary"
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
-                placeholder="Brief description of this document…"
+                placeholder={t('newDocument.summaryPlaceholder')}
                 maxLength={500}
                 rows={2}
               />
@@ -201,14 +203,14 @@ export default function NewDocumentPage() {
             <div className="space-y-1.5">
               <Label htmlFor="template">Template</Label>
               {loadingTemplates ? (
-                <p className="text-sm text-muted-foreground">Loading templates…</p>
+                <p className="text-sm text-muted-foreground">{t('newDocument.loadingTemplates')}</p>
               ) : (
                 <Select value={templateId} onValueChange={setTemplateId}>
                   <SelectTrigger id="template">
-                    <SelectValue placeholder="— None —" />
+                    <SelectValue placeholder={t('newDocument.none')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="">{t('newDocument.none')}</SelectItem>
                     {templates.workspaceTemplates.length > 0 && (
                       <>
                         <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -238,14 +240,14 @@ export default function NewDocumentPage() {
             <div className="space-y-1.5">
               <Label htmlFor="repository">Repository</Label>
               {loadingRepos ? (
-                <p className="text-sm text-muted-foreground">Loading repositories…</p>
+                <p className="text-sm text-muted-foreground">{t('newDocument.loadingRepositories')}</p>
               ) : (
                 <Select value={repositoryId} onValueChange={setRepositoryId}>
                   <SelectTrigger id="repository">
-                    <SelectValue placeholder="— None —" />
+                    <SelectValue placeholder={t('newDocument.none')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="">{t('newDocument.none')}</SelectItem>
                     {repositories.map((r) => (
                       <SelectItem key={r.id} value={r.id}>{r.fullName}</SelectItem>
                     ))}
@@ -275,7 +277,7 @@ export default function NewDocumentPage() {
                 id="initialBody"
                 value={initialBody}
                 onChange={(e) => setInitialBody(e.target.value)}
-                placeholder="Initial markdown content…"
+                placeholder={t('newDocument.initialBodyPlaceholder')}
                 rows={10}
                 required
                 className="font-mono text-sm"

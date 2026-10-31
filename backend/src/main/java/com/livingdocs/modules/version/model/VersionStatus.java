@@ -6,8 +6,11 @@ package com.livingdocs.modules.version.model;
  * workflow.
  *
  * <ul>
- *     <li>{@link #PENDING} — just created (AI generation, AI auto-update or
- *         a human edit), not yet picked up by a reviewer.</li>
+ *     <li>{@link #DRAFT} — just created and not yet submitted by anyone.
+ *         A draft sits outside the review queue; only the author pushes
+ *         it into the workflow.</li>
+ *     <li>{@link #PENDING} — submitted and waiting for a Staff reviewer
+ *         to pick it up.</li>
  *     <li>{@link #IN_REVIEW} — a Staff reviewer is looking at it.</li>
  *     <li>{@link #APPROVED} — Manager approved but the document is not yet
  *         promoted to head.</li>
@@ -19,6 +22,7 @@ package com.livingdocs.modules.version.model;
  * </ul>
  */
 public enum VersionStatus {
+    DRAFT,
     PENDING,
     IN_REVIEW,
     APPROVED,

@@ -127,7 +127,7 @@ public class DocTemplateService {
                         "version, body, output_format, " +
                         "auto_generate_on_commit, auto_generate_on_pr, auto_generate_on_merge, " +
                         "is_default, created_by) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)",
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)",
                 ps -> {
                     ps.setObject(1, id);
                     if (targetWorkspace != null) {
@@ -187,7 +187,7 @@ public class DocTemplateService {
                         "version, body, output_format, " +
                         "auto_generate_on_commit, auto_generate_on_pr, auto_generate_on_merge, " +
                         "is_default, created_by) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)",
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)",
                 ps -> {
                     ps.setObject(1, newId);
                     if (current.getWorkspaceId() != null) {

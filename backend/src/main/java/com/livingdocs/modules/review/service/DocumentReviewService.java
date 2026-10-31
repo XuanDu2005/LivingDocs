@@ -348,6 +348,51 @@ public class DocumentReviewService {
     }
 
     /**
+     * Push a draft version into the Staff review queue.
+     *
+     * <p>A version is created as a {@link VersionStatus#DRAFT}. The
+     * author decides when it is ready for a reviewer; only then does it
+     * become {@link VersionStatus#PENDING} and show up in the queue.
+     *
+     * <p>Only a workspace member may submit, and only for a document in
+     * their workspace.
+     *
+     * @throws BadRequestException when the version is not a draft
+     */
+    @Transactional
+    public DocumentVersion submitForReview(UUID actorId, UUID documentId, UUID versionId) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+        workspaceService.requireMember(actorId, document.getWorkspaceId());
+
+        DocumentVersion version = versionRepository.findById(versionId)
+                .orElseThrow(() -> new NotFoundException("Version not found"));
+        if (!version.getDocumentId().equals(documentId)) {
+            throw new NotFoundException("Version not found");
+        }
+        if (version.getStatus() != VersionStatus.DRAFT) {
+            throw new BadRequestException(
+                    "Only draft versions can be submitted for review (current: "
+                            + version.getStatus() + ")");
+        }
+
+        version.setStatus(VersionStatus.PENDING);
+        versionRepository.save(version);
+        document.setStatus(DocumentStatus.IN_REVIEW);
+        documentRepository.save(document);
+
+        auditLogService.record(actorId, "USER", "document.submitted_for_review",
+                "document_version", versionId.toString(), document.getWorkspaceId(),
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionId.toString(),
+                        "versionNumber", version.getVersionNumber()));
+
+        log.info("Version submitted for review: document={} version={}",
+                documentId, version.getVersionNumber());
+        return version;
+    }
+
+    /**
      * Used internally by AI workflows when a draft is submitted. Marks the
      * version PENDING so it appears in the Staff review queue.
      */

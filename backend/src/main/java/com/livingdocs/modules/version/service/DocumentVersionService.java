@@ -80,7 +80,7 @@ public class DocumentVersionService {
                 documentId, next, bodyMarkdown, changeSummary,
                 actorRole, actorId,
                 null, null, document.getTemplateId(),
-                VersionStatus.PENDING, null
+                VersionStatus.DRAFT, null
         );
         return versionRepository.save(version);
     }
@@ -157,7 +157,7 @@ public class DocumentVersionService {
                 documentId, next, bodyMarkdown, changeSummary,
                 ActorRole.AI, actorUserId,
                 sourceCommitSha, sourcePrId, document.getTemplateId(),
-                VersionStatus.PENDING, confidenceScore
+                VersionStatus.DRAFT, confidenceScore
         );
         version.setGroundingJson(groundingJson);
         DocumentVersion saved = versionRepository.save(version);
@@ -185,8 +185,10 @@ public class DocumentVersionService {
         if (!target.getDocumentId().equals(documentId)) {
             throw new NotFoundException("Version not found");
         }
-        if (target.getStatus() != VersionStatus.PENDING) {
-            // Someone already handled it — nothing to publish.
+        if (target.getStatus() != VersionStatus.DRAFT) {
+            // Someone already handled it — nothing to publish. A version
+            // that was submitted for review is in PENDING, so this also
+            // prevents an auto-publish from racing a human review.
             log.info("Version {} is already {} — skipping auto-publish",
                     versionId, target.getStatus());
             return;
@@ -315,7 +317,7 @@ public class DocumentVersionService {
                 "Rolled back to version " + targetVersionNumber,
                 role, actorId,
                 null, null, document.getTemplateId(),
-                VersionStatus.PENDING, null
+                VersionStatus.DRAFT, null
         );
         DocumentVersion saved = versionRepository.save(rollback);
         log.info("Rollback version created: document={} new_version={} target_version={}",

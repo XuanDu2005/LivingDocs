@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.ai.client.AiDtos;
+import com.livingdocs.modules.ai.bulk.BulkGenerationJob;
+import com.livingdocs.modules.ai.bulk.BulkGenerationService;
 import com.livingdocs.modules.ai.dto.PreviewGenerateResponse;
 import com.livingdocs.modules.ai.job.DocGenerationJob;
 import com.livingdocs.modules.ai.job.DocGenerationJobResponse;
@@ -48,6 +50,7 @@ public class AiController {
     private final WorkspaceService workspaceService;
     private final ObjectMapper objectMapper;
     private final DocGenerationJobService jobService;
+    private final BulkGenerationService bulkGenerationService;
 
     public AiController(AiDocumentationService aiService,
                         DocumentVersionService versionService,
@@ -55,7 +58,8 @@ public class AiController {
                         DocumentVersionRepository versionRepository,
                         WorkspaceService workspaceService,
                         ObjectMapper objectMapper,
-                        DocGenerationJobService jobService) {
+                        DocGenerationJobService jobService,
+                        BulkGenerationService bulkGenerationService) {
         this.aiService = aiService;
         this.versionService = versionService;
         this.driftService = driftService;
@@ -63,6 +67,7 @@ public class AiController {
         this.workspaceService = workspaceService;
         this.objectMapper = objectMapper;
         this.jobService = jobService;
+        this.bulkGenerationService = bulkGenerationService;
     }
 
     /**
@@ -185,21 +190,56 @@ public class AiController {
 
     /**
      * Generate documentation for all coverage-gap entities in a repository.
-     * Creates new documents for undocumented code entities.
+     *
+     * <p>This is a bulk operation: one LLM call per undocumented entity,
+     * which takes far longer than a normal request may block. The call
+     * therefore enqueues a job and answers <b>202 Accepted</b>; the
+     * client polls {@code /bulk-generation-jobs/{jobId}} for progress.
      */
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/generate-all")
-    @Operation(summary = "Generate documentation for all undocumented code entities in a repository")
-    public Map<String, Object> generateAllForRepository(
+    @Operation(summary = "Queue a bulk documentation generation run for a repository (returns 202)")
+    public ResponseEntity<Map<String, Object>> generateAllForRepository(
             @PathVariable UUID workspaceId,
             @PathVariable UUID repositoryId,
             @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template) {
-        var result = aiService.generateForRepository(
+        BulkGenerationJob job = bulkGenerationService.enqueue(
                 CurrentUser.requireId(), workspaceId, repositoryId, template);
-        return Map.of(
-                "generated", result.generated(),
-                "skipped", result.skipped(),
-                "errors", result.errors(),
-                "documents", result.documents()
-        );
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", job.getStatus().name(),
+                "jobId", job.getId().toString(),
+                "repositoryId", repositoryId.toString(),
+                "totalEntities", job.getTotalEntities(),
+                "message", "Bulk generation queued. Poll /bulk-generation-jobs/"
+                        + job.getId() + " for progress."));
+    }
+
+    /**
+     * Poll the progress of a bulk generation run.
+     */
+    @GetMapping("/workspaces/{workspaceId}/bulk-generation-jobs/{jobId}")
+    @Operation(summary = "Poll the status of a bulk documentation generation run")
+    public Map<String, Object> bulkGenerationStatus(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID jobId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        BulkGenerationJob job = bulkGenerationService.find(jobId)
+                .orElseThrow(() -> new NotFoundException("Bulk generation job not found"));
+        if (!job.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Bulk generation job not found in this workspace");
+        }
+        return bulkGenerationService.toResponse(job);
+    }
+
+    /**
+     * List the most recent bulk generation runs for a workspace.
+     */
+    @GetMapping("/workspaces/{workspaceId}/bulk-generation-jobs")
+    @Operation(summary = "List recent bulk documentation generation runs")
+    public List<Map<String, Object>> bulkGenerationJobs(
+            @PathVariable UUID workspaceId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        return bulkGenerationService.recentForWorkspace(workspaceId).stream()
+                .map(bulkGenerationService::toResponse)
+                .toList();
     }
 }

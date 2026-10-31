@@ -157,7 +157,7 @@ export default function AdminUsersPage() {
                   type="button"
                   onClick={() => setSearch('')}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label="Clear search"
+                  aria-label={t('adminUsers.clearSearch')}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -328,11 +328,11 @@ export default function AdminUsersPage() {
       {workspaceId && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Audit log</CardTitle>
+            <CardTitle className="text-base">{t('adminUsers.auditLogTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              The workspace-scoped audit log is still available at /workspaces/{workspaceId}/audit-logs.
+              {t('adminUsers.auditLogDesc', { workspaceId })}
             </p>
           </CardContent>
         </Card>

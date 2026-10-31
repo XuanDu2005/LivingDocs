@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Diff2HtmlUI } from 'diff2html/lib/ui/js/diff2html-ui-slim';
 import { X, GitPullRequest, AlertTriangle, CheckCircle2, Info, ShieldCheck } from 'lucide-react';
 import { docSyncApi, docSyncQueueApi, DocSyncPreview, DriftFinding } from '../services/docSync';
@@ -22,6 +23,7 @@ export function DocSyncPreviewModal({
   onClose,
   onApplied,
 }: DiffPreviewProps) {
+  const { t } = useTranslation();
   const [preview, setPreview] = useState<DocSyncPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function DocSyncPreviewModal({
   useEffect(() => {
     docSyncApi.preview(workspaceId, repositoryId, filePath, branch)
       .then(setPreview)
-      .catch((err) => setError(err.response?.data?.message || 'Failed to generate preview'))
+      .catch((err) => setError(err.response?.data?.message || t('docSync.errPreviewFailed')))
       .finally(() => setLoading(false));
   }, [workspaceId, repositoryId, filePath, branch]);
 
@@ -67,13 +69,13 @@ export function DocSyncPreviewModal({
 
     // Guard: if no entities found, there's nothing to propose
     if (preview.noEntitiesFound) {
-      setError('No code entities found — cannot generate documentation updates for this file.');
+      setError(t('docSync.errNoEntitiesApply'));
       return;
     }
 
     // Guard: if proposed content is identical to current, there's nothing to commit.
     if (preview.proposedContent === preview.currentContent) {
-      setError('No changes detected — documentation already matches the code.');
+      setError(t('docSync.errNoChanges'));
       return;
     }
 
@@ -89,10 +91,10 @@ export function DocSyncPreviewModal({
       if (result.success) {
         onApplied(result.prUrl);
       } else {
-        setError(result.message || 'Failed to apply changes');
+        setError(result.message || t('docSync.errApplyFailed'));
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to apply changes');
+      setError(err.response?.data?.message || t('docSync.errApplyFailed'));
     } finally {
       setApplying(false);
     }
@@ -101,11 +103,11 @@ export function DocSyncPreviewModal({
   const handleQueue = async () => {
     if (!preview) return;
     if (preview.noEntitiesFound) {
-      setError('No code entities found — cannot queue a doc update for review.');
+      setError(t('docSync.errNoEntitiesQueue'));
       return;
     }
     if (preview.proposedContent === preview.currentContent) {
-      setError('No changes detected — documentation already matches the code.');
+      setError(t('docSync.errNoChanges'));
       return;
     }
     setQueuing(true);
@@ -115,10 +117,10 @@ export function DocSyncPreviewModal({
       if (result?.hasChanges) {
         setQueued({ id: result.id, message: result.message });
       } else {
-        setError(result?.message || 'No changes to queue — documentation already matches the code.');
+        setError(result?.message || t('docSync.errNoChangesQueue'));
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to queue doc update for review');
+      setError(err.response?.data?.message || t('docSync.errQueueFailed'));
     } finally {
       setQueuing(false);
     }
@@ -154,7 +156,7 @@ export function DocSyncPreviewModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-xl font-semibold">Documentation Sync Preview</h2>
+            <h2 className="text-xl font-semibold">{t('docSync.previewTitle')}</h2>
             <p className="text-sm text-gray-500">{filePath}</p>
           </div>
           <button
@@ -170,7 +172,7 @@ export function DocSyncPreviewModal({
           {loading && (
             <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-              <span className="ml-3 text-gray-600">Generating preview...</span>
+              <span className="ml-3 text-gray-600">{t('docSync.generating')}</span>
             </div>
           )}
 
@@ -194,29 +196,27 @@ export function DocSyncPreviewModal({
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-blue-900 text-lg">
-                        No code entities found
+                        {t('docSync.noEntitiesTitle')}
                       </h3>
                       <p className="mt-2 text-blue-800">
-                        This documentation file does not reference any code entities in the repository.
-                        This may be because:
+                        {t('docSync.noEntitiesIntro')}
                       </p>
                       <ul className="mt-3 space-y-2 text-blue-700">
                         <li className="flex items-start gap-2">
                           <span className="mt-1.5 w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" />
-                          <span>The file is unrelated to code (e.g., onboarding guide, deployment instructions, team processes)</span>
+                          <span>{t('docSync.unrelatedToCode')}</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <span className="mt-1.5 w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" />
-                          <span>The file is already well-documented and references code entities that match their current implementation</span>
+                          <span>{t('docSync.wellDocumented')}</span>
                         </li>
                         <li className="flex items-start gap-2">
                           <span className="mt-1.5 w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" />
-                          <span>Code entity extraction may have missed some definitions</span>
+                          <span>{t('docSync.extractionMissed')}</span>
                         </li>
                       </ul>
                       <p className="mt-4 text-sm text-blue-600">
-                        <strong>Tip:</strong> If this file should reference code, consider updating the code entity extraction rules
-                        or adding explicit references to class/method names in the documentation.
+                        <strong>{t('docSync.tipLabel')}</strong> {t('docSync.tipBody')}
                       </p>
                     </div>
                   </div>
@@ -228,7 +228,7 @@ export function DocSyncPreviewModal({
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                   <h3 className="font-semibold text-amber-800 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4" />
-                    Documentation Issues Found
+                    {t('docSync.issuesFound')}
                   </h3>
                   <ul className="mt-2 space-y-2">
                     {preview.findings.map((finding, i) => (
@@ -242,11 +242,11 @@ export function DocSyncPreviewModal({
               {!hasNoEntities && (
                 <div className="border rounded-lg overflow-hidden">
                   <div className="bg-gray-50 px-4 py-2 border-b font-medium text-sm">
-                    Changes Preview
+                    {t('docSync.changesPreview')}
                   </div>
                   <div className="p-4 overflow-auto max-h-[50vh] diff2html-custom-styles">
                     {preview.diff ? renderDiff(preview.diff) : (
-                      <p className="text-gray-500">No changes detected</p>
+                      <p className="text-gray-500">{t('docSync.noChangesDetected')}</p>
                     )}
                   </div>
                 </div>
@@ -262,7 +262,7 @@ export function DocSyncPreviewModal({
             className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
             disabled={applying}
           >
-            Cancel
+            {t('common.actions.cancel')}
           </button>
 
           {/* No Entities Found State */}
@@ -270,7 +270,7 @@ export function DocSyncPreviewModal({
             <div className="flex items-center gap-2 px-4 py-2 text-blue-700 bg-blue-50 border border-blue-200 rounded-lg">
               <Info className="w-4 h-4" />
               <span className="text-sm font-medium">
-                No entities found — no update needed
+                {t('docSync.noEntitiesNoUpdate')}
               </span>
             </div>
           )}
@@ -280,7 +280,7 @@ export function DocSyncPreviewModal({
             <div className="flex items-center gap-2 px-4 py-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
               <CheckCircle2 className="w-4 h-4" />
               <span className="text-sm font-medium">
-                Already up to date — no changes to commit
+                {t('docSync.upToDate')}
               </span>
             </div>
           )}
@@ -291,7 +291,7 @@ export function DocSyncPreviewModal({
               {queued ? (
                 <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-800 rounded-lg border border-green-200">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Queued for review (id: {queued.id.slice(0, 8)}…)</span>
+                  <span>{t('docSync.queuedForReview', { id: queued.id.slice(0, 8) })}</span>
                 </div>
               ) : !isManager ? (
                 // Members / non-managers: queue for review first
@@ -299,17 +299,17 @@ export function DocSyncPreviewModal({
                   onClick={handleQueue}
                   disabled={!preview || queuing || applying}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="Queue this update for Staff/Manager review. A PENDING_REVIEW DocUpdateRequest will be created; a Manager can then push the PR to Git."
+                  title={t('docSync.queueReviewTitle')}
                 >
                   {queuing ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                      Queuing…
+                      {t('docSync.queuing')}
                     </>
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      Queue for review
+                      {t('docSync.queueForReview')}
                     </>
                   )}
                 </button>
@@ -319,18 +319,18 @@ export function DocSyncPreviewModal({
                 disabled={!preview || applying || queuing}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title={isManager
-                  ? "Push this update to GitHub as a Pull Request."
-                  : "Push this update to GitHub as a Pull Request (Manager only — request review if you don't have access)."}
+                  ? t('docSync.prTitleManager')
+                  : t('docSync.prTitleMember')}
               >
                 {applying ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                    Creating PR...
+                    {t('docSync.creatingPr')}
                   </>
                 ) : (
                   <>
                     <GitPullRequest className="w-4 h-4" />
-                    Create Pull Request
+                    {t('docSync.createPr')}
                   </>
                 )}
               </button>
@@ -343,6 +343,7 @@ export function DocSyncPreviewModal({
 }
 
 function FindingItem({ finding }: { finding: DriftFinding }) {
+  const { t } = useTranslation();
   const severityColors = {
     low: 'text-blue-600 bg-blue-50',
     medium: 'text-amber-600 bg-amber-50',
@@ -360,7 +361,7 @@ function FindingItem({ finding }: { finding: DriftFinding }) {
       <span className="ml-2 font-medium">{finding.title}</span>
       <p className="text-gray-600 mt-1">{finding.description}</p>
       {finding.suggestion && (
-        <p className="text-gray-500 mt-1 italic">Suggestion: {finding.suggestion}</p>
+        <p className="text-gray-500 mt-1 italic">{t('docSync.suggestion', { text: finding.suggestion })}</p>
       )}
     </li>
   );

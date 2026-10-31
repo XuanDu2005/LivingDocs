@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Github, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { githubApi } from '../services/github';
@@ -9,6 +10,7 @@ import { ApiError } from '../services/auth';
 export default function GithubCallbackPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -17,7 +19,7 @@ export default function GithubCallbackPage() {
     const expected = sessionStorage.getItem('github-oauth-state');
 
     if (!code || !state || !expected) {
-      setError('Missing OAuth parameters in the callback URL.');
+      setError(t('githubCallback.missingParams'));
       return;
     }
 
@@ -29,7 +31,7 @@ export default function GithubCallbackPage() {
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : describeError(err));
       });
-  }, [params, navigate]);
+  }, [params, navigate, t]);
 
   if (error) {
     return (
@@ -38,11 +40,11 @@ export default function GithubCallbackPage() {
           <Github className="h-10 w-10 text-destructive" />
         </div>
         <div className="text-center space-y-2">
-          <h1 className="text-xl font-bold">GitHub connection failed</h1>
+          <h1 className="text-xl font-bold">{t('githubCallback.failed')}</h1>
           <p className="text-sm text-muted-foreground max-w-sm">{error}</p>
         </div>
         <Button onClick={() => navigate('/workspaces')} variant="outline">
-          Back to workspaces
+          {t('githubCallback.backToWorkspaces')}
         </Button>
       </div>
     );
@@ -54,10 +56,10 @@ export default function GithubCallbackPage() {
         <Github className="h-10 w-10 text-primary" />
       </div>
       <div className="text-center space-y-2">
-        <h1 className="text-xl font-bold">Connecting GitHub…</h1>
+        <h1 className="text-xl font-bold">{t('githubCallback.connecting')}</h1>
         <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Finishing the OAuth handshake.
+          {t('githubCallback.finishing')}
         </p>
       </div>
     </div>

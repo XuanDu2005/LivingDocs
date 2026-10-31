@@ -237,7 +237,7 @@ export default function AdminAuditRetentionPage() {
                     id="description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Why does this entity need this retention window?"
+                    placeholder={t('audit.descriptionPlaceholder')}
                   />
                 </div>
                 <label className="flex items-center gap-2 text-sm">

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { MailCheck } from 'lucide-react';
 
 import { Button } from '../components/ui/button';
@@ -18,6 +19,7 @@ import { resendVerification } from '../services/authApi';
 const RESEND_COOLDOWN_SECONDS = 30;
 
 export default function VerifyEmailPage() {
+  const { t } = useTranslation();
   const { verifyEmail } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -35,14 +37,14 @@ export default function VerifyEmailPage() {
       <div className="flex min-h-[70vh] items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Thiếu địa chỉ email</CardTitle>
+            <CardTitle>{t('auth.verifyEmail.missingEmail')}</CardTitle>
             <CardDescription>
-              Vui lòng quay lại trang đăng ký để bắt đầu lại.
+              {t('auth.verifyEmail.missingEmailDesc')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full">
-              <Link to="/register">Về trang đăng ký</Link>
+              <Link to="/register">{t('auth.verifyEmail.backToRegister')}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -55,7 +57,7 @@ export default function VerifyEmailPage() {
     setError(null);
     setInfo(null);
     if (code.length !== 6) {
-      setError('Vui lòng nhập đủ 6 chữ số.');
+      setError(t('auth.verifyEmail.errCodeLength'));
       return;
     }
     setSubmitting(true);
@@ -77,7 +79,7 @@ export default function VerifyEmailPage() {
     setInfo(null);
     try {
       await resendVerification(email);
-      setInfo('Đã gửi lại mã mới. Vui lòng kiểm tra email.');
+      setInfo(t('auth.verifyEmail.resent'));
       setCooldown(RESEND_COOLDOWN_SECONDS);
       const id = window.setInterval(() => {
         setCooldown((c) => {
@@ -102,9 +104,9 @@ export default function VerifyEmailPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
             <MailCheck className="h-5 w-5" />
           </div>
-          <CardTitle>Xác thực email</CardTitle>
+          <CardTitle>{t('auth.verifyEmail.title')}</CardTitle>
           <CardDescription>
-            Chúng tôi đã gửi mã 6 chữ số đến <b>{email}</b>. Mã có hiệu lực trong 15 phút.
+            {t('auth.verifyEmail.subtitle', { email })}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -127,11 +129,11 @@ export default function VerifyEmailPage() {
               </div>
             )}
             <Button type="submit" disabled={submitting || code.length !== 6} className="w-full">
-              {submitting ? 'Đang xác thực…' : 'Xác thực'}
+              {submitting ? t('auth.verifyEmail.submitting') : t('auth.verifyEmail.submit')}
             </Button>
             <div className="flex items-center justify-between text-sm">
               <Link to="/login" className="text-muted-foreground hover:underline">
-                ← Về trang đăng nhập
+                {t('auth.verifyEmail.backToLogin')}
               </Link>
               <Button
                 type="button"
@@ -140,7 +142,7 @@ export default function VerifyEmailPage() {
                 onClick={onResend}
                 disabled={resending || cooldown > 0}
               >
-                {cooldown > 0 ? `Gửi lại sau ${cooldown}s` : 'Gửi lại mã'}
+                {cooldown > 0 ? t('auth.verifyEmail.resendIn', { seconds: cooldown }) : t('auth.verifyEmail.resend')}
               </Button>
             </div>
           </form>

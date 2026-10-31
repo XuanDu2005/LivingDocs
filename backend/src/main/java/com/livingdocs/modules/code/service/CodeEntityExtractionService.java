@@ -4,7 +4,9 @@ import com.livingdocs.modules.code.model.CodeEntity;
 import com.livingdocs.modules.code.repository.CodeEntityRepository;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubClient.GithubRepositoryContent;
+import com.livingdocs.modules.github.model.Commit;
 import com.livingdocs.modules.github.model.Repository;
+import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
@@ -12,6 +14,7 @@ import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,6 +73,7 @@ public class CodeEntityExtractionService {
     private final CodeEntityService codeEntityService;
     private final RepositoryRepository githubRepoRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final CommitRepository commitRepository;
     private final GithubClient githubClient;
     private final GithubOAuthService oauthService;
 
@@ -77,12 +81,14 @@ public class CodeEntityExtractionService {
                                        CodeEntityService codeEntityService,
                                        RepositoryRepository githubRepoRepository,
                                        WorkspaceMemberRepository workspaceMemberRepository,
+                                       CommitRepository commitRepository,
                                        GithubClient githubClient,
                                        GithubOAuthService oauthService) {
         this.repository = repository;
         this.codeEntityService = codeEntityService;
         this.githubRepoRepository = githubRepoRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
+        this.commitRepository = commitRepository;
         this.githubClient = githubClient;
         this.oauthService = oauthService;
     }
@@ -109,7 +115,15 @@ public class CodeEntityExtractionService {
         String branch = repo.getDefaultBranch();
         if (branch == null || branch.isBlank()) branch = "main";
 
-        log.info("Starting code entity extraction for {} @ {}", repo.getFullName(), branch);
+        // The entity's `commit_sha` must be a real commit hash: the grounding
+        // evidence shown to reviewers cites it, and it is part of the
+        // entity's unique key. Storing the branch name here would make
+        // every entity claim the same (non-existent) commit. Fall back to
+        // the branch name only when no commit has been ingested yet.
+        String commitSha = resolveHeadCommitSha(repositoryId, branch);
+
+        log.info("Starting code entity extraction for {} @ {} (head {})",
+                repo.getFullName(), branch, commitSha);
 
         List<GithubRepositoryContent> targets = new ArrayList<>();
         for (String base : DOC_PATHS) {
@@ -151,13 +165,13 @@ public class CodeEntityExtractionService {
                 for (ParsedEntity p : parsed) {
                     // Skip if already exists to avoid unique constraint violations
                     if (repository.existsByRepositoryIdAndCommitShaAndQualifiedNameAndFilePathAndStartLine(
-                            repositoryId, branch, p.qualifiedName, path, p.startLine)) {
+                            repositoryId, commitSha, p.qualifiedName, path, p.startLine)) {
                         log.debug("Skipping duplicate entity: {} @ line {}", p.qualifiedName, p.startLine);
                         continue;
                     }
                     CodeEntity entity = new CodeEntity(
                             repositoryId,
-                            branch,
+                            commitSha,
                             language,
                             p.type,
                             p.qualifiedName,
@@ -257,15 +271,94 @@ public class CodeEntityExtractionService {
             String name = m.group(1);
             if (name == null || name.isBlank()) continue;
             int line = lineNumberAt(content, m.start());
+            // The declaration may span multiple lines, and for classes /
+            // methods the body extends until the matching closing brace.
+            // Recording a single-line range would hand the AI a one-line
+            // stub instead of the real source it is supposed to document.
+            int endLine = line + countDeclarationLines(content, m.start());
             out.add(new ParsedEntity(
                     type,
                     name,
                     path + "::" + name,
                     line,
-                    line,
+                    endLine,
                     m.group()
             ));
         }
+    }
+
+    /**
+     * Determine how many lines a declaration occupies.
+     *
+     * <p>If the declaration is followed by a brace-delimited body, the range
+     * extends to the matching closing brace. Otherwise it extends to the end
+     * of the declaration statement (semicolon or balanced parentheses).
+     */
+    private int countDeclarationLines(String content, int startOffset) {
+        int openBrace = content.indexOf('{', startOffset);
+        int openParen = content.indexOf('(', startOffset);
+
+        // A body only counts when it appears after the parameter list, so a
+        // brace inside the signature (e.g. an array initializer) is not
+        // mistaken for the start of the body.
+        if (openParen >= 0 && (openBrace < 0 || openBrace > openParen)) {
+            int closeParen = matchForward(content, openParen, '(', ')');
+            int braceAfterParams = content.indexOf('{', closeParen < 0 ? openParen : closeParen);
+            if (braceAfterParams >= 0) {
+                int closeBrace = matchForward(content, braceAfterParams, '{', '}');
+                return lineNumberAt(content, closeBrace < 0 ? braceAfterParams : closeBrace) - lineNumberAt(content, startOffset);
+            }
+            int semi = content.indexOf(';', openParen);
+            if (semi >= 0) {
+                return lineNumberAt(content, semi) - lineNumberAt(content, startOffset);
+            }
+        }
+
+        if (openBrace >= 0 && (openParen < 0 || openBrace < openParen)) {
+            int closeBrace = matchForward(content, openBrace, '{', '}');
+            return lineNumberAt(content, closeBrace < 0 ? openBrace : closeBrace) - lineNumberAt(content, startOffset);
+        }
+
+        // Fallback: the declaration is a single line.
+        return 0;
+    }
+
+    /**
+     * Find the offset of the bracket that matches the one at {@code openOffset}.
+     * Returns {@code -1} when the source is unbalanced.
+     */
+    private int matchForward(String content, int openOffset, char open, char close) {
+        int depth = 0;
+        for (int i = openOffset; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == open) {
+                depth++;
+            } else if (c == close) {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Resolve the SHA of the most recent commit ingested for the given
+     * branch. Falls back to the branch name when the repository has no
+     * ingested commits yet (e.g. a fresh connection).
+     */
+    private String resolveHeadCommitSha(UUID repositoryId, String branch) {
+        List<Commit> commits = commitRepository
+                .findAllByRepositoryIdOrderByAuthoredAtDesc(repositoryId, Pageable.ofSize(50));
+        for (Commit c : commits) {
+            if (branch == null || branch.isBlank()
+                    || branch.equals(c.getBranch())
+                    || c.getBranch() == null) {
+                return c.getSha();
+            }
+        }
+        return branch == null || branch.isBlank() ? "unknown" : branch;
     }
 
     private int lineNumberAt(String content, int offset) {

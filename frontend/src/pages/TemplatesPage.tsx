@@ -536,7 +536,7 @@ export default function TemplatesPage() {
                       <p className="text-xs text-muted-foreground">
                         Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
-                      <p className="text-xs text-muted-foreground italic">Read-only</p>
+                      <p className="text-xs text-muted-foreground italic">{t('templates.readOnly')}</p>
                     </CardContent>
                   </Card>
                 ))}

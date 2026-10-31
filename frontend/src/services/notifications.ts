@@ -98,7 +98,10 @@ export interface AuditLog {
 export const auditApi = {
   list(workspaceId: string) {
     return apiClient
-      .get<AuditLog[]>(`/workspaces/${workspaceId}/audit-logs`)
-      .then((r) => r.data);
+      .get<AuditLog[] | { items: AuditLog[] }>(
+        `/workspaces/${workspaceId}/audit-logs`,
+        { params: { page: 0, size: 200 } },
+      )
+      .then((r) => (Array.isArray(r.data) ? r.data : (r.data.items ?? [])));
   },
 };

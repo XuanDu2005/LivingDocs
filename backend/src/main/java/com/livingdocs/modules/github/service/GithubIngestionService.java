@@ -155,6 +155,65 @@ public class GithubIngestionService {
                 parseDate(prNode.path("merged_at").asText(null)),
                 List.of());
         upsert(repo.get(), pr);
+
+        // A pull request is a code change just like a push, so the
+        // documentation affected by it must be regenerated too. Without
+        // this the whole "documentation drift is detected on every PR"
+        // promise — the centrepiece of the CI/CD integration — silently
+        // did nothing.
+        triggerAutoUpdateForPullRequest(repo.get(), payload);
+    }
+
+    /**
+     * Queue document regeneration for the files a pull request touches.
+     *
+     * <p>Mirrors the push path: the repository toggle and the workspace
+     * policy both gate the run, and a failure never fails the webhook.
+     */
+    private void triggerAutoUpdateForPullRequest(Repository repo, JsonNode payload) {
+        if (!repo.isAutoUpdateEnabled()) {
+            log.debug("Auto-update disabled for repo {}, skipping pull-request trigger",
+                    repo.getFullName());
+            return;
+        }
+        Optional<com.livingdocs.modules.workspace.model.WorkspaceSettings> settingsOpt =
+                workspaceSettingsRepository.findByWorkspaceId(repo.getWorkspaceId());
+        if (settingsOpt.isPresent() && !settingsOpt.get().isAutoUpdateOnPr()) {
+            log.debug("Workspace autoUpdateOnPr disabled, skipping pull-request trigger");
+            return;
+        }
+
+        Set<String> changedFiles = autoUpdateService.changedFilesFromPullRequest(payload);
+        if (changedFiles.isEmpty()) {
+            log.debug("Pull-request webhook carried no changed files — nothing to regenerate");
+            return;
+        }
+
+        // Regenerate against the PR's head branch so the documentation
+        // reflects the proposed code, not the base branch.
+        String branch = payload.path("pull_request").path("head").path("ref").asText(null);
+        if (branch == null || branch.isBlank()) {
+            branch = repo.getDefaultBranch();
+        }
+        String headSha = payload.path("pull_request").path("head").path("sha").asText(null);
+
+        String accessToken = autoUpdateService.resolveAccessToken(repo.getWorkspaceId());
+        if (accessToken == null || accessToken.isBlank()) {
+            log.warn("No active GitHub connection for workspace {} — "
+                    + "pull request was ingested but auto-update was skipped",
+                    repo.getWorkspaceId());
+            return;
+        }
+
+        try {
+            int queued = autoUpdateService.triggerAutoUpdate(
+                    repo, changedFiles, branch, headSha, accessToken);
+            log.info("Queued {} document regeneration(s) for repo {} (pull request {})",
+                    queued, repo.getFullName(), headSha);
+        } catch (Exception ex) {
+            log.warn("Auto-update failed for repo {} on pull request: {}",
+                    repo.getFullName(), ex.getMessage());
+        }
     }
 
     private void upsert(Repository repo, GithubPullRequest pr) {

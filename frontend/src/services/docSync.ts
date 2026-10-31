@@ -1,7 +1,7 @@
 /**
  * Doc Sync API client - scan and sync documentation files with code entities.
  */
-import apiClient from './api';
+import apiClient, { LONG_TIMEOUT_MS } from './api';
 
 export interface DocFileInfo {
   path: string;
@@ -59,6 +59,10 @@ export interface DocContent {
 export const docSyncApi = {
   /**
    * Scan repository for documentation files and code references.
+   *
+   * This is a long call: the server walks the repository's Markdown
+   * files, compares each against the indexed code, and then asks the AI
+   * to propose an update for every file that drifted.
    */
   scan(workspaceId: string, repositoryId: string, branch?: string) {
     const qs = branch ? `?branch=${encodeURIComponent(branch)}` : '';
@@ -66,12 +70,15 @@ export const docSyncApi = {
       .post<DocScanResult>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/scan-docs${qs}`,
         {},
+        { timeout: LONG_TIMEOUT_MS },
       )
-      .then((r) => r.data);
+    .then((r) => r.data);
   },
 
   /**
    * Preview documentation sync - generates diff between current and proposed content.
+   *
+   * Performs one AI call, so it needs the long timeout too.
    */
   preview(
     workspaceId: string,
@@ -83,8 +90,9 @@ export const docSyncApi = {
       .post<DocSyncPreview>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/doc-sync/preview`,
         { filePath, branch },
+        { timeout: LONG_TIMEOUT_MS },
       )
-      .then((r) => r.data);
+    .then((r) => r.data);
   },
 
   /**
@@ -101,8 +109,9 @@ export const docSyncApi = {
       .post<ApplyResult>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/doc-sync/apply`,
         { filePath, proposedContent, branch },
+        { timeout: LONG_TIMEOUT_MS },
       )
-      .then((r) => r.data);
+    .then((r) => r.data);
   },
 
   /**
@@ -148,7 +157,8 @@ export const docSyncQueueApi = {
       .post<DocSyncQueueResult>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/doc-sync/queue`,
         { filePath, branch },
+        { timeout: LONG_TIMEOUT_MS },
       )
-      .then((r) => r.data);
+    .then((r) => r.data);
   },
 };

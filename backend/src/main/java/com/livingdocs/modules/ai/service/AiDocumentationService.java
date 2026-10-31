@@ -20,6 +20,8 @@ import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.service.GithubOAuthService;
+import com.livingdocs.modules.link.model.CodeDocumentLink;
+import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
 import com.livingdocs.modules.review.service.DocumentReviewService;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.service.DocumentVersionService;
@@ -72,6 +74,7 @@ public class AiDocumentationService {
     private final GithubClient githubClient;
     private final GithubOAuthService githubOAuthService;
     private final DocGenerationJobService jobService;
+    private final CodeDocumentLinkRepository codeDocumentLinkRepository;
     private final ConfidenceThresholdService confidenceThresholdService;
     private final AiRateLimitService rateLimitService;
     private final GovernancePolicyService governancePolicyService;
@@ -91,6 +94,7 @@ public class AiDocumentationService {
                                   GithubClient githubClient,
                                   GithubOAuthService githubOAuthService,
                                   DocGenerationJobService jobService,
+                                  CodeDocumentLinkRepository codeDocumentLinkRepository,
                                   ConfidenceThresholdService confidenceThresholdService,
                                   AiRateLimitService rateLimitService,
                                   GovernancePolicyService governancePolicyService) {
@@ -109,6 +113,7 @@ public class AiDocumentationService {
         this.githubClient = githubClient;
         this.githubOAuthService = githubOAuthService;
         this.jobService = jobService;
+        this.codeDocumentLinkRepository = codeDocumentLinkRepository;
         this.confidenceThresholdService = confidenceThresholdService;
         this.rateLimitService = rateLimitService;
         this.governancePolicyService = governancePolicyService;
@@ -152,7 +157,14 @@ public class AiDocumentationService {
                                     UUID sourcePrId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
-        workspaceService.requireMember(actorId, document.getWorkspaceId());
+        // A {@code null} actor means "system-initiated" — e.g. the
+        // webhook-driven auto-update path, which has no user session.
+        // Membership is already enforced upstream (the caller verifies
+        // the document belongs to the webhook's workspace), so the
+        // membership check only applies to real user actors.
+        if (actorId != null) {
+            workspaceService.requireMember(actorId, document.getWorkspaceId());
+        }
 
         // Governance gate 1: token budget. Refusing here costs nothing —
         // the user gets an immediate 429 instead of an expensive LLM call
@@ -161,8 +173,13 @@ public class AiDocumentationService {
 
         // Translate the AI client DTOs into the event payload so the
         // listener doesn't have to depend on the AI client package.
+        // When the caller sent no files, resolve the source from the
+        // document's linked code entities so the AI has real code to
+        // describe instead of nothing.
+        List<AiDtos.SourceFile> effectiveFiles = _resolveSourceFiles(document, sourceFiles);
+
         List<DocGenerationRequestedEvent.SourceFilePayload> payload = new ArrayList<>();
-        for (AiDtos.SourceFile sf : sourceFiles) {
+        for (AiDtos.SourceFile sf : effectiveFiles) {
             payload.add(new DocGenerationRequestedEvent.SourceFilePayload(
                     sf.path(), sf.content()));
         }
@@ -195,7 +212,7 @@ public class AiDocumentationService {
         ));
 
         log.info("Queued doc generation for document {} (template={}, files={}, correlation={})",
-                documentId, template, sourceFiles.size(), correlationId);
+                documentId, template, effectiveFiles.size(), correlationId);
         return correlationId;
     }
 
@@ -294,9 +311,75 @@ public class AiDocumentationService {
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, document.getWorkspaceId());
         // Use the Redis-cached wrapper so repeated "Preview" clicks with the
-        // same source content don't re-bill the LLM.
+        // same source content don't re-bill the LLM. When the caller sent
+        // no files, resolve the source from the document's linked code
+        // entities — otherwise the preview would show the placeholder the
+        // AI produces for an empty prompt.
+        List<AiDtos.SourceFile> effectiveFiles = _resolveSourceFiles(document, sourceFiles);
         return cachedAiClient.generateCached(
-                document.getWorkspaceId(), sourceFiles, template);
+                document.getWorkspaceId(), effectiveFiles, template);
+    }
+
+    /**
+     * Collect the source files that ground a generation run.
+     *
+     * <p>When the caller supplies files, they are used as-is. When it
+     * supplies none — which is what the UI does today — the source is
+     * resolved from the document's linked code entities, pulling the
+     * real implementation from GitHub. Without this the AI receives an
+     * empty prompt and answers with a placeholder instead of real
+     * documentation.
+     *
+     * <p>The document's current body is always included as a last
+     * resort so a rewrite still has something to work from.
+     */
+    private List<AiDtos.SourceFile> _resolveSourceFiles(Document document,
+                                                       List<AiDtos.SourceFile> requested) {
+        if (requested != null && !requested.isEmpty()) {
+            return requested;
+        }
+
+        List<AiDtos.SourceFile> resolved = new ArrayList<>();
+
+        // 1. The code entities this document documents — the strongest
+        //    grounding available.
+        List<CodeDocumentLink> links = codeDocumentLinkRepository.findAllByDocumentId(document.getId());
+        if (!links.isEmpty()) {
+            List<UUID> entityIds = links.stream().map(CodeDocumentLink::getCodeEntityId).toList();
+            List<CodeEntity> entities = codeEntityRepository.findAllById(entityIds);
+            Repository repo = document.getRepositoryId() != null
+                    ? repositoryRepository.findById(document.getRepositoryId()).orElse(null)
+                    : null;
+
+            for (CodeEntity entity : entities) {
+                String source = repo != null
+                        ? _fetchSourceCodeFromGithub(repo, entity.getFilePath(),
+                            entity.getStartLine(), entity.getEndLine())
+                        : null;
+                // Fall back to the raw path when GitHub is unavailable so
+                // the AI at least knows which file it is documenting.
+                if (source == null || source.isBlank()) {
+                    source = "# " + entity.getFilePath()
+                            + " (source not available for this run)\n"
+                            + "entity: " + entity.getQualifiedName()
+                            + "\ntype: " + entity.getEntityType();
+                }
+                resolved.add(new AiDtos.SourceFile(entity.getFilePath(), source));
+            }
+        }
+
+        // 2. The document's current body — lets the AI rewrite or extend
+        //    the existing prose.
+        String currentBody = _currentBodyFor(document.getId());
+        if (currentBody != null && !currentBody.isBlank()) {
+            resolved.add(new AiDtos.SourceFile(document.getTitle() + ".md", currentBody));
+        }
+
+        if (resolved.isEmpty()) {
+            log.warn("No source available for document {} — the AI run will have nothing to ground on",
+                    document.getId());
+        }
+        return resolved;
     }
 
     /**
@@ -313,11 +396,12 @@ public class AiDocumentationService {
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, workspaceId);
 
-        String currentBody = _currentBodyFor(documentId);
-
-        List<AiDtos.SourceFile> sourceFiles = List.of(
-                new AiDtos.SourceFile(document.getTitle() + ".md", currentBody)
-        );
+        // Resolve the source the same way a fresh generation does: the
+        // linked code entities (real implementation from GitHub) plus the
+        // current body. Passing only the body made the AI answer with a
+        // placeholder, because a markdown document is not a parsable
+        // source file.
+        List<AiDtos.SourceFile> sourceFiles = _resolveSourceFiles(document, List.of());
 
         return generateForDocument(actorId, documentId, sourceFiles, "MODULE_GUIDE", null,
                 "Please refine, update and regenerate this documentation thoroughly.",
@@ -325,28 +409,141 @@ public class AiDocumentationService {
     }
 
     /**
-     * Generate documentation for all coverage-gap code entities in a repository.
-     * Creates new documents for undocumented entities.
+     * Generate documentation for a single code entity and persist it as a
+     * document version that enters the staff review queue.
      *
-     * @return Result containing generated count, skipped count, errors, and created documents.
+     * <p>Extracted from {@link #generateForRepository} so the asynchronous
+     * bulk worker can reuse exactly the same per-entity logic. Keeping one
+     * implementation means the synchronous and the queued path can never
+     * drift apart.
+     *
+     * @return the created document id and the version number, or a
+     *         failure message when the entity could not be documented
+     */
+    public EntityGenerationOutcome generateDocumentForEntity(UUID actorId,
+                                                             UUID workspaceId,
+                                                             Repository repo,
+                                                             CodeEntity entity,
+                                                             String template) {
+        // Fetch ACTUAL source code from GitHub for the file containing this
+        // entity — the AI can only describe real behaviour when it sees
+        // the real implementation.
+        String actualSourceCode = _fetchSourceCodeFromGithub(
+                repo, entity.getFilePath(), entity.getStartLine(), entity.getEndLine());
+
+        List<AiDtos.SourceFile> sourceFiles = List.of(
+                new AiDtos.SourceFile(entity.getFilePath(), actualSourceCode));
+
+        AiDtos.GenerateResponse resp = aiClient.generate(
+                workspaceId, sourceFiles, template,
+                "Generate documentation for this " + entity.getEntityType() + " '"
+                        + entity.getSimpleName() + "'. Include purpose, parameters, return value, and examples if applicable.",
+                entity.getLanguage());
+
+        if (resp == null) {
+            return EntityGenerationOutcome.failure(
+                    "AI service unavailable for entity: " + entity.getQualifiedName());
+        }
+
+        String docTitle = entity.getSimpleName() != null
+                ? entity.getSimpleName() : entity.getQualifiedName();
+        String slug = docTitle.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]", "-");
+        float confidence = (float) Math.max(0.0, Math.min(1.0, resp.confidence()));
+
+        var existingDoc = documentRepository.findByWorkspaceIdAndSlug(workspaceId, slug);
+        if (existingDoc.isPresent()) {
+            DocumentVersion version = versionService.createAiVersion(
+                    actorId, existingDoc.get().getId(),
+                    resp.markdown(),
+                    "AI auto-generated for " + entity.getQualifiedName(),
+                    null, null, confidence, _sourcesToJson(resp));
+            _linkEntityToDocument(existingDoc.get().getId(), entity);
+            return EntityGenerationOutcome.success(existingDoc.get().getId(),
+                    version.getVersionNumber(), docTitle, entity.getQualifiedName());
+        }
+
+        var createReq = new com.livingdocs.modules.document.dto.CreateDocumentRequest(
+                repo.getId(), null, docTitle, slug, "AUTO_GENERATED", null, false, resp.markdown());
+        var doc = documentService.create(actorId, workspaceId, createReq);
+
+        DocumentVersion version = versionService.createAiVersion(
+                actorId, doc.id(),
+                resp.markdown(),
+                "AI auto-generated for " + entity.getQualifiedName(),
+                null, null, confidence, _sourcesToJson(resp));
+        _linkEntityToDocument(doc.id(), entity);
+
+        return EntityGenerationOutcome.success(doc.id(), version.getVersionNumber(),
+                docTitle, entity.getQualifiedName());
+    }
+
+    /**
+     * Link a document to the code entity it documents.
+     *
+     * <p>Without this link the document has no code context, and the
+     * next "Generate with AI" run on it would have nothing to ground
+     * the AI on. It also breaks coverage-gap detection, which resolves
+     * "is this entity documented?" through this table.
+     */
+    private void _linkEntityToDocument(UUID documentId, CodeEntity entity) {
+        try {
+            if (codeDocumentLinkRepository
+                    .findByDocumentIdAndCodeEntityId(documentId, entity.getId())
+                    .isPresent()) {
+                return;
+            }
+            codeDocumentLinkRepository.save(new CodeDocumentLink(
+                    documentId, entity.getId(), "AI_GENERATED", 1.0f));
+        } catch (Exception e) {
+            log.warn("Could not link entity {} to document {}: {}",
+                    entity.getQualifiedName(), documentId, e.getMessage());
+        }
+    }
+
+    /**
+     * The outcome of documenting a single entity.
+     */
+    public record EntityGenerationOutcome(boolean success,
+                                          UUID documentId,
+                                          Integer versionNumber,
+                                          String title,
+                                          String qualifiedName,
+                                          String errorMessage) {
+
+        static EntityGenerationOutcome success(UUID documentId, int versionNumber,
+                                               String title, String qualifiedName) {
+            return new EntityGenerationOutcome(true, documentId, versionNumber,
+                    title, qualifiedName, null);
+        }
+
+        static EntityGenerationOutcome failure(String errorMessage) {
+            return new EntityGenerationOutcome(false, null, null,
+                    null, null, errorMessage);
+        }
+    }
+
+    /**
+     * @deprecated Replaced by the asynchronous bulk generation flow in
+     * {@code BulkGenerationService}. The synchronous version blocked the
+     * HTTP request for as long as the LLM needed to document every
+     * entity, which is what caused the client-side timeout.
      */
     @Transactional
     public GenerateForRepositoryResult generateForRepository(UUID actorId, UUID workspaceId,
                                                             UUID repositoryId, String template) {
         workspaceService.requireMember(actorId, workspaceId);
 
-        // Verify repository belongs to this workspace
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new IllegalArgumentException("Repository not found"));
         if (!repo.getWorkspaceId().equals(workspaceId)) {
             throw new IllegalArgumentException("Repository not found in this workspace");
         }
 
-        // Get all code entities for the repository
-        List<CodeEntity> entities = codeEntityRepository.findAllByRepositoryIdOrderByIngestedAtDesc(repositoryId);
-
+        List<CodeEntity> entities =
+                codeEntityRepository.findAllByRepositoryIdOrderByIngestedAtDesc(repositoryId);
         if (entities.isEmpty()) {
-            return new GenerateForRepositoryResult(0, 0, List.of("No code entities found in repository"), List.of());
+            return new GenerateForRepositoryResult(0, 0,
+                    List.of("No code entities found in repository"), List.of());
         }
 
         List<String> errors = new ArrayList<>();
@@ -355,97 +552,25 @@ public class AiDocumentationService {
         int skipped = 0;
 
         for (CodeEntity entity : entities) {
+            if (entity.getDocstring() != null && !entity.getDocstring().isBlank()) {
+                skipped++;
+                continue;
+            }
             try {
-                // Check if this entity already has documentation
-                // (has docstring or is linked to a document)
-                boolean hasDoc = entity.getDocstring() != null && !entity.getDocstring().isBlank();
-
-                if (hasDoc) {
-                    skipped++;
-                    continue;
-                }
-
-                // Fetch ACTUAL source code from GitHub for the file containing this entity
-                String actualSourceCode = _fetchSourceCodeFromGithub(
-                        repo, entity.getFilePath(), entity.getStartLine(), entity.getEndLine());
-                
-                List<AiDtos.SourceFile> sourceFiles = List.of(
-                        new AiDtos.SourceFile(entity.getFilePath(), actualSourceCode)
-                );
-
-                // Call AI to generate documentation
-                AiDtos.GenerateResponse resp = aiClient.generate(
-                        workspaceId, sourceFiles, template,
-                        "Generate documentation for this " + entity.getEntityType() + " '" + entity.getSimpleName() + "'. Include purpose, parameters, return value, and examples if applicable.",
-                        entity.getLanguage()
-                );
-
-                if (resp == null) {
-                    errors.add("AI service unavailable for entity: " + entity.getQualifiedName());
-                    continue;
-                }
-
-                // Create a new document for this entity
-                String docTitle = entity.getSimpleName() != null ? entity.getSimpleName() : entity.getQualifiedName();
-                String slug = docTitle.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]", "-");
-
-                // Check if document already exists
-                if (documentRepository.findByWorkspaceIdAndSlug(workspaceId, slug).isPresent()) {
-                    // Update existing document
-                    var existingDoc = documentRepository.findByWorkspaceIdAndSlug(workspaceId, slug).get();
-                    DocumentVersion version = versionService.createAiVersion(
-                            actorId, existingDoc.getId(),
-                            resp.markdown(),
-                            "AI auto-generated for " + entity.getQualifiedName(),
-                            null, null,
-                            (float) Math.max(0.0, Math.min(1.0, resp.confidence())),
-                            _sourcesToJson(resp)
-                    );
-                    reviewService.markPendingForStaffReview(existingDoc.getId(), version.getId());
+                var outcome = generateDocumentForEntity(actorId, workspaceId, repo, entity, template);
+                if (outcome.success()) {
                     generated++;
                     createdDocs.add(Map.of(
-                            "documentId", existingDoc.getId().toString(),
-                            "title", docTitle,
-                            "entity", entity.getQualifiedName(),
-                            "versionNumber", version.getVersionNumber()
-                    ));
+                            "documentId", outcome.documentId().toString(),
+                            "title", outcome.title(),
+                            "entity", outcome.qualifiedName(),
+                            "versionNumber", outcome.versionNumber()));
                 } else {
-                    // Create new document
-                    var createReq = new com.livingdocs.modules.document.dto.CreateDocumentRequest(
-                            repositoryId,
-                            null, // templateId
-                            docTitle,
-                            slug,
-                            "AUTO_GENERATED",
-                            null, // summary
-                            false, // autoUpdateEnabled
-                            resp.markdown() // initialBody
-                    );
-                    var doc = documentService.create(actorId, workspaceId, createReq);
-
-                    // Create initial version with AI content
-                    DocumentVersion version = versionService.createAiVersion(
-                            actorId, doc.id(),
-                            resp.markdown(),
-                            "AI auto-generated for " + entity.getQualifiedName(),
-                            null, null,
-                            (float) Math.max(0.0, Math.min(1.0, resp.confidence())),
-                            _sourcesToJson(resp)
-                    );
-                    reviewService.markPendingForStaffReview(doc.id(), version.getId());
-                    generated++;
-                    createdDocs.add(Map.of(
-                            "documentId", doc.id().toString(),
-                            "title", docTitle,
-                            "entity", entity.getQualifiedName(),
-                            "versionNumber", version.getVersionNumber()
-                    ));
+                    errors.add(outcome.errorMessage());
                 }
-
-                log.info("Generated doc for entity: {} (type={})", entity.getQualifiedName(), entity.getEntityType());
-
             } catch (Exception e) {
-                log.error("Failed to generate doc for entity {}: {}", entity.getQualifiedName(), e.getMessage());
+                log.error("Failed to generate doc for entity {}: {}",
+                        entity.getQualifiedName(), e.getMessage());
                 errors.add("Failed for " + entity.getQualifiedName() + ": " + e.getMessage());
             }
         }
