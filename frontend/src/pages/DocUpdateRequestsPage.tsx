@@ -35,7 +35,8 @@ import {
 import { docUpdateRequestApi, DocUpdateRequest, DocUpdateStatus } from '../services/docUpdateRequests';
 import { githubApi, Repository } from '../services/github';
 import { useAuth } from '../contexts/AuthContext';
-import { hasRole, describeError } from '../services/auth';
+import { hasPermission, describeError } from '../services/auth';
+import { reviewsApi, WorkspaceCapabilities } from '../services/drift';
 
 const STATUS_VARIANT: Record<DocUpdateStatus, 'warning' | 'success' | 'destructive' | 'info'> = {
   PENDING_REVIEW: 'warning',
@@ -83,11 +84,43 @@ export default function DocUpdateRequestsPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Whether the caller may push an approved proposal to GitHub.
+   *
+   * <p>This is a two-axis check, and getting either axis wrong produces
+   * a 403 on click:
+   * <ul>
+   *   <li><b>workspace role</b> — the backend demands
+   *       {@code WorkspaceRole.MANAGER} in <i>this</i> workspace. A
+   *       platform MANAGER who is only a plain member of the workspace
+   *       is refused, and a workspace manager whose platform role is
+   *       DEVELOPER is allowed.</li>
+   *   <li><b>platform capability</b> — {@code SCM_COMMIT} is what
+   *       actually authorises writing to an external repository.</li>
+   * </ul>
+   *
+   * <p>The previous check looked at the platform role alone, which
+   * blocked the first case and let the second through to a 403.
+   */
+  const [capabilities, setCapabilities] = useState<WorkspaceCapabilities | null>(null);
+
   const [review, setReview] = useState<ReviewDialogState>({
     open: false, request: null, comment: '', busy: false, error: null, info: null,
   });
 
-  const isManager = hasRole(user, 'MANAGER') || hasRole(user, 'ADMIN');
+  // Load the caller's capabilities in this workspace so the Apply button
+  // matches what the backend will actually accept.
+  useEffect(() => {
+    if (!workspaceId) return;
+    let alive = true;
+    void reviewsApi.capabilities(workspaceId)
+      .then((c: WorkspaceCapabilities) => { if (alive) setCapabilities(c); })
+      .catch(() => { if (alive) setCapabilities(null); });
+    return () => { alive = false; };
+  }, [workspaceId]);
+
+  const canApply = !!capabilities?.workspaceManager && hasPermission(user, 'SCM_COMMIT');
+  const isManager = canApply;
 
   // Load repositories for the workspace
   useEffect(() => {

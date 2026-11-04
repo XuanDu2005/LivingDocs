@@ -15,6 +15,13 @@ import java.util.UUID;
  * DEVELOPER). It is intentionally separate from any workspace-level role
  * the user may have.
  *
+ * <p>{@code permissions} is the list of effective permission codes the
+ * user holds, resolved from the {@code role_permissions} matrix. The
+ * front-end uses it to hide features the user may not use (health
+ * dashboard, audit log, AI settings, analytics, notification policies,
+ * integrations, GitHub commit, governance) instead of offering a button
+ * that would come back with 403.
+ *
  * <p>{@code linkedProviders} is the list of OAuth identities
  * (Google / GitHub) currently bound to the user. This is included in
  * the response so that the front-end can render the linked-accounts
@@ -36,20 +43,21 @@ public record UserResponse(
         boolean emailVerified,
         OffsetDateTime createdAt,
         List<String> roles,
+        List<String> permissions,
         List<LinkedProvidersResponse.LinkedProvider> linkedProviders
 ) {
     public static UserResponse from(User user) {
-        return from(user, List.of(), List.of());
+        return from(user, List.of(), List.of(), List.of(), null);
     }
 
     public static UserResponse from(User user, List<String> roles) {
-        return from(user, roles, List.of());
+        return from(user, roles, List.of(), List.of(), null);
     }
 
     public static UserResponse from(User user,
                                     List<String> roles,
                                     List<LinkedProvidersResponse.LinkedProvider> linkedProviders) {
-        return from(user, roles, linkedProviders, null);
+        return from(user, roles, linkedProviders, List.of(), null);
     }
 
     /**
@@ -61,6 +69,21 @@ public record UserResponse(
                                     List<String> roles,
                                     List<LinkedProvidersResponse.LinkedProvider> linkedProviders,
                                     String avatarUrl) {
+        return from(user, roles, linkedProviders, List.of(), avatarUrl);
+    }
+
+    /**
+     * Full constructor including the resolved avatar URL and the
+     * effective permission codes.
+     *
+     * @param avatarUrl  public URL of the avatar image, or {@code null}
+     * @param permissions effective permission codes of the user
+     */
+    public static UserResponse from(User user,
+                                    List<String> roles,
+                                    List<LinkedProvidersResponse.LinkedProvider> linkedProviders,
+                                    List<String> permissions,
+                                    String avatarUrl) {
         return new UserResponse(
                 user.getId(),
                 user.getEmail(),
@@ -70,6 +93,7 @@ public record UserResponse(
                 user.isEmailVerified(),
                 user.getCreatedAt(),
                 roles == null ? List.of() : List.copyOf(roles),
+                permissions == null ? List.of() : List.copyOf(permissions),
                 linkedProviders == null ? List.of() : List.copyOf(linkedProviders)
         );
     }

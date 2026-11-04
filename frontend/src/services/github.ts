@@ -58,6 +58,22 @@ export interface Repository {
   autoUpdateEnabled: boolean;
 }
 
+/**
+ * A module (directory / package) of a repository whose documents can be
+ * excluded from AI auto-update.
+ */
+export interface RepositoryModule {
+  id: string | null;
+  repositoryId: string;
+  workspaceId: string;
+  /** Normalised path prefix, e.g. "/src/auth". */
+  modulePath: string;
+  displayName: string | null;
+  autoUpdateEnabled: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface PullRequest {
   id: string;
   repositoryId: string;
@@ -197,6 +213,58 @@ export const githubApi = {
       `/workspaces/${workspaceId}/repositories/${repositoryId}/auto-update?enabled=${enabled}`,
     );
     return res.data;
+  },
+
+  // -----------------------------------------------------------------
+  // Per-module auto-update
+  //
+  // The repository toggle and the document toggle bracket this one: a
+  // workspace can exclude a single package from auto-updating while
+  // the rest of the repository keeps updating.
+  // -----------------------------------------------------------------
+
+  async listModules(workspaceId: string, repositoryId: string): Promise<RepositoryModule[]> {
+    const res = await apiClient.get<RepositoryModule[]>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/modules`,
+    );
+    return res.data;
+  },
+
+  /** The module directories detected from the indexed code entities. */
+  async detectModules(workspaceId: string, repositoryId: string): Promise<RepositoryModule[]> {
+    const res = await apiClient.get<RepositoryModule[]>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/modules/detected`,
+    );
+    return res.data;
+  },
+
+  async upsertModule(
+    workspaceId: string,
+    repositoryId: string,
+    modulePath: string,
+    autoUpdateEnabled: boolean,
+    displayName?: string,
+  ): Promise<RepositoryModule> {
+    const res = await apiClient.post<RepositoryModule>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/modules`,
+      { modulePath, displayName, autoUpdateEnabled },
+    );
+    return res.data;
+  },
+
+  async setModuleAutoUpdate(
+    workspaceId: string,
+    moduleId: string,
+    enabled: boolean,
+  ): Promise<RepositoryModule> {
+    const res = await apiClient.put<RepositoryModule>(
+      `/workspaces/${workspaceId}/modules/${moduleId}/auto-update?enabled=${enabled}`,
+    );
+    return res.data;
+  },
+
+  async deleteModule(workspaceId: string, moduleId: string): Promise<void> {
+    await apiClient.delete(`/workspaces/${workspaceId}/modules/${moduleId}`);
   },
 
   /**

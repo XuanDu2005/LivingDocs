@@ -12,13 +12,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Textarea } from '../components/ui/textarea';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import {
-  reviewsApi, ReviewDecision, ReviewQueue, ReviewQueueItem,
+  reviewsApi, ReviewDecision, ReviewQueue, ReviewQueueItem, SubmittedVersion,
 } from '../services/drift';
 import { documentsApi } from '../services/documents';
 import { describeError } from '../services/auth';
 
 /** Which tier a queue row belongs to. */
 type QueueKind = 'staff' | 'manager' | 'publish';
+
+/**
+ * The badge variant used for each stage of a submitted version.
+ *
+ * Mirrors the backend's `stage` field, which already collapses the
+ * version status and the latest verdict into one label.
+ */
+const STAGE_VARIANT: Record<
+  SubmittedVersion['stage'],
+  'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'
+> = {
+  WAITING_STAFF: 'warning',
+  WAITING_MANAGER: 'warning',
+  CHANGES_REQUESTED: 'destructive',
+  REJECTED: 'destructive',
+  APPROVED: 'success',
+  PUBLISHED: 'info',
+  DRAFT: 'secondary',
+  SUPERSEDED: 'muted',
+};
 
 export default function ReviewQueuePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -50,6 +70,7 @@ export default function ReviewQueuePage() {
   const staffQueue = queue?.staffQueue ?? [];
   const managerQueue = queue?.managerQueue ?? [];
   const publishQueue = queue?.publishQueue ?? [];
+  const mySubmissions = queue?.mySubmissions ?? [];
 
   const canStaff = queue?.canStaffReview ?? false;
   const canManage = queue?.canManagerApprove ?? false;
@@ -79,6 +100,20 @@ export default function ReviewQueuePage() {
     }
   }
 
+  /**
+   * The tab that is shown first. A reviewer lands on the queue that
+   * actually needs their attention; an author — who has no reviewing
+   * role — lands on their own submissions.
+   */
+  function defaultTab(): string {
+    if (canStaff && staffQueue.length > 0) return 'staff';
+    if (canManage && managerQueue.length > 0) return 'manager';
+    if (canManage && publishQueue.length > 0) return 'publish';
+    return 'mine';
+  }
+
+  const hasAnyQueueTab = canStaff || canManage;
+
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" asChild>
@@ -105,7 +140,7 @@ export default function ReviewQueuePage() {
       {loading && <LoadingState message={t('reviews.loading')} />}
 
       {!loading && !error && queue && (
-        <Tabs defaultValue={canStaff && staffQueue.length > 0 ? 'staff' : canManage && managerQueue.length > 0 ? 'manager' : 'staff'}>
+        <Tabs defaultValue={defaultTab()}>
           <TabsList>
             {canStaff && (
               <TabsTrigger value="staff">
@@ -131,53 +166,71 @@ export default function ReviewQueuePage() {
                 )}
               </TabsTrigger>
             )}
+            <TabsTrigger value="mine">
+              {t('reviews.queue.mine')}
+              {mySubmissions.length > 0 && (
+                <Badge variant="muted" className="ml-2">{mySubmissions.length}</Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
-            {canStaff && (
-              <TabsContent value="staff">
-                <QueueTable
-                  items={staffQueue}
-                  kind="staff"
-                  workspaceId={workspaceId}
-                  comment={comment}
-                  setComment={setComment}
-                  acting={acting}
-                  onDecide={decide}
-                  t={t}
-                />
-              </TabsContent>
-            )}
+          {canStaff && (
+            <TabsContent value="staff">
+              <QueueTable
+                items={staffQueue}
+                kind="staff"
+                workspaceId={workspaceId}
+                comment={comment}
+                setComment={setComment}
+                acting={acting}
+                onDecide={decide}
+                t={t}
+              />
+            </TabsContent>
+          )}
 
-            {canManage && (
-              <TabsContent value="manager">
-                <QueueTable
-                  items={managerQueue}
-                  kind="manager"
-                  workspaceId={workspaceId}
-                  comment={comment}
-                  setComment={setComment}
-                  acting={acting}
-                  onDecide={decide}
-                  t={t}
-                />
-              </TabsContent>
-            )}
+          {canManage && (
+            <TabsContent value="manager">
+              <QueueTable
+                items={managerQueue}
+                kind="manager"
+                workspaceId={workspaceId}
+                comment={comment}
+                setComment={setComment}
+                acting={acting}
+                onDecide={decide}
+                t={t}
+              />
+            </TabsContent>
+          )}
 
-            {canManage && (
-              <TabsContent value="publish">
-                <QueueTable
-                  items={publishQueue}
-                  kind="publish"
-                  workspaceId={workspaceId}
-                  comment={comment}
-                  setComment={setComment}
-                  acting={acting}
-                  onDecide={decide}
-                  t={t}
-                />
-              </TabsContent>
-            )}
+          {canManage && (
+            <TabsContent value="publish">
+              <QueueTable
+                items={publishQueue}
+                kind="publish"
+                workspaceId={workspaceId}
+                comment={comment}
+                setComment={setComment}
+                acting={acting}
+                onDecide={decide}
+                t={t}
+              />
+            </TabsContent>
+          )}
+
+          <TabsContent value="mine">
+            <MySubmissionsTable
+              items={mySubmissions}
+              workspaceId={workspaceId}
+              t={t}
+            />
+          </TabsContent>
         </Tabs>
+      )}
+
+      {!loading && !error && queue && !hasAnyQueueTab && (
+        <p className="text-xs text-muted-foreground">{t('reviews.authorHint')}</p>
       )}
     </div>
   );
@@ -294,6 +347,99 @@ function QueueTable({
                 </TableRow>
               );
             })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The author-side table: the versions the caller submitted for review and
+ * what happened to them.
+ *
+ * This is the only part of the page a DEVELOPER can act on — they hold
+ * no reviewing role, so the three review queues above are empty for
+ * them. The table is read-only: the author reacts to the verdict (for
+ * example by fixing the draft), they do not make the call.
+ */
+function MySubmissionsTable({
+  items, workspaceId, t,
+}: {
+  items: SubmittedVersion[];
+  workspaceId: string;
+  t: (k: string) => string;
+}) {
+  if (items.length === 0) {
+    return (
+      <Card><CardContent className="pt-6">
+        <EmptyState
+          title={t('reviews.mine.nothingSubmitted')}
+          description={t('reviews.mine.nothingSubmittedDesc')}
+        />
+      </CardContent></Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('reviews.colDocument')}</TableHead>
+              <TableHead>{t('reviews.colVersion')}</TableHead>
+              <TableHead>{t('reviews.colDocType')}</TableHead>
+              <TableHead>{t('reviews.mine.colStatus')}</TableHead>
+              <TableHead>{t('reviews.colDecision')}</TableHead>
+              <TableHead>{t('reviews.colComment')}</TableHead>
+              <TableHead>{t('reviews.mine.colDecided')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.versionId}>
+                <TableCell>
+                  <Link
+                    to={`/workspaces/${workspaceId}/documents/${item.documentId}`}
+                    className="hover:text-primary font-medium"
+                  >
+                    {item.documentTitle}
+                  </Link>
+                  {item.changeSummary && (
+                    <p className="text-xs text-muted-foreground mt-0.5 max-w-[22rem] truncate">
+                      {item.changeSummary}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell>v{item.versionNumber}</TableCell>
+                <TableCell><Badge variant="muted">{item.docType}</Badge></TableCell>
+                <TableCell>
+                  <Badge variant={STAGE_VARIANT[item.stage] ?? 'muted'}>
+                    {t(`reviews.mine.stage.${item.stage}`)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {item.latestDecision
+                    ? t(`reviews.mine.decision.${item.latestDecision}`)
+                    : '—'}
+                  {item.latestReviewerName && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {item.latestReviewerName}
+                      {item.latestReviewerRole && ` (${item.latestReviewerRole})`}
+                    </p>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground max-w-[20rem]">
+                  {item.latestComment ?? '—'}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                  {item.latestDecidedAt
+                    ? new Date(item.latestDecidedAt).toLocaleString()
+                    : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </CardContent>

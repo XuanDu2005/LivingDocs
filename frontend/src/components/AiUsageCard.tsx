@@ -7,11 +7,15 @@ import { Label } from './ui/label';
 import { Button } from './ui/button';
 import { Loader2, Save, Gauge } from 'lucide-react';
 import { describeError } from '../services/auth';
+import { usePermission } from '../hooks/usePermission';
 import { AiUsageSummary, aiUsageApi, UpdateLimitsPayload } from '../services/aiUsage';
 
 export function AiUsageCard() {
   const { t } = useTranslation();
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  // Reading the consumption dashboard and changing the budget are two
+  // different capabilities.
+  const canManageLimits = usePermission('AI_USAGE_MANAGE');
   const [summary, setSummary] = useState<AiUsageSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,41 +131,43 @@ export function AiUsageCard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="daily-limit">{t('aiUsage.dailyLimit')}</Label>
-                <Input
-                  id="daily-limit"
-                  type="number"
-                  min={0}
-                  value={dailyLimit}
-                  onChange={(e) => setDailyLimit(e.target.value)}
-                  placeholder={t('aiUsage.unlimited')}
-                />
+            {canManageLimits && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="daily-limit">{t('aiUsage.dailyLimit')}</Label>
+                  <Input
+                    id="daily-limit"
+                    type="number"
+                    min={0}
+                    value={dailyLimit}
+                    onChange={(e) => setDailyLimit(e.target.value)}
+                    placeholder={t('aiUsage.unlimited')}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="monthly-limit">{t('aiUsage.monthlyLimit')}</Label>
+                  <Input
+                    id="monthly-limit"
+                    type="number"
+                    min={0}
+                    value={monthlyLimit}
+                    onChange={(e) => setMonthlyLimit(e.target.value)}
+                    placeholder={t('aiUsage.unlimited')}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="rate-limit">{t('aiUsage.rateLimit')}</Label>
+                  <Input
+                    id="rate-limit"
+                    type="number"
+                    min={0}
+                    value={rateLimit}
+                    onChange={(e) => setRateLimit(e.target.value)}
+                    placeholder="Unlimited"
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="monthly-limit">{t('aiUsage.monthlyLimit')}</Label>
-                <Input
-                  id="monthly-limit"
-                  type="number"
-                  min={0}
-                  value={monthlyLimit}
-                  onChange={(e) => setMonthlyLimit(e.target.value)}
-                  placeholder={t('aiUsage.unlimited')}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="rate-limit">{t('aiUsage.rateLimit')}</Label>
-                <Input
-                  id="rate-limit"
-                  type="number"
-                  min={0}
-                  value={rateLimit}
-                  onChange={(e) => setRateLimit(e.target.value)}
-                  placeholder="Unlimited"
-                />
-              </div>
-            </div>
+            )}
 
             {error && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
@@ -174,10 +180,12 @@ export function AiUsageCard() {
               </div>
             )}
 
-            <Button onClick={() => void save()} disabled={saving}>
-              {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-              {t('aiUsage.saveLimits')}
-            </Button>
+            {canManageLimits && (
+              <Button onClick={() => void save()} disabled={saving}>
+                {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
+                {t('aiUsage.saveLimits')}
+              </Button>
+            )}
           </>
         )}
       </CardContent>

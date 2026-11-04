@@ -36,6 +36,16 @@ export interface AuthenticatedUser {
    * platform role assignments yet.
    */
   roles?: string[];
+  /**
+   * Effective permission codes the user holds, resolved by the backend
+   * from the `role_permissions` matrix. Empty array means the user
+   * holds no capability beyond basic workspace membership.
+   *
+   * The front-end uses this to hide features that would only come back
+   * with a 403 (health dashboard, audit log, AI settings, analytics,
+   * notification policies, integrations, GitHub commit, governance).
+   */
+  permissions?: string[];
   /** @deprecated Use {@link roles} (array) instead. Kept for backward compat. */
   role?: 'MEMBER' | 'MANAGER' | 'ADMIN';
   /**
@@ -122,6 +132,30 @@ export function hasRole(user: AuthenticatedUser | null | undefined, code: string
   if (Array.isArray(user.roles) && user.roles.includes(code)) return true;
   if (user.role === code) return true;
   return false;
+}
+
+/**
+ * Returns true if the user holds at least one of the given permission
+ * codes.
+ *
+ * <p>ADMIN is always granted every permission by the backend matrix, so
+ * the front-end mirrors that shortcut — otherwise an admin whose
+ * permission list has not been refreshed yet would lose access to their
+ * own admin surface.
+ *
+ * <p>An empty or missing permission list means "no privileges". This is
+ * what makes the default safe: a user whose profile was fetched before
+ * the field existed simply does not see the restricted features.
+ */
+export function hasPermission(
+  user: AuthenticatedUser | null | undefined,
+  ...codes: string[]
+): boolean {
+  if (!user) return false;
+  if (hasRole(user, 'ADMIN')) return true;
+  const held = user.permissions;
+  if (!Array.isArray(held) || held.length === 0) return false;
+  return codes.some((code) => held.includes(code));
 }
 
 export const authStorage = {

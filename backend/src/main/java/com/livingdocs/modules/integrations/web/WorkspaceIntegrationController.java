@@ -1,6 +1,7 @@
 package com.livingdocs.modules.integrations.web;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.integrations.dto.ConnectIntegrationRequest;
 import com.livingdocs.modules.integrations.dto.ConnectionDto;
 import com.livingdocs.modules.integrations.model.IntegrationProvider;
@@ -38,7 +39,8 @@ public class WorkspaceIntegrationController {
     }
 
     @GetMapping
-    @Operation(summary = "List integration connections for this workspace")
+    @RequirePermission({"INTEGRATION_VIEW"})
+    @Operation(summary = "List integration connections for this workspace (INTEGRATION_VIEW only)")
     public List<ConnectionDto> list(@PathVariable UUID workspaceId,
                                      @RequestParam(required = false) IntegrationProvider provider) {
         CurrentUser.requireId();
@@ -48,6 +50,7 @@ public class WorkspaceIntegrationController {
     }
 
     @PostMapping
+    @RequirePermission({"INTEGRATION_CONNECT"})
     @Operation(summary = "Link a new account to this workspace")
     public ConnectionDto connect(@PathVariable UUID workspaceId,
                                  @Valid @RequestBody ConnectIntegrationRequest req) {

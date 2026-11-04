@@ -5,6 +5,7 @@ import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.review.dto.DocumentReviewResponse;
 import com.livingdocs.modules.review.dto.ReviewQueueItemResponse;
 import com.livingdocs.modules.review.dto.ReviewQueueResponse;
+import com.livingdocs.modules.review.dto.SubmittedVersionResponse;
 import com.livingdocs.modules.review.dto.SubmitReviewRequest;
 import com.livingdocs.modules.review.service.DocumentReviewService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -121,6 +122,20 @@ public class DocumentReviewController {
     @Operation(summary = "Versions approved but not yet published")
     public List<ReviewQueueItemResponse> publishQueue(@PathVariable UUID workspaceId) {
         return reviewService.publishQueue(CurrentUser.requireId(), workspaceId);
+    }
+
+    /**
+     * The versions the caller submitted for review, with the verdict
+     * they received.
+     *
+     * <p>Available to every workspace member — an author without any
+     * reviewing role still needs to see what happened to the draft they
+     * handed over.
+     */
+    @GetMapping("/workspaces/{workspaceId}/reviews/my-submissions")
+    @Operation(summary = "Versions the caller submitted for review and their current verdict")
+    public List<SubmittedVersionResponse> mySubmissions(@PathVariable UUID workspaceId) {
+        return reviewService.mySubmissions(CurrentUser.requireId(), workspaceId);
     }
 
     @GetMapping("/workspaces/{workspaceId}/capabilities")

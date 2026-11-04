@@ -9,6 +9,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -71,6 +73,14 @@ public class DriftAlert {
     @Column(name = "description", nullable = false, columnDefinition = "text")
     private String description;
 
+    /**
+     * Grounding evidence, stored as a JSONB document. The column is
+     * mapped explicitly with {@code SqlTypes.JSON} — without it Hibernate
+     * binds the value as {@code varchar} and Postgres rejects the write
+     * with {@code column "evidence" is of type jsonb but expression is of
+     * type character varying}, which broke every drift-detection run.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "evidence", nullable = false, columnDefinition = "jsonb")
     private String evidence;
 

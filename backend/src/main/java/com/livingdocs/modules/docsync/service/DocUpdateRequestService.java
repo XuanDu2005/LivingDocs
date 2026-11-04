@@ -3,6 +3,8 @@ package com.livingdocs.modules.docsync.service;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.docsync.dto.DocUpdateRequestDto;
 import com.livingdocs.modules.docsync.model.DocUpdateRequest;
 import com.livingdocs.modules.docsync.model.DocUpdateStatus;
@@ -68,17 +70,20 @@ public class DocUpdateRequestService {
     private final GithubClient githubClient;
     private final WorkspaceService workspaceService;
     private final GithubRepositoryService repositoryService;
+    private final PermissionService permissionService;
 
     public DocUpdateRequestService(DocUpdateRequestRepository repository,
                                    RepositoryRepository repositoryRepository,
                                    GithubClient githubClient,
                                    WorkspaceService workspaceService,
-                                   GithubRepositoryService repositoryService) {
+                                   GithubRepositoryService repositoryService,
+                                   PermissionService permissionService) {
         this.repository = repository;
         this.repositoryRepository = repositoryRepository;
         this.githubClient = githubClient;
         this.workspaceService = workspaceService;
         this.repositoryService = repositoryService;
+        this.permissionService = permissionService;
     }
 
     // ── Listing ──────────────────────────────────────────────────────────
@@ -193,6 +198,11 @@ public class DocUpdateRequestService {
         DocUpdateRequest r = loadAndAuthorize(workspaceId, requestId, actorUserId);
         // Only managers can push to Git.
         workspaceService.requireRole(actorUserId, workspaceId, WorkspaceRole.MANAGER);
+        // ...and only a holder of SCM_COMMIT may write to an external
+        // repository. Both guards are required: the workspace role says
+        // "you own this workspace", the permission says "you may
+        // publish".
+        permissionService.requireAnyPermission(actorUserId, PermissionCodes.SCM_COMMIT);
 
         if (r.getStatus() != DocUpdateStatus.APPROVED) {
             throw new BadRequestException(

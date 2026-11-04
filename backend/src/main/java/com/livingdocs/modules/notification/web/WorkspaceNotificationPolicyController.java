@@ -1,6 +1,7 @@
 package com.livingdocs.modules.notification.web;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.notification.dto.NotificationPolicyDto;
 import com.livingdocs.modules.notification.dto.NotificationPolicyRequest;
 import com.livingdocs.modules.notification.service.NotificationPolicyService;
@@ -35,14 +36,16 @@ public class WorkspaceNotificationPolicyController {
     }
 
     @GetMapping
-    @Operation(summary = "List the resolved policies for this workspace")
+    @RequirePermission({"NOTIFICATION_POLICY_VIEW"})
+    @Operation(summary = "List the resolved policies for this workspace (NOTIFICATION_POLICY_VIEW only)")
     public List<NotificationPolicyDto> list(@PathVariable UUID workspaceId) {
         CurrentUser.requireId();
         return service.listForWorkspace(workspaceId);
     }
 
     @PutMapping("/{eventKind}")
-    @Operation(summary = "Override the platform default for one event kind in this workspace (MANAGER+ only)")
+    @RequirePermission({"NOTIFICATION_POLICY_MANAGE"})
+    @Operation(summary = "Override the platform default for one event kind in this workspace (NOTIFICATION_POLICY_MANAGE)")
     public NotificationPolicyDto upsert(@PathVariable UUID workspaceId,
                                          @PathVariable String eventKind,
                                          @Valid @RequestBody NotificationPolicyRequest req) {

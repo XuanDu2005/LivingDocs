@@ -1,6 +1,8 @@
 package com.livingdocs.modules.github.service;
 
 import com.livingdocs.common.exception.BadRequestException;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.client.AiServiceClient;
 import com.livingdocs.modules.code.model.CodeEntity;
@@ -63,19 +65,22 @@ public class DocSyncService {
     private final RepositoryRepository repositoryRepository;
     private final WorkspaceService workspaceService;
     private final DocUpdateRequestService docUpdateRequestService;
+    private final PermissionService permissionService;
 
     public DocSyncService(GithubClient githubClient,
                          AiServiceClient aiServiceClient,
                          CodeEntityRepository codeEntityRepository,
                          RepositoryRepository repositoryRepository,
                          WorkspaceService workspaceService,
-                         DocUpdateRequestService docUpdateRequestService) {
+                         DocUpdateRequestService docUpdateRequestService,
+                         PermissionService permissionService) {
         this.githubClient = githubClient;
         this.aiServiceClient = aiServiceClient;
         this.codeEntityRepository = codeEntityRepository;
         this.repositoryRepository = repositoryRepository;
         this.workspaceService = workspaceService;
         this.docUpdateRequestService = docUpdateRequestService;
+        this.permissionService = permissionService;
     }
 
     /**
@@ -632,6 +637,9 @@ public class DocSyncService {
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new RuntimeException("Repository not found"));
         workspaceService.requireMember(actorId, repo.getWorkspaceId());
+        // Opening a pull request writes to an external repository. It
+        // needs the SCM_COMMIT permission on top of workspace membership.
+        permissionService.requireAnyPermission(actorId, PermissionCodes.SCM_COMMIT);
 
         // Guard: if proposed content is identical to the current file, there is
         // nothing to commit and GitHub would reject the PR with 422.

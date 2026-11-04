@@ -1,6 +1,7 @@
 package com.livingdocs.modules.audit.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.audit.model.AuditLog;
 import com.livingdocs.modules.audit.repository.AuditLogRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
@@ -43,14 +44,18 @@ public class AuditLogController {
      * so a large audit table can never be loaded in one unbounded
      * query. Callers that need everything should follow the
      * {@code totalPages} cursor.
+     * <p>The trail records every governance decision taken in the
+     * workspace, so it is gated behind {@code AUDIT_LOG_VIEW}: being a
+     * workspace member is not enough to read it.
      */
     @GetMapping("/workspaces/{workspaceId}/audit-logs")
-    @Operation(summary = "List audit logs for a workspace (Manager only)")
+    @RequirePermission({"AUDIT_LOG_VIEW"})
+    @Operation(summary = "List audit logs for a workspace (AUDIT_LOG_VIEW only)")
     public PageResponse list(@PathVariable UUID workspaceId,
                              @RequestParam(defaultValue = "0") int page,
                              @RequestParam(defaultValue = "200") int size) {
         workspaceService.requireRole(CurrentUser.requireId(), workspaceId,
-                com.livingdocs.modules.workspace.model.WorkspaceRole.MANAGER);
+                com.livingdocs.modules.workspace.model.WorkspaceRole.MEMBER);
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), DEFAULT_LIMIT);
         Pageable pageable = PageRequest.of(safePage, safeSize,

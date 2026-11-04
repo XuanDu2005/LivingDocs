@@ -1,5 +1,6 @@
 package com.livingdocs.modules.user.service;
 
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.auth.service.LinkedProvidersMapper;
 import com.livingdocs.modules.user.dto.UserResponse;
@@ -24,13 +25,16 @@ public class UserResponseMapper {
     private final AvatarStorageService avatarStorageService;
     private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final LinkedProvidersMapper linkedProvidersMapper;
+    private final PermissionService permissionService;
 
     public UserResponseMapper(AvatarStorageService avatarStorageService,
                               UserRoleAssignmentRepository roleAssignmentRepository,
-                              LinkedProvidersMapper linkedProvidersMapper) {
+                              LinkedProvidersMapper linkedProvidersMapper,
+                              PermissionService permissionService) {
         this.avatarStorageService = avatarStorageService;
         this.roleAssignmentRepository = roleAssignmentRepository;
         this.linkedProvidersMapper = linkedProvidersMapper;
+        this.permissionService = permissionService;
     }
 
     /** Full mapping: roles, linked providers and avatar URL. */
@@ -50,7 +54,8 @@ public class UserResponseMapper {
     public UserResponse toResponse(User user,
                                    List<String> roleCodes,
                                    List<com.livingdocs.modules.auth.dto.LinkedProvidersResponse.LinkedProvider> linkedProviders) {
-        return UserResponse.from(user, roleCodes, linkedProviders,
+        List<String> permissions = List.copyOf(permissionService.effectivePermissions(user.getId()));
+        return UserResponse.from(user, roleCodes, linkedProviders, permissions,
                 avatarStorageService.publicUrl(user.getAvatarUrl()));
     }
 }

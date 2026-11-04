@@ -1,5 +1,6 @@
 package com.livingdocs.modules.notification.web;
 
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.notification.dto.NotificationChannelResponse;
 import com.livingdocs.modules.notification.dto.UpdateNotificationChannelRequest;
 import com.livingdocs.modules.notification.service.NotificationChannelService;
@@ -29,13 +30,15 @@ public class WorkspaceNotificationChannelController {
     }
 
     @GetMapping
+    @RequirePermission({"NOTIFICATION_POLICY_VIEW"})
     @Operation(summary = "List notification channel configurations for this workspace")
     public ResponseEntity<List<NotificationChannelResponse>> list(@PathVariable UUID workspaceId) {
         return ResponseEntity.ok(service.listForWorkspace(workspaceId));
     }
 
     @PutMapping
-    @Operation(summary = "Update a notification channel (Manager only)")
+    @RequirePermission({"NOTIFICATION_POLICY_MANAGE"})
+    @Operation(summary = "Update a notification channel (NOTIFICATION_POLICY_MANAGE)")
     public ResponseEntity<NotificationChannelResponse> update(
             @PathVariable UUID workspaceId,
             @Valid @RequestBody UpdateNotificationChannelRequest req) {

@@ -5,6 +5,7 @@ import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.audit.service.AuditLogService;
+import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
 import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
@@ -55,17 +56,20 @@ public class DocumentService {
     private final WorkspaceService workspaceService;
     private final DocTemplateService templateService;
     private final AuditLogService auditLogService;
+    private final AuthorizationService authorizationService;
 
     public DocumentService(DocumentRepository documentRepository,
                            DocumentVersionRepository versionRepository,
                            WorkspaceService workspaceService,
                            DocTemplateService templateService,
-                           AuditLogService auditLogService) {
+                           AuditLogService auditLogService,
+                           AuthorizationService authorizationService) {
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
         this.workspaceService = workspaceService;
         this.templateService = templateService;
         this.auditLogService = auditLogService;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -92,7 +96,7 @@ public class DocumentService {
         // draft until the author submits it for review.
         DocumentVersion initial = new DocumentVersion(
                 saved.getId(), 1, req.initialBody(), "Initial version",
-                ActorRole.STAFF, actorId,
+                actorRoleFor(actorId), actorId,
                 null, null, saved.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
@@ -101,6 +105,27 @@ public class DocumentService {
         log.info("Document created: workspace={} slug={} docType={}",
                 workspaceId, normalizedSlug, req.docType());
         return DocumentResponse.from(saved);
+    }
+
+    /**
+     * The role to attribute a human edit to.
+     *
+     * <p>Derived from the caller's platform role. Before this existed the
+     * initial version of every document was labelled STAFF, so a
+     * DEVELOPER-authored document looked like a Staff document in the
+     * change log.
+     */
+    private ActorRole actorRoleFor(UUID actorId) {
+        var roles = authorizationService.platformRoles(actorId);
+        if (roles.contains(AuthorizationService.ROLE_ADMIN)
+                || roles.contains(AuthorizationService.ROLE_MANAGER)
+                || roles.contains(AuthorizationService.ROLE_TECHNICAL_LEAD)) {
+            return ActorRole.MANAGER;
+        }
+        if (roles.contains(AuthorizationService.ROLE_DEVELOPER)) {
+            return ActorRole.DEVELOPER;
+        }
+        return ActorRole.STAFF;
     }
 
     @Transactional(readOnly = true)

@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { hasRole } from '../services/auth';
+import { hasPermission, hasRole } from '../services/auth';
 import { LoadingState, ErrorState } from './ui/states';
 
 interface ProtectedRouteProps {
@@ -12,9 +12,24 @@ interface ProtectedRouteProps {
    * page with an error message visible in the layout header.
    */
   requireAnyRole?: string[];
+  /**
+   * If provided, the principal must hold at least one of the listed
+   * permission codes. Used for the capability-scoped surfaces (health
+   * dashboard, audit log, AI settings, analytics, notification
+   * policies, integrations, governance).
+   *
+   * <p>The backend enforces the same matrix, so this is a courtesy
+   * gate: it shows a clear message instead of a broken page that
+   * fails on every request.
+   */
+  requireAnyPermission?: string[];
 }
 
-export function ProtectedRoute({ children, requireAnyRole }: ProtectedRouteProps) {
+export function ProtectedRoute({
+  children,
+  requireAnyRole,
+  requireAnyPermission,
+}: ProtectedRouteProps) {
   const { isAuthenticated, initializing, user } = useAuth();
   const location = useLocation();
 
@@ -33,6 +48,17 @@ export function ProtectedRoute({ children, requireAnyRole }: ProtectedRouteProps
       return (
         <ErrorState
           message={`This page requires one of these platform roles: ${requireAnyRole.join(', ')}.`}
+        />
+      );
+    }
+  }
+
+  if (requireAnyPermission && requireAnyPermission.length > 0) {
+    const ok = requireAnyPermission.some((code) => hasPermission(user, code));
+    if (!ok) {
+      return (
+        <ErrorState
+          message={`This page requires one of these permissions: ${requireAnyPermission.join(', ')}.`}
         />
       );
     }

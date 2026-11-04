@@ -13,6 +13,15 @@ public interface DocumentReviewRepository extends JpaRepository<DocumentReview, 
 
     List<DocumentReview> findAllByDocumentVersionIdOrderByDecidedAtDesc(UUID documentVersionId);
 
+    /**
+     * Every review of the given versions, newest first.
+     *
+     * <p>Used to build the "my submissions" list without running one
+     * query per version.
+     */
+    List<DocumentReview> findAllByDocumentVersionIdInOrderByDecidedAtDesc(
+            java.util.Collection<UUID> documentVersionIds);
+
     List<DocumentReview> findAllByReviewerUserIdOrderByDecidedAtDesc(UUID reviewerUserId);
 
     /** Latest review per (version, reviewerRole). */

@@ -54,6 +54,16 @@ public interface GithubClient {
     List<GithubCommit> listCommits(String accessToken, String owner, String repo, int perPage, java.time.OffsetDateTime since);
 
     /**
+     * Lists the files a pull request touches.
+     *
+     * <p>Used to drive a drift scan on demand: the file list gives the
+     * set of changed paths, and the contents at the base and head
+     * branches give the "before" and "after" the drift analyser needs.
+     */
+    List<GithubPullRequestFile> listPullRequestFiles(String accessToken, String owner, String repo,
+                                                     long number);
+
+    /**
      * Fetches full metadata for a single repository (refreshes description,
      * default branch, visibility, etc.). Used by the real re-sync.
      */

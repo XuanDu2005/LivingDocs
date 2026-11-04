@@ -167,6 +167,7 @@ public class DocGenerationEventListener {
         if (versionId != null) {
             jobService.succeed(event.getCorrelationId(), versionId, promptTokens, completionTokens);
             recordUsage(event.getWorkspaceId(), promptTokens, completionTokens);
+            notifyAutoUpdate(event);
         }
 
         // Publish the completion event for any other consumer (UI push,
@@ -411,6 +412,42 @@ public class DocGenerationEventListener {
                     "/workspaces/" + event.getWorkspaceId() + "/documents/" + event.getDocumentId());
         } catch (Exception e) {
             log.warn("Failed to notify user about generation failure: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Tell the document owner that the AI refreshed their document.
+     *
+     * <p>Only runs for code-triggered runs (a commit or a pull request).
+     * A run the user asked for themselves does not need a "your
+     * document was updated" notification — they are already looking
+     * at it.
+     *
+     * <p>The recipient is the document owner rather than
+     * {@code requestedByUserId}: for an auto-update there is no
+     * requesting user, the pipeline ran on its own.
+     */
+    private void notifyAutoUpdate(DocGenerationRequestedEvent event) {
+        boolean codeTriggered = (event.getSourceCommitSha() != null
+                && !event.getSourceCommitSha().isBlank())
+                || event.getSourcePrId() != null;
+        if (!codeTriggered) {
+            return;
+        }
+        try {
+            UUID ownerId = documentRepository.findById(event.getDocumentId())
+                    .map(d -> d.getOwnerId())
+                    .orElse(null);
+            if (ownerId == null) {
+                return;
+            }
+            String title = "Document updated automatically";
+            String body = "The AI refreshed this document after a code change.";
+            String link = "/workspaces/" + event.getWorkspaceId()
+                    + "/documents/" + event.getDocumentId();
+            notificationService.send(ownerId, "doc.auto.updated", title, body, link);
+        } catch (Exception e) {
+            log.warn("Failed to notify document owner about auto-update: {}", e.getMessage());
         }
     }
 

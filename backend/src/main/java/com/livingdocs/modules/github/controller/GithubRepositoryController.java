@@ -7,6 +7,7 @@ import com.livingdocs.modules.github.dto.ConnectRepositoryRequest;
 import com.livingdocs.modules.github.dto.GithubRepositoryCatalogItem;
 import com.livingdocs.modules.github.dto.GithubRepositoryListResponse;
 import com.livingdocs.modules.github.dto.PullRequestResponse;
+import com.livingdocs.modules.github.dto.RepositoryModuleResponse;
 import com.livingdocs.modules.github.dto.RepositoryResponse;
 import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.model.Repository;
@@ -14,6 +15,7 @@ import com.livingdocs.modules.github.service.CommitIngestionService;
 import com.livingdocs.modules.github.service.DocSyncService;
 import com.livingdocs.modules.github.service.GithubIngestionService;
 import com.livingdocs.modules.github.service.GithubRepositoryService;
+import com.livingdocs.modules.github.service.ModuleAutoUpdateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -46,15 +48,18 @@ public class GithubRepositoryController {
     private final GithubIngestionService ingestionService;
     private final CommitIngestionService commitIngestionService;
     private final DocSyncService docSyncService;
+    private final ModuleAutoUpdateService moduleAutoUpdateService;
 
     public GithubRepositoryController(GithubRepositoryService repositoryService,
                                       GithubIngestionService ingestionService,
                                       CommitIngestionService commitIngestionService,
-                                      DocSyncService docSyncService) {
+                                      DocSyncService docSyncService,
+                                      ModuleAutoUpdateService moduleAutoUpdateService) {
         this.repositoryService = repositoryService;
         this.ingestionService = ingestionService;
         this.commitIngestionService = commitIngestionService;
         this.docSyncService = docSyncService;
+        this.moduleAutoUpdateService = moduleAutoUpdateService;
     }
 
     @GetMapping("/github/catalog/repositories")
@@ -110,6 +115,59 @@ public class GithubRepositoryController {
             @RequestParam boolean enabled) {
         Repository repo = repositoryService.setAutoUpdate(workspaceId, repositoryId, enabled);
         return ResponseEntity.ok(toResponse(repo));
+    }
+
+    // -----------------------------------------------------------------
+    // Per-module auto-update
+    //
+    // The repository toggle and the document toggle bracket this one: a
+    // workspace can exclude a single package from auto-updating while
+    // the rest of the repository keeps updating.
+    // -----------------------------------------------------------------
+
+    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/modules")
+    @Operation(summary = "List the module (package) auto-update settings of a repository")
+    public List<RepositoryModuleResponse> listModules(@PathVariable UUID workspaceId,
+                                                      @PathVariable UUID repositoryId) {
+        return moduleAutoUpdateService.listForRepository(workspaceId, repositoryId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/modules/detected")
+    @Operation(summary = "Detect the module directories of a repository from its indexed code entities")
+    public List<RepositoryModuleResponse> detectModules(@PathVariable UUID workspaceId,
+                                                         @PathVariable UUID repositoryId) {
+        return moduleAutoUpdateService.detectModules(workspaceId, repositoryId);
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/modules")
+    @Operation(summary = "Create or update the auto-update setting of a module")
+    public ResponseEntity<RepositoryModuleResponse> upsertModule(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestBody UpsertModuleRequest req) {
+        RepositoryModuleResponse out = moduleAutoUpdateService.create(
+                workspaceId, repositoryId, req.modulePath(), req.displayName(),
+                req.autoUpdateEnabled() == null || req.autoUpdateEnabled());
+        return ResponseEntity.status(HttpStatus.CREATED).body(out);
+    }
+
+    @PutMapping("/workspaces/{workspaceId}/modules/{moduleId}/auto-update")
+    @Operation(summary = "Enable or disable AI auto-update for a single module")
+    public ResponseEntity<RepositoryModuleResponse> setModuleAutoUpdate(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID moduleId,
+            @RequestParam boolean enabled) {
+        RepositoryModuleResponse out = moduleAutoUpdateService.setAutoUpdate(
+                workspaceId, moduleId, enabled);
+        return ResponseEntity.ok(out);
+    }
+
+    @DeleteMapping("/workspaces/{workspaceId}/modules/{moduleId}")
+    @Operation(summary = "Remove a module auto-update setting")
+    public ResponseEntity<Void> deleteModule(@PathVariable UUID workspaceId,
+                                             @PathVariable UUID moduleId) {
+        moduleAutoUpdateService.delete(workspaceId, moduleId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/pulls/ingest")
@@ -327,6 +385,7 @@ public class GithubRepositoryController {
 
     public record DocSyncRequest(String filePath, String branch) {}
     public record ApplyDocSyncRequest(String filePath, String proposedContent, String branch) {}
+    public record UpsertModuleRequest(String modulePath, String displayName, Boolean autoUpdateEnabled) {}
 
     private RepositoryResponse toResponse(Repository r) {
         return new RepositoryResponse(

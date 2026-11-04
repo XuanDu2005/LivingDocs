@@ -8,23 +8,31 @@ import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.model.DocumentStatus;
 import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.notification.model.NotificationKinds;
+import com.livingdocs.modules.notification.service.NotificationService;
 import com.livingdocs.modules.review.dto.DocumentReviewResponse;
 import com.livingdocs.modules.review.dto.ReviewQueueItemResponse;
 import com.livingdocs.modules.review.dto.ReviewQueueResponse;
+import com.livingdocs.modules.review.dto.SubmittedVersionResponse;
 import com.livingdocs.modules.review.dto.SubmitReviewRequest;
 import com.livingdocs.modules.review.model.DocumentReview;
 import com.livingdocs.modules.review.model.ReviewDecision;
 import com.livingdocs.modules.review.repository.DocumentReviewRepository;
+import com.livingdocs.modules.user.repository.UserRepository;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
+import com.livingdocs.modules.workspace.model.WorkspaceMember;
+import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -62,19 +70,28 @@ public class DocumentReviewService {
     private final WorkspaceService workspaceService;
     private final AuditLogService auditLogService;
     private final AuthorizationService authorizationService;
+    private final NotificationService notificationService;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final UserRepository userRepository;
 
     public DocumentReviewService(DocumentReviewRepository reviewRepository,
                                  DocumentVersionRepository versionRepository,
                                  DocumentRepository documentRepository,
                                  WorkspaceService workspaceService,
                                  AuditLogService auditLogService,
-                                 AuthorizationService authorizationService) {
+                                 AuthorizationService authorizationService,
+                                 NotificationService notificationService,
+                                 WorkspaceMemberRepository workspaceMemberRepository,
+                                 UserRepository userRepository) {
         this.reviewRepository = reviewRepository;
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
         this.auditLogService = auditLogService;
         this.authorizationService = authorizationService;
+        this.notificationService = notificationService;
+        this.workspaceMemberRepository = workspaceMemberRepository;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -107,6 +124,7 @@ public class DocumentReviewService {
                         "decision", req.decision().name()));
         log.info("Staff review submitted: document={} version={} decision={}",
                 documentId, version.getVersionNumber(), req.decision());
+        notifySubmitter(document, version, req, saved.getReviewerRole());
         return DocumentReviewResponse.from(saved);
     }
 
@@ -148,6 +166,7 @@ public class DocumentReviewService {
                         "decision", req.decision().name()));
         log.info("Manager decision submitted: document={} version={} decision={}",
                 documentId, version.getVersionNumber(), req.decision());
+        notifySubmitter(document, version, req, saved.getReviewerRole());
         return DocumentReviewResponse.from(saved);
     }
 
@@ -214,7 +233,114 @@ public class DocumentReviewService {
                 caps.canManagerApprove(),
                 staffQueue,
                 managerQueue,
-                publishQueue);
+                publishQueue,
+                mySubmissions(actorId, workspaceId));
+    }
+
+    /**
+     * The versions the caller submitted for review, together with the
+     * verdict they received.
+     *
+     * <p>This is the author-side counterpart of the three review queues.
+     * Every reviewer also sees their own submissions here, so the page
+     * can show "what is waiting for me" and "what did I hand over" in
+     * one place.
+     *
+     * <p>Requires workspace membership — the list is scoped to one
+     * workspace and never leaks across workspaces.
+     */
+    @Transactional(readOnly = true)
+    public List<SubmittedVersionResponse> mySubmissions(UUID actorId, UUID workspaceId) {
+        authorizationService.requireWorkspaceMember(actorId, workspaceId);
+
+        List<Document> documents = documentRepository.findAllByWorkspaceIdOrderByUpdatedAtDesc(workspaceId);
+        if (documents.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Document> byId = new HashMap<>();
+        for (Document doc : documents) {
+            byId.put(doc.getId(), doc);
+        }
+
+        List<DocumentVersion> versions =
+                versionRepository.findAllBySubmittedByUserIdAndDocumentIdInOrderBySubmittedAtDesc(
+                        actorId, byId.keySet());
+        if (versions.isEmpty()) {
+            return List.of();
+        }
+
+        // One query for every review of every submitted version, instead
+        // of one query per version.
+        List<UUID> versionIds = versions.stream().map(DocumentVersion::getId).toList();
+        Map<UUID, DocumentReview> latestReview = new HashMap<>();
+        for (DocumentReview review : reviewRepository.findAllByDocumentVersionIdInOrderByDecidedAtDesc(versionIds)) {
+            // The repository returns newest first, so the first hit wins.
+            latestReview.putIfAbsent(review.getDocumentVersionId(), review);
+        }
+
+        List<SubmittedVersionResponse> out = new ArrayList<>(versions.size());
+        for (DocumentVersion version : versions) {
+            Document doc = byId.get(version.getDocumentId());
+            if (doc == null) {
+                continue;
+            }
+            DocumentReview review = latestReview.get(version.getId());
+            out.add(new SubmittedVersionResponse(
+                    version.getId(),
+                    doc.getId(),
+                    doc.getTitle(),
+                    doc.getDocType(),
+                    version.getVersionNumber(),
+                    version.getStatus(),
+                    version.getChangeSummary(),
+                    version.getConfidenceScore(),
+                    version.getSubmittedAt(),
+                    stageOf(version, review),
+                    review != null ? review.getDecision().name() : null,
+                    review != null ? review.getReviewerRole() : null,
+                    review != null ? reviewerName(review.getReviewerUserId()) : null,
+                    review != null ? review.getComment() : null,
+                    review != null ? review.getDecidedAt() : null));
+        }
+        return out;
+    }
+
+    /**
+     * Flatten the workflow state of a submitted version into a single
+     * label the UI can render.
+     *
+     * <p>The version status alone is not enough: a version that was
+     * sent back for changes and one that was rejected both end up as
+     * {@link VersionStatus#REJECTED}, but the author needs to know
+     * whether the reviewer will look at it again.
+     */
+    private String stageOf(DocumentVersion version, DocumentReview latestReview) {
+        String decision = latestReview != null ? latestReview.getDecision().name() : null;
+        return switch (version.getStatus()) {
+            case PENDING -> "WAITING_STAFF";
+            case IN_REVIEW -> "WAITING_MANAGER";
+            case APPROVED -> "APPROVED";
+            case PUBLISHED -> "PUBLISHED";
+            case REJECTED -> "REQUEST_CHANGES".equals(decision) ? "CHANGES_REQUESTED" : "REJECTED";
+            case DRAFT -> "DRAFT";
+            case SUPERSEDED -> "SUPERSEDED";
+        };
+    }
+
+    /**
+     * The display name of a reviewer, so the author sees <em>who</em>
+     * made the call. Falls back to null when the reviewer account is
+     * gone.
+     */
+    private String reviewerName(UUID reviewerUserId) {
+        if (reviewerUserId == null) {
+            return null;
+        }
+        return userRepository.findById(reviewerUserId)
+                .map(u -> u.getDisplayName() != null && !u.getDisplayName().isBlank()
+                        ? u.getDisplayName()
+                        : u.getEmail())
+                .orElse(null);
     }
 
     /**
@@ -377,6 +503,11 @@ public class DocumentReviewService {
         }
 
         version.setStatus(VersionStatus.PENDING);
+        // Remember who handed the version over. Without this the author
+        // cannot find their own submissions later, and the review queue
+        // has no author-side view at all.
+        version.setSubmittedByUserId(actorId);
+        version.setSubmittedAt(OffsetDateTime.now());
         versionRepository.save(version);
         document.setStatus(DocumentStatus.IN_REVIEW);
         documentRepository.save(document);
@@ -387,9 +518,117 @@ public class DocumentReviewService {
                         "versionId", versionId.toString(),
                         "versionNumber", version.getVersionNumber()));
 
+        notifyReviewers(document, version, actorId);
+
         log.info("Version submitted for review: document={} version={}",
                 documentId, version.getVersionNumber());
         return version;
+    }
+
+    /**
+     * Tell the author of a version that a reviewer made a call on it.
+     *
+     * <p>The author is the person who pushed the version into the queue
+     * ({@code submittedByUserId}). Without this the only way to learn
+     * that your draft was rejected is to keep reloading the review queue
+     * page — and a developer, whose entire workflow is handing drafts
+     * over, has no reason to visit that page at all.
+     *
+     * <p>A failed notification must never abort the review itself: the
+     * verdict is already recorded.
+     */
+    private void notifySubmitter(Document document, DocumentVersion version,
+                                 SubmitReviewRequest req, String reviewerRole) {
+        UUID submitter = version.getSubmittedByUserId();
+        if (submitter == null) {
+            return;
+        }
+        try {
+            String title = "Review decision: " + document.getTitle();
+            String body = "Version " + version.getVersionNumber() + " — " + decisionLabel(req.decision());
+            if (req.comment() != null && !req.comment().isBlank()) {
+                body = body + ": " + req.comment().trim();
+            }
+            String link = "/workspaces/" + document.getWorkspaceId()
+                    + "/documents/" + document.getId();
+            notificationService.sendBatch(
+                    document.getWorkspaceId(), List.of(submitter),
+                    NotificationKinds.REVIEW_DECIDED, title, body, link);
+        } catch (Exception e) {
+            log.warn("Failed to notify the submitter of document {} version {}: {}",
+                    document.getTitle(), version.getVersionNumber(), e.getMessage());
+        }
+    }
+
+    /**
+     * A human-readable label for a review verdict, used in notifications.
+     */
+    private String decisionLabel(ReviewDecision decision) {
+        return switch (decision) {
+            case APPROVED -> "approved";
+            case REJECTED -> "rejected";
+            case REQUEST_CHANGES -> "changes requested";
+            case COMMENT -> "commented";
+        };
+    }
+
+    /**
+     * Tell the people who can act on this version that it is waiting.
+     *
+     * <p>The Staff tier is notified first — they own the first review
+     * step. Once a Staff reviewer has approved it, the Manager tier is
+     * notified instead. The author's own notification preference
+     * ("review requested") applies to them as well, so a reviewer who
+     * turned it off is not notified twice.
+     */
+    private void notifyReviewers(Document document, DocumentVersion version, UUID actorId) {
+        try {
+            List<UUID> recipients = reviewersFor(document.getWorkspaceId());
+            // The author is not told "a review was requested" for their
+            // own submission — they know.
+            recipients = recipients.stream()
+                    .filter(id -> !id.equals(actorId))
+                    .toList();
+            if (recipients.isEmpty()) {
+                return;
+            }
+            String title = "Review requested: " + document.getTitle();
+            String body = "Version " + version.getVersionNumber() + " is waiting for review.";
+            String link = "/workspaces/" + document.getWorkspaceId()
+                    + "/documents/" + document.getId() + "/reviews";
+            int sent = notificationService.sendBatch(
+                    document.getWorkspaceId(), recipients, "review.requested", title, body, link);
+            log.info("Notified {} reviewer(s) about document {} version {}",
+                    sent, document.getTitle(), version.getVersionNumber());
+        } catch (Exception e) {
+            // A failed notification must not abort the submission — the
+            // version is already in the queue and the reviewer will see
+            // it there.
+            log.warn("Failed to notify reviewers about document {}: {}",
+                    document.getTitle(), e.getMessage());
+        }
+    }
+
+    /**
+     * The workspace members who can review at the Staff tier.
+     */
+    private List<UUID> reviewersFor(UUID workspaceId) {
+        List<UUID> out = new ArrayList<>();
+        for (WorkspaceMember member : workspaceMemberRepository.findAllByWorkspaceId(workspaceId)) {
+            UUID userId = member.getUserId();
+            if (userId == null) {
+                continue;
+            }
+            try {
+                if (authorizationService.capabilities(userId, workspaceId).canStaffReview()) {
+                    out.add(userId);
+                }
+            } catch (Exception ignored) {
+                // A member whose roles could not be resolved is simply
+                // not notified.
+            }
+        }
+        return out;
     }
 
     /**

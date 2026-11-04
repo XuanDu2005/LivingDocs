@@ -1,6 +1,7 @@
 package com.livingdocs.modules.ai.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.ai.settings.GovernancePolicyService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +41,7 @@ public class GovernanceController {
     }
 
     @GetMapping("/workspaces/{workspaceId}/governance")
+    @RequirePermission({"GOVERNANCE_VIEW"})
     @Operation(summary = "Show the governance policy that currently applies to this workspace")
     public Map<String, Object> policy(@PathVariable UUID workspaceId) {
         workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
@@ -55,6 +57,7 @@ public class GovernanceController {
     }
 
     @GetMapping("/workspaces/{workspaceId}/governance/doc-types/{docType}")
+    @RequirePermission({"GOVERNANCE_VIEW"})
     @Operation(summary = "Show the workflow that applies to one documentation type")
     public Map<String, Object> docTypePolicy(@PathVariable UUID workspaceId,
                                              @PathVariable String docType) {
@@ -69,6 +72,7 @@ public class GovernanceController {
     }
 
     @GetMapping("/workspaces/{workspaceId}/governance/merge-gate")
+    @RequirePermission({"GOVERNANCE_VIEW"})
     @Operation(summary = "Evaluate the merge gate for a pull request (used by CI/CD)")
     public Map<String, Object> mergeGate(@PathVariable UUID workspaceId,
                                          @RequestParam(required = false) UUID pullRequestId) {

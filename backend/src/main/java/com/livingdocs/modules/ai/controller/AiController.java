@@ -14,6 +14,8 @@ import com.livingdocs.modules.ai.job.DocGenerationJobService;
 import com.livingdocs.modules.ai.service.AiDocumentationService;
 import com.livingdocs.modules.drift.dto.DriftAlertResponse;
 import com.livingdocs.modules.drift.service.DriftAlertService;
+import com.livingdocs.modules.github.service.PullRequestDiffService;
+import com.livingdocs.modules.github.service.PullRequestDiffService.DiffFiles;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
@@ -51,6 +53,7 @@ public class AiController {
     private final ObjectMapper objectMapper;
     private final DocGenerationJobService jobService;
     private final BulkGenerationService bulkGenerationService;
+    private final PullRequestDiffService pullRequestDiffService;
 
     public AiController(AiDocumentationService aiService,
                         DocumentVersionService versionService,
@@ -59,7 +62,8 @@ public class AiController {
                         WorkspaceService workspaceService,
                         ObjectMapper objectMapper,
                         DocGenerationJobService jobService,
-                        BulkGenerationService bulkGenerationService) {
+                        BulkGenerationService bulkGenerationService,
+                        PullRequestDiffService pullRequestDiffService) {
         this.aiService = aiService;
         this.versionService = versionService;
         this.driftService = driftService;
@@ -68,6 +72,7 @@ public class AiController {
         this.objectMapper = objectMapper;
         this.jobService = jobService;
         this.bulkGenerationService = bulkGenerationService;
+        this.pullRequestDiffService = pullRequestDiffService;
     }
 
     /**
@@ -125,13 +130,31 @@ public class AiController {
                                            @RequestParam(required = false) UUID pullRequestId,
                                            @RequestParam UUID documentId,
                                            @RequestBody DriftDetectionBody body) {
+        UUID actorId = CurrentUser.requireId();
+        workspaceService.requireMember(actorId, workspaceId);
+
+        List<AiDtos.SourceFile> filesBefore =
+                body.filesBefore() == null ? List.of() : body.filesBefore();
+        List<AiDtos.SourceFile> filesAfter =
+                body.filesAfter() == null ? List.of() : body.filesAfter();
+
+        // When the caller did not supply the file contents itself — the
+        // normal case for the on-demand scan — and the scan is anchored
+        // to a pull request, the two revisions of the changed files are
+        // reconstructed from GitHub. Without them the analyser has
+        // nothing to compare and the scan silently finds no drift.
+        if (filesBefore.isEmpty() && filesAfter.isEmpty() && pullRequestId != null) {
+            DiffFiles diff = pullRequestDiffService.resolveForPullRequest(
+                    workspaceId, repositoryId, pullRequestId);
+            filesBefore = diff.filesBefore();
+            filesAfter = diff.filesAfter();
+        }
+
         int count = aiService.detectDriftForPullRequest(
-                CurrentUser.requireId(), workspaceId, repositoryId,
-                pullRequestId, documentId,
-                body.filesBefore() == null ? List.of() : body.filesBefore(),
-                body.filesAfter() == null ? List.of() : body.filesAfter());
+                actorId, workspaceId, repositoryId,
+                pullRequestId, documentId, filesBefore, filesAfter);
         List<DriftAlertResponse> alerts = driftService.listForDocument(
-                CurrentUser.requireId(), documentId);
+                actorId, documentId);
         return Map.of("ingested", count, "alerts", alerts);
     }
 

@@ -513,6 +513,7 @@
     "statusSuperseded": "Đã thay thế",
     "roleAI": "AI",
     "roleStaff": "Nhân viên",
+    "roleDeveloper": "Lập trình viên",
     "roleManager": "Quản lý",
     "roleSystem": "Hệ thống",
     "generationInProgress": "Đang sinh tài liệu bằng AI…",
@@ -586,7 +587,31 @@
     "queue": {
       "staff": "Duyệt Staff",
       "manager": "Quyết định Manager",
-      "publish": "Phát hành"
+      "publish": "Phát hành",
+      "mine": "Bản tôi đã gửi"
+    },
+    "authorHint": "Bạn không có vai trò duyệt, nên các hàng đợi đánh giá đang trống. Những phiên bản bạn đã gửi đi được liệt kê ở tab \"Bản tôi đã gửi\".",
+    "mine": {
+      "nothingSubmitted": "Chưa gửi phiên bản nào",
+      "nothingSubmittedDesc": "Các phiên bản bạn gửi đi sẽ xuất hiện ở đây kèm kết quả đánh giá.",
+      "colStatus": "Trạng thái",
+      "colDecided": "Quyết định lúc",
+      "stage": {
+        "WAITING_STAFF": "Đang chờ Staff đánh giá",
+        "WAITING_MANAGER": "Staff đã duyệt — chờ Manager",
+        "CHANGES_REQUESTED": "Yêu cầu sửa",
+        "REJECTED": "Bị từ chối",
+        "APPROVED": "Đã duyệt",
+        "PUBLISHED": "Đã xuất bản",
+        "DRAFT": "Bản nháp",
+        "SUPERSEDED": "Đã thay thế"
+      },
+      "decision": {
+        "APPROVED": "Đã duyệt",
+        "REJECTED": "Bị từ chối",
+        "REQUEST_CHANGES": "Yêu cầu sửa",
+        "COMMENT": "Đã bình luận"
+      }
     },
     "action": {
       "approve": "Duyệt",
@@ -707,6 +732,10 @@
     "scanRepoPlaceholder": "Chọn một repository",
     "scanDoc": "Tài liệu",
     "scanDocPlaceholder": "Chọn một tài liệu",
+    "scanPullRequest": "Pull request",
+    "scanPullRequestOptional": "(không bắt buộc)",
+    "scanPullRequestPlaceholder": "Không có PR — dùng code mới nhất",
+    "scanPullRequestHint": "Khi chọn pull request, nội dung trước/sau được đọc từ GitHub nên phép so sánh chính xác.",
     "scanning": "Đang quét…",
     "runScan": "Chạy quét"
   },
@@ -947,6 +976,8 @@
       "SCM_RELEASE": "Bản phát hành",
       "JIRA_ISSUE_EVENT": "Vấn đề Jira",
       "REVIEW_ASSIGNED": "Được giao đánh giá",
+      "review_requested": "Có yêu cầu đánh giá",
+      "review_decided": "Có kết quả đánh giá",
       "INDEXING_DONE": "Lập chỉ mục xong",
       "drift_detected": "Phát hiện trôi dạt",
       "doc_generation_failed": "Sinh tài liệu bằng AI thất bại",
@@ -1561,6 +1592,29 @@
     "colEntityLanguage": "Ngôn ngữ",
     "colEntityCommit": "Commit",
     "entityIngestedAt": "Nạp lúc {{when}}",
+    "tabModules": "Module",
+    "modulesRefresh": "Làm mới",
+    "modulesDetect": "Phát hiện module",
+    "modulesLoading": "Đang tải module…",
+    "modulesEmptyTitle": "Chưa cấu hình module",
+    "modulesEmptyDesc": "Dùng \"Phát hiện module\" để suy ra các thư mục package của repository từ các code entity đã index, rồi loại trừ những module không nên tự động cập nhật.",
+    "modulesHint": "Module đang tắt auto-update sẽ giữ nguyên tài liệu, kể cả khi repository đang bật auto-update.",
+    "modulesNoneDetected": "Chưa phát hiện module nào. Hãy index code entity trước — module được suy ra từ các file nguồn đã index.",
+    "modulesDetected": "Phát hiện {{count}} module trong {{name}}.",
+    "colModulePath": "Đường dẫn module",
+    "colModuleName": "Tên hiển thị",
+    "colModuleAutoUpdate": "Auto-update",
+    "colActions": "Thao tác",
+    "autoUpdateRepoTitle": "Bật/tắt tự động cập nhật AI cho repository này.",
+    "autoUpdateOn": "Auto-update BẬT",
+    "autoUpdateOff": "Auto-update TẮT",
+    "autoUpdateRepoEnabled": "Đã bật auto-update cho {{name}}.",
+    "autoUpdateRepoDisabled": "Đã tắt auto-update cho {{name}}.",
+    "selectedCount": "Đã chọn {{count}} repository.",
+    "clearSelection": "Bỏ chọn",
+    "connectSelected": "Kết nối đã chọn",
+    "connectedMultiple": "Đã kết nối {{count}} repository.",
+    "connectFailed": "Không thể kết nối: {{names}}",
     "githubRequired": "Vui lòng kết nối GitHub trước.",
     "githubRequiredDesc": "Hãy kết nối tài khoản GitHub để xem các repository.",
     "connectGithubFirstTitle": "Kết nối GitHub để bắt đầu",
@@ -1715,7 +1769,20 @@
     "linkedInAccount": "GitHub đã được liên kết ở phần Tài khoản.",
     "grantRepoDesc": "Cấp thêm quyền truy cập repository để có thể đồng bộ repo vào workspace.",
     "grantRepoAccess": "Cấp quyền truy cập repo",
-    "connectGithub": "Kết nối GitHub"
+    "connectGithub": "Kết nối GitHub",
+    "reviewScopes": "Xem lại phạm vi quyền"
+  },
+  "githubScopes": {
+    "title": "Phạm vi quyền GitHub",
+    "description": "Xem lại những gì LivingDocs được phép làm trong tài khoản GitHub của bạn. Bạn có thể bỏ các phạm vi mà nền tảng không cần — GitHub sẽ yêu cầu bạn đồng ý lại với tập quyền mới.",
+    "signedInAs": "Đã đăng nhập với",
+    "noConnection": "Chưa kết nối tài khoản GitHub.",
+    "grantedTitle": "Quyền đã cấp",
+    "availableTitle": "Quyền chưa cấp",
+    "noneGranted": "Chưa có phạm vi quyền nào được cấp.",
+    "drop": "Bỏ",
+    "dropHint": "Bỏ một phạm vi sẽ mở lại màn hình đồng ý của GitHub với tập quyền đã thu hẹp — GitHub không cho phép token tự bỏ quyền.",
+    "cannotDropAll": "Cần ít nhất một phạm vi quyền."
   },
   "docSync": {
     "previewTitle": "Xem trước đồng bộ tài liệu",

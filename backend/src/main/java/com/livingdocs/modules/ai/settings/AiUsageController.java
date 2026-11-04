@@ -1,6 +1,7 @@
 package com.livingdocs.modules.ai.settings;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.workspace.model.WorkspaceRole;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +30,7 @@ public class AiUsageController {
     }
 
     @GetMapping
+    @RequirePermission({"AI_USAGE_VIEW"})
     @Operation(summary = "Get AI usage summary and limits for this workspace")
     public ResponseEntity<AiRateLimitService.UsageSummary> getSummary(@PathVariable UUID workspaceId) {
         UUID actor = CurrentUser.requireId();
@@ -37,6 +39,7 @@ public class AiUsageController {
     }
 
     @PutMapping("/limits")
+    @RequirePermission({"AI_USAGE_MANAGE"})
     @Operation(summary = "Update rate limits for this workspace (Manager only)")
     public ResponseEntity<AiRateLimitService.UsageSummary> updateLimits(
             @PathVariable UUID workspaceId,

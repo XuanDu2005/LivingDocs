@@ -5,6 +5,8 @@ import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubRepositorySummary;
 import com.livingdocs.modules.github.config.GithubProperties;
@@ -47,6 +49,7 @@ public class GithubRepositoryService {
     private final GithubOAuthService oauthService;
     private final GithubClient githubClient;
     private final GithubProperties githubProperties;
+    private final PermissionService permissionService;
     private final String appPublicUrl;
 
     public GithubRepositoryService(RepositoryRepository repositoryRepository,
@@ -55,6 +58,7 @@ public class GithubRepositoryService {
                                    GithubOAuthService oauthService,
                                    GithubClient githubClient,
                                    GithubProperties githubProperties,
+                                   PermissionService permissionService,
                                    @Value("${app.public-url:http://localhost:8080}") String appPublicUrl) {
         this.repositoryRepository = repositoryRepository;
         this.workspaceRepository = workspaceRepository;
@@ -62,6 +66,7 @@ public class GithubRepositoryService {
         this.oauthService = oauthService;
         this.githubClient = githubClient;
         this.githubProperties = githubProperties;
+        this.permissionService = permissionService;
         this.appPublicUrl = appPublicUrl.endsWith("/")
                 ? appPublicUrl.substring(0, appPublicUrl.length() - 1)
                 : appPublicUrl;
@@ -253,6 +258,10 @@ public class GithubRepositoryService {
     @Transactional
     public Repository setAutoUpdate(UUID workspaceId, UUID repositoryId, boolean enabled) {
         requireMembership(workspaceId);
+        // Turning auto-update on or off for a repository is a documented
+        // author capability.
+        permissionService.requireAnyPermission(CurrentUser.requireId(),
+                PermissionCodes.REPOSITORY_AUTO_UPDATE_MANAGE);
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
         if (!repo.getWorkspaceId().equals(workspaceId)) {
@@ -283,6 +292,13 @@ public class GithubRepositoryService {
      * — the file is "published" via GitHub's PR flow and stays under
      * human review.
      *
+     * <p>Publishing to a repository is gated behind the
+     * {@code SCM_COMMIT} permission: it is the one action in the
+     * product that changes something outside the platform, so it must
+     * not be reachable by the lowest role. Workspace membership is
+     * still required, so the permission does not become a backdoor
+     * around per-workspace scoping.
+     *
      * @throws BadRequestException if the repository is not in a state that
      *         supports commit (DISCONNECTED, ARCHIVED, ERROR)
      * @throws NotFoundException if the repository is not part of the workspace
@@ -295,6 +311,7 @@ public class GithubRepositoryService {
                                                   String commitMessage, String prTitle,
                                                   String prBody, String headBranch) {
         requireMembership(workspaceId);
+        permissionService.requireAnyPermission(CurrentUser.requireId(), PermissionCodes.SCM_COMMIT);
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new NotFoundException("Repository not found"));
         if (!repo.getWorkspaceId().equals(workspaceId)) {

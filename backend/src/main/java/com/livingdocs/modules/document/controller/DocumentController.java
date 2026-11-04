@@ -8,7 +8,6 @@ import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.service.DocumentService;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
-import com.livingdocs.modules.version.model.ActorRole;
 import com.livingdocs.modules.version.service.DocumentVersionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -91,6 +90,10 @@ public class DocumentController {
      * human. Body changes are otherwise managed through the dedicated
      * {@code /documents/{documentId}/versions} routes on the version
      * controller.
+     *
+     * <p>The actor role is resolved from the caller's platform role by the
+     * service, so a DEVELOPER's edit is attributed to DEVELOPER in the
+     * change log. Passing {@code null} here means "resolve it".
      */
     @PostMapping("/workspaces/{workspaceId}/documents/{documentId}/versions")
     @Operation(summary = "Append a new human-edited version of a document")
@@ -99,7 +102,7 @@ public class DocumentController {
                                                                  @Valid @RequestBody CreateVersionRequest req) {
         var v = versionService.createHumanVersion(
                 CurrentUser.requireId(), documentId,
-                req.bodyMarkdown(), req.changeSummary(), ActorRole.STAFF);
+                req.bodyMarkdown(), req.changeSummary(), null);
         return ResponseEntity.status(HttpStatus.CREATED).body(DocumentVersionResponse.from(v));
     }
     /* Toggle auto-update setting for a document */

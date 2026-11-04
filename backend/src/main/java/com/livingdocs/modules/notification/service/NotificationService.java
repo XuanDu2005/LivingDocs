@@ -37,42 +37,92 @@ public class NotificationService {
     private final NotificationPolicyService policyService;
     private final ApplicationEventPublisher eventPublisher;
     private final EventPublisher kafkaEventPublisher;
+    private final NotificationPreferenceService preferenceService;
 
     public NotificationService(NotificationRepository repository,
                                NotificationPolicyService policyService,
                                ApplicationEventPublisher eventPublisher,
-                               EventPublisher kafkaEventPublisher) {
+                               EventPublisher kafkaEventPublisher,
+                               NotificationPreferenceService preferenceService) {
         this.repository = repository;
         this.policyService = policyService;
         this.eventPublisher = eventPublisher;
         this.kafkaEventPublisher = kafkaEventPublisher;
+        this.preferenceService = preferenceService;
     }
 
+    /**
+     * Send an in-app notification to one user.
+     *
+     * <p>The per-user preferences are consulted first: a user who turned
+     * this kind of notification off does not get the row at all. Kinds
+     * without a dedicated preference (admin broadcasts, indexing jobs)
+     * are always delivered.
+     *
+     * @return the persisted notification, or {@code null} when the
+     *         user's preference suppresses it
+     */
     @Transactional
     public Notification send(UUID userId, String kind, String title, String body, String link) {
-        Notification n = new Notification(userId, kind, title, body, link);
-        Notification saved = repository.save(n);
-        eventPublisher.publishEvent(new NotificationCreatedEvent(saved));
+        boolean inAppEnabled = preferenceService.isInAppEnabled(userId, kind);
+        boolean emailEnabled = preferenceService.isEmailEnabled(userId, kind);
 
-        // Also emit a Kafka event so external delivery channels
-        // (SMTP, Slack) and the cross-service notification worker
-        // can react. This decouples the in-app save from any
-        // potentially-slow channel-specific code.
+        if (!inAppEnabled && !emailEnabled) {
+            log.debug("User {} turned off every channel for kind {} — dropping",
+                    userId, kind);
+            return null;
+        }
+
+        Notification saved = null;
+        if (inAppEnabled) {
+            Notification n = new Notification(userId, kind, title, body, link);
+            saved = repository.save(n);
+            eventPublisher.publishEvent(new NotificationCreatedEvent(saved));
+        } else {
+            log.debug("User {} turned off the in-app notification for kind {} — email only",
+                    userId, kind);
+        }
+
+        // The in-app row is already persisted, so no IN_APP event is
+        // published here. Publishing one would make the Kafka worker
+        // call back into this method, which persists a *second* row and
+        // publishes another IN_APP event — an infinite loop that filled
+        // the notifications table with duplicates of every message.
+        //
+        // Only the email channel goes through the event bus: the delivery
+        // worker owns it and this method stays agnostic to how (or
+        // whether) it is wired up.
+        if (emailEnabled) {
+            publishEmail(userId, kind, title, body, link);
+        }
+
+        return saved;
+    }
+
+    /**
+     * Publish the email-channel event for a notification.
+     *
+     * <p>Only published when the user actually asked for this kind of
+     * notification by email — otherwise the worker would wake up for
+     * every notification just to discard it.
+     */
+    private void publishEmail(UUID userId, String kind, String title, String body, String link) {
+        if (!preferenceService.isEmailEnabled(userId, kind)) {
+            return;
+        }
         kafkaEventPublisher.publishNotification(new NotificationSendEvent(
                 java.util.UUID.randomUUID(),
-                null,                  // workspaceId — Notification row doesn't carry it
-                null,                  // correlationId — caller didn't pass one
+                null,
+                null,
                 OffsetDateTime.now(),
                 userId,
-                NotificationSendEvent.Channel.IN_APP,
+                NotificationSendEvent.Channel.EMAIL,
                 kind,
                 title,
                 body,
                 link,
                 java.util.Map.of()
         ));
-
-        return saved;
     }
 
     /**
@@ -90,21 +140,45 @@ public class NotificationService {
         if (unique.isEmpty()) {
             return 0;
         }
-        List<Notification> rows = new ArrayList<>(unique.size());
-        for (UUID userId : unique) {
-            rows.add(new Notification(userId, kind, title, body, link));
+        // The two channels are independent: a recipient may have turned
+        // the in-app bell off but asked for email, or the other way round.
+        // Filtering by in-app only would silently swallow the email too.
+        List<UUID> inAppRecipients = unique.stream()
+                .filter(userId -> preferenceService.isInAppEnabled(userId, kind))
+                .toList();
+        List<UUID> emailRecipients = unique.stream()
+                .filter(userId -> preferenceService.isEmailEnabled(userId, kind))
+                .toList();
+
+        if (inAppRecipients.isEmpty() && emailRecipients.isEmpty()) {
+            log.debug("Every recipient turned off every channel for kind {} — nothing sent",
+                    kind);
+            return 0;
         }
-        List<Notification> saved = repository.saveAll(rows);
-        // Fan-out AFTER save so the SSE listener picks up rows that
-        // already have id + created_at populated. We do this even
-        // outside a transaction commit (the listener is @Async) — the
-        // worst case is a duplicate "new" event for a row that ends
-        // up rolled back, which the bell will reconcile on the next
-        // poll cycle.
-        for (Notification n : saved) {
-            eventPublisher.publishEvent(new NotificationCreatedEvent(n));
+
+        int persisted = 0;
+        if (!inAppRecipients.isEmpty()) {
+            List<Notification> rows = new ArrayList<>(inAppRecipients.size());
+            for (UUID userId : inAppRecipients) {
+                rows.add(new Notification(userId, kind, title, body, link));
+            }
+            List<Notification> saved = repository.saveAll(rows);
+            // Fan-out AFTER save so the SSE listener picks up rows that
+            // already have id + created_at populated. We do this even
+            // outside a transaction commit (the listener is @Async) — the
+            // worst case is a duplicate "new" event for a row that ends
+            // up rolled back, which the bell will reconcile on the next
+            // poll cycle.
+            for (Notification n : saved) {
+                eventPublisher.publishEvent(new NotificationCreatedEvent(n));
+            }
+            persisted = saved.size();
         }
-        return saved.size();
+
+        for (UUID userId : emailRecipients) {
+            publishEmail(userId, kind, title, body, link);
+        }
+        return persisted;
     }
 
     /**

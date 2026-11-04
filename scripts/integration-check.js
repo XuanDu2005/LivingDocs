@@ -202,26 +202,129 @@ async function checkReviewQueues() {
 async function checkGovernance() {
   console.log('\n== governance ==');
 
-  const policy = await call(DEVELOPER, `/workspaces/${WS}/governance`);
-  check('governance policy is readable by a member', policy.status === 200);
+  // The effective policy is capability-gated (GOVERNANCE_VIEW), not
+  // merely membership-gated: a plain DEVELOPER must not be able to
+  // read the thresholds the runtime enforces.
+  const devPolicy = await call(DEVELOPER, `/workspaces/${WS}/governance`);
+  check('DEVELOPER is refused the governance policy', devPolicy.status === 403, `got ${devPolicy.status}`);
+
+  const policy = await call(LEAD, `/workspaces/${WS}/governance`);
+  check('governance policy is readable by a permitted member', policy.status === 200, `got ${policy.status}`);
   check('policy has a confidence threshold', typeof policy.body?.confidenceThreshold === 'number');
   check(
     'policy has a merge policy',
     policy.body?.mergePolicy === 'WARN' || policy.body?.mergePolicy === 'BLOCK',
   );
 
-  const docType = await call(DEVELOPER, `/workspaces/${WS}/governance/doc-types/README`);
-  check('doc-type policy is readable', docType.status === 200);
+  const docType = await call(LEAD, `/workspaces/${WS}/governance/doc-types/README`);
+  check('doc-type policy is readable', docType.status === 200, `got ${docType.status}`);
   check(
     'doc-type workflow is a known value',
     docType.body?.workflow === 'AUTO_APPLY' || docType.body?.workflow === 'MANAGER_REVIEW',
     JSON.stringify(docType.body),
   );
 
-  const mergeGate = await call(DEVELOPER, `/workspaces/${WS}/governance/merge-gate`);
-  check('merge gate is readable', mergeGate.status === 200);
+  const mergeGate = await call(LEAD, `/workspaces/${WS}/governance/merge-gate`);
+  check('merge gate is readable', mergeGate.status === 200, `got ${mergeGate.status}`);
   check('merge gate reports blocked as a boolean', typeof mergeGate.body?.blocked === 'boolean');
   check('merge gate explains itself', typeof mergeGate.body?.reason === 'string');
+}
+
+/**
+ * The capability surfaces that must be invisible to a plain DEVELOPER.
+ *
+ * <p>These are the endpoints that leak operational information (DB
+ * latency, JVM memory, the AI provider configuration, the audit trail)
+ * or grant administrative leverage (publishing to GitHub). Every one of
+ * them answers 403 for a DEVELOPER and 200 for a role that holds the
+ * matching permission.
+ */
+async function checkCapabilitySurfaces() {
+  console.log('\n== capability surfaces ==');
+
+  const surfaces = [
+    { path: '/system-health', permitted: ['HEALTH_DASHBOARD_VIEW'], label: 'system health' },
+    { path: `/workspaces/${WS}/audit-logs`, permitted: ['AUDIT_LOG_VIEW'], label: 'audit log' },
+    { path: `/workspaces/${WS}/analytics`, permitted: ['ANALYTICS_VIEW'], label: 'analytics' },
+    { path: `/workspaces/${WS}/ai-settings`, permitted: ['AI_CONFIG_READ'], label: 'AI settings' },
+    {
+      path: `/workspaces/${WS}/notification-policies`,
+      permitted: ['NOTIFICATION_POLICY_VIEW'],
+      label: 'notification policies',
+    },
+    { path: `/workspaces/${WS}/integrations`, permitted: ['INTEGRATION_VIEW'], label: 'integrations' },
+    { path: `/workspaces/${WS}/ai-usage`, permitted: ['AI_USAGE_VIEW'], label: 'AI usage' },
+  ];
+
+  for (const surface of surfaces) {
+    const dev = await call(DEVELOPER, surface.path);
+    check(
+      `DEVELOPER is refused the ${surface.label}`,
+      dev.status === 403,
+      `got ${dev.status}`,
+    );
+  }
+
+  // STAFF holds a subset of the oversight permissions: it reviews
+  // content against the policy, so it may read the health dashboard and
+  // the notification policies, but not the audit trail.
+  const staffHealth = await call(STAFF, '/system-health');
+  check('STAFF may read the system health', staffHealth.status === 200, `got ${staffHealth.status}`);
+
+  const staffAudit = await call(STAFF, `/workspaces/${WS}/audit-logs`);
+  check('STAFF is refused the audit log', staffAudit.status === 403, `got ${staffAudit.status}`);
+
+  const staffAiSettings = await call(STAFF, `/workspaces/${WS}/ai-settings`);
+  check(
+    'STAFF is refused the AI provider configuration',
+    staffAiSettings.status === 403,
+    `got ${staffAiSettings.status}`,
+  );
+
+  // ADMIN is granted everything by the matrix.
+  const adminHealth = await call(ADMIN, '/system-health');
+  check('ADMIN may read the system health', adminHealth.status === 200, `got ${adminHealth.status}`);
+}
+
+/**
+ * The effective permission set the backend hands to the front-end.
+ */
+async function checkPermissionExposure() {
+  console.log('\n== permission exposure ==');
+
+  const dev = await call(DEVELOPER, '/users/me');
+  check('/users/me returns the developer profile', dev.status === 200, `got ${dev.status}`);
+  check(
+    '/users/me exposes the effective permission list',
+    Array.isArray(dev.body?.permissions),
+    JSON.stringify(dev.body?.permissions),
+  );
+  check(
+    'DEVELOPER holds no oversight permission',
+    !(dev.body?.permissions ?? []).some((code) =>
+      [
+        'HEALTH_DASHBOARD_VIEW',
+        'ANALYTICS_VIEW',
+        'AUDIT_LOG_VIEW',
+        'GOVERNANCE_VIEW',
+        'GOVERNANCE_MANAGE',
+        'NOTIFICATION_POLICY_VIEW',
+        'NOTIFICATION_POLICY_MANAGE',
+        'INTEGRATION_VIEW',
+        'SCM_COMMIT',
+        'AI_CONFIG_READ',
+        'AI_USAGE_VIEW',
+      ].includes(code),
+    ),
+    JSON.stringify(dev.body?.permissions),
+  );
+
+  const lead = await call(LEAD, '/users/me');
+  check(
+    'TECHNICAL_LEAD holds the oversight permissions',
+    (lead.body?.permissions ?? []).includes('HEALTH_DASHBOARD_VIEW'),
+    JSON.stringify(lead.body?.permissions),
+  );
 }
 
 async function checkGeneration() {
@@ -305,6 +408,8 @@ async function checkBudget() {
     await checkCapabilities();
     await checkReviewQueues();
     await checkGovernance();
+    await checkCapabilitySurfaces();
+    await checkPermissionExposure();
     await checkGeneration();
     await checkBudget();
   } catch (err) {

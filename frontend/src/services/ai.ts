@@ -82,6 +82,26 @@ export const aiApi = {
       .then((r) => r.data);
   },
 
+  /**
+   * Manually trigger a regeneration of a document.
+   *
+   * <p>The source is resolved server-side from the document's linked code
+   * entities (the real implementation, pulled from GitHub) plus the
+   * current body, so the AI has something to work from.
+   */
+  regenerate(workspaceId: string, documentId: string) {
+    return apiClient
+      .post<{
+        status: string;
+        jobId: string;
+        documentId: string;
+        message: string;
+      }>(
+        `/workspaces/${workspaceId}/documents/${documentId}/regenerate`,
+      )
+      .then((r) => r.data);
+  },
+
   detectDrift(
     workspaceId: string,
     payload: {

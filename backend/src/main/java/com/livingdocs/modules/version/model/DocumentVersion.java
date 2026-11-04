@@ -59,6 +59,25 @@ public class DocumentVersion {
     @Column(name = "actor_user_id")
     private UUID actorUserId;
 
+    /**
+     * The user who pushed this version into the review workflow.
+     *
+     * <p>Different from {@link #actorUserId}: the author is whoever made
+     * the change, the submitter is whoever asked for it to be reviewed.
+     * They are usually the same person, but a developer may hand over a
+     * draft that the AI produced, and a reviewer may submit a draft on
+     * somebody else's behalf.
+     *
+     * <p>{@code null} while the version is still a plain draft — the
+     * author has not asked for a review yet.
+     */
+    @Column(name = "submitted_by_user_id")
+    private UUID submittedByUserId;
+
+    /** When the version was submitted for review. */
+    @Column(name = "submitted_at")
+    private OffsetDateTime submittedAt;
+
     @Column(name = "source_commit_sha", length = 80)
     private String sourceCommitSha;
 
@@ -121,6 +140,10 @@ public class DocumentVersion {
     public String getChangeSummary() { return changeSummary; }
     public ActorRole getActorRole() { return actorRole; }
     public UUID getActorUserId() { return actorUserId; }
+    public UUID getSubmittedByUserId() { return submittedByUserId; }
+    public OffsetDateTime getSubmittedAt() { return submittedAt; }
+    public void setSubmittedByUserId(UUID submittedByUserId) { this.submittedByUserId = submittedByUserId; }
+    public void setSubmittedAt(OffsetDateTime submittedAt) { this.submittedAt = submittedAt; }
     public String getSourceCommitSha() { return sourceCommitSha; }
     public UUID getSourcePrId() { return sourcePrId; }
     public UUID getTemplateId() { return templateId; }

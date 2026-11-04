@@ -112,15 +112,23 @@ public class SecurityConfig {
     }
 
     /**
-     * Register the {@link PlatformRoleInterceptor} so that controllers
-     * annotated with {@link RequirePlatformRole} are protected.
+     * Register the {@link PlatformRoleInterceptor} and the
+     * {@link PermissionInterceptor} so that controllers annotated with
+     * {@link RequirePlatformRole} / {@link RequirePermission} are
+     * protected.
+     *
+     * <p>Both are registered in a single configurer so their order is
+     * deterministic: the role guard runs first, so a role-guard failure
+     * reports the role requirement rather than a permission code.
      */
     @Bean
-    public WebMvcConfigurer platformRoleMvcConfigurer(PlatformRoleInterceptor interceptor) {
+    public WebMvcConfigurer authorizationMvcConfigurer(PlatformRoleInterceptor roleInterceptor,
+                                                       PermissionInterceptor permissionInterceptor) {
         return new WebMvcConfigurer() {
             @Override
             public void addInterceptors(InterceptorRegistry registry) {
-                registry.addInterceptor(interceptor);
+                registry.addInterceptor(roleInterceptor);
+                registry.addInterceptor(permissionInterceptor);
             }
         };
     }
