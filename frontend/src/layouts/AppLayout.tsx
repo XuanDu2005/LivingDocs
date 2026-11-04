@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
-import { hasRole } from '../services/auth';
+import { hasPermission, hasRole } from '../services/auth';
 import { useTheme } from '../components/theme-provider';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -51,6 +51,12 @@ interface NavItem {
   to: string;
   icon: typeof BookOpen;
   authOnly?: boolean;
+  /**
+   * Permission codes that unlock this entry. When present the link is
+   * only rendered for users holding at least one of them. An empty
+   * list means the entry is visible to every authenticated user.
+   */
+  permissions?: string[];
 }
 
 interface NavGroup {
@@ -159,15 +165,30 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
       labelKey: 'nav.workspaceGroupConnections',
       items: [
         { labelKey: 'nav.repositories', to: `/workspaces/${workspaceId}/repositories`, icon: GitBranch },
-        { labelKey: 'nav.integrations', to: `/workspaces/${workspaceId}/integrations`, icon: PlugZap },
+        {
+          labelKey: 'nav.integrations',
+          to: `/workspaces/${workspaceId}/integrations`,
+          icon: PlugZap,
+          permissions: ['INTEGRATION_VIEW'],
+        },
       ],
     },
     {
       labelKey: 'nav.workspaceGroupInsights',
       items: [
         { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
-        { labelKey: 'nav.analytics', to: `/workspaces/${workspaceId}/analytics`, icon: BarChart3 },
-        { labelKey: 'nav.health', to: `/workspaces/${workspaceId}/health`, icon: Stethoscope },
+        {
+          labelKey: 'nav.analytics',
+          to: `/workspaces/${workspaceId}/analytics`,
+          icon: BarChart3,
+          permissions: ['ANALYTICS_VIEW'],
+        },
+        {
+          labelKey: 'nav.health',
+          to: `/workspaces/${workspaceId}/health`,
+          icon: Stethoscope,
+          permissions: ['HEALTH_DASHBOARD_VIEW'],
+        },
       ],
     },
     {
@@ -277,23 +298,35 @@ export function AppLayout({ children }: AppLayoutProps) {
                   {workspaceId.slice(0, 6)}
                 </Badge>
               </div>
-              {wsItems.map((group) => (
-                <div key={group.labelKey} className="mt-2">
-                  <div className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
-                    {translateNavLabel(group.labelKey, t)}
+              {wsItems.map((group) => {
+                // Hide whole groups whose every entry is capability-gated
+                // away for this user, so the sidebar does not show empty
+                // headings.
+                const visible = group.items.filter(
+                  (item) =>
+                    !item.permissions ||
+                    item.permissions.length === 0 ||
+                    hasPermission(user, ...item.permissions),
+                );
+                if (visible.length === 0) return null;
+                return (
+                  <div key={group.labelKey} className="mt-2">
+                    <div className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
+                      {translateNavLabel(group.labelKey, t)}
+                    </div>
+                    <div className="space-y-0.5">
+                      {visible.map((item) => (
+                        <SidebarLink
+                          key={item.to}
+                          to={item.to}
+                          icon={item.icon}
+                          label={translateNavLabel(item.labelKey, t)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-0.5">
-                    {group.items.map((item) => (
-                      <SidebarLink
-                        key={item.to}
-                        to={item.to}
-                        icon={item.icon}
-                        label={translateNavLabel(item.labelKey, t)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </nav>

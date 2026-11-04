@@ -1,6 +1,7 @@
 package com.livingdocs.modules.analytics.web;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.analytics.dto.AnalyticsResponse;
 import com.livingdocs.modules.analytics.service.AnalyticsService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
@@ -29,7 +30,8 @@ public class AnalyticsController {
     }
 
     @GetMapping
-    @Operation(summary = "Get aggregated analytics for a workspace")
+    @RequirePermission({"ANALYTICS_VIEW"})
+    @Operation(summary = "Get aggregated analytics for a workspace (ANALYTICS_VIEW only)")
     public ResponseEntity<AnalyticsResponse> getAnalytics(
             @PathVariable UUID workspaceId,
             @RequestParam(defaultValue = "30") int days) {

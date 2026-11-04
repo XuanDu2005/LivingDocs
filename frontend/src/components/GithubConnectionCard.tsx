@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Github, Loader2, Unlink, ShieldCheck } from 'lucide-react';
+import { Github, Loader2, Unlink, ShieldCheck, KeyRound } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import {
@@ -21,6 +21,9 @@ import {
 import { githubApi, GithubConnection } from '../services/github';
 import { describeError } from '../services/auth';
 import { listLinkedProviders } from '../services/authApi';
+import { GithubScopesDialog } from './GithubScopesDialog';
+import { usePermission } from '../hooks/usePermission';
+import { PermissionCodes } from '../services/permissions';
 
 /**
  * Shows the current GitHub connection status for the logged-in user and lets
@@ -36,6 +39,7 @@ import { listLinkedProviders } from '../services/authApi';
  */
 export function GithubConnectionCard() {
   const { t } = useTranslation();
+  const canViewScopes = usePermission(PermissionCodes.GITHUB_SCOPE_VIEW);
   const [connection, setConnection] = useState<GithubConnection | null>(null);
   const [loginLinked, setLoginLinked] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,6 +48,7 @@ export function GithubConnectionCard() {
   const [connecting, setConnecting] = useState<boolean>(false);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [disconnecting, setDisconnecting] = useState<boolean>(false);
+  const [scopesOpen, setScopesOpen] = useState<boolean>(false);
 
   async function load() {
     setLoading(true);
@@ -140,6 +145,16 @@ export function GithubConnectionCard() {
               </div>
             )}
             <div className="flex flex-wrap gap-2 pt-1">
+              {canViewScopes && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setScopesOpen(true)}
+                >
+                  <KeyRound className="mr-1 h-4 w-4" />
+                  {t('githubCard.reviewScopes', 'Review access scopes')}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -257,6 +272,8 @@ export function GithubConnectionCard() {
           </div>
         )}
       </CardContent>
+
+      <GithubScopesDialog open={scopesOpen} onOpenChange={setScopesOpen} />
     </Card>
   );
 }

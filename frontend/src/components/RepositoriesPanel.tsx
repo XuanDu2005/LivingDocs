@@ -33,7 +33,27 @@ import { format } from 'date-fns';
 
 interface RepositoriesPanelProps {
   workspaceId: string;
+  /**
+   * Whether the caller may perform the destructive / administrative
+   * repository actions (sync, disconnect, ingest).
+   *
+   * <p>Note that *connecting* a repository is deliberately NOT part of
+   * this: the backend only requires workspace membership for
+   * {@code GithubRepositoryService.connect}, and hiding the button from
+   * ordinary members made the workspace detail page behave differently
+   * from {@code RepositoryPage}, which has always let every member
+   * connect. The two now agree.
+   */
   canManage: boolean;
+  /**
+   * Whether the caller may connect a repository to this workspace.
+   *
+   * <p>Defaults to {@code true}: the backend's
+   * {@code GithubRepositoryService.connect} only requires workspace
+   * membership, so every member may connect. Defaults to the same
+   * behaviour as {@code RepositoryPage}, which has always allowed it.
+   */
+  canConnect?: boolean;
 }
 
 const STATE_VARIANT: Record<PullRequest['state'], 'success' | 'muted' | 'info'> = {
@@ -55,7 +75,7 @@ const STATUS_VARIANT: Record<Repository['status'], 'success' | 'muted' | 'destru
   DISCONNECTED: 'warning',
 };
 
-export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelProps) {
+export function RepositoriesPanel({ workspaceId, canManage, canConnect = true }: RepositoriesPanelProps) {
   const { t } = useTranslation();
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -209,7 +229,7 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
             </CardTitle>
             <CardDescription>{t('repository.panelDescription')}</CardDescription>
           </div>
-          {canManage && !showCatalog && (
+          {canConnect && !showCatalog && (
             <Button size="sm" onClick={() => void openCatalog()}>
               <Plus className="mr-1 h-4 w-4" /> Connect
             </Button>
@@ -301,7 +321,7 @@ export function RepositoriesPanel({ workspaceId, canManage }: RepositoriesPanelP
             title={t('repository.noReposConnectedTitle')}
             description={t('repository.noReposConnectedDesc')}
             action={
-              canManage ? (
+              canConnect ? (
                 <Button onClick={() => void openCatalog()}>
                   <Plus className="mr-1 h-4 w-4" /> Connect repository
                 </Button>

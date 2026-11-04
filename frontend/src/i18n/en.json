@@ -513,6 +513,7 @@
     "statusSuperseded": "Superseded",
     "roleAI": "AI",
     "roleStaff": "Staff",
+    "roleDeveloper": "Developer",
     "roleManager": "Manager",
     "roleSystem": "System",
     "generationInProgress": "AI generation in progress…",
@@ -586,7 +587,31 @@
     "queue": {
       "staff": "Staff review",
       "manager": "Manager decision",
-      "publish": "Publish"
+      "publish": "Publish",
+      "mine": "My submissions"
+    },
+    "authorHint": "You do not have a reviewing role, so the review queues are empty. The versions you submitted for review are listed under \"My submissions\".",
+    "mine": {
+      "nothingSubmitted": "Nothing submitted yet",
+      "nothingSubmittedDesc": "The versions you send for review will appear here with the verdict they received.",
+      "colStatus": "Status",
+      "colDecided": "Decided at",
+      "stage": {
+        "WAITING_STAFF": "Waiting for Staff review",
+        "WAITING_MANAGER": "Staff approved — waiting for Manager",
+        "CHANGES_REQUESTED": "Changes requested",
+        "REJECTED": "Rejected",
+        "APPROVED": "Approved",
+        "PUBLISHED": "Published",
+        "DRAFT": "Draft",
+        "SUPERSEDED": "Superseded"
+      },
+      "decision": {
+        "APPROVED": "Approved",
+        "REJECTED": "Rejected",
+        "REQUEST_CHANGES": "Changes requested",
+        "COMMENT": "Commented"
+      }
     },
     "action": {
       "approve": "Approve",
@@ -707,6 +732,10 @@
     "scanRepoPlaceholder": "Select a repository",
     "scanDoc": "Document",
     "scanDocPlaceholder": "Select a document",
+    "scanPullRequest": "Pull request",
+    "scanPullRequestOptional": "(optional)",
+    "scanPullRequestPlaceholder": "No pull request — use the latest code",
+    "scanPullRequestHint": "With a pull request, the before/after content is read from GitHub, so the comparison is exact.",
     "scanning": "Scanning…",
     "runScan": "Run scan"
   },
@@ -947,6 +976,8 @@
       "SCM_RELEASE": "Release",
       "JIRA_ISSUE_EVENT": "Jira issue",
       "REVIEW_ASSIGNED": "Review assigned",
+      "review_requested": "Review requested",
+      "review_decided": "Review decided",
       "INDEXING_DONE": "Indexing complete",
       "drift_detected": "Drift detected",
       "doc_generation_failed": "AI generation failed",
@@ -1556,6 +1587,29 @@
     "colEntityLanguage": "Lang",
     "colEntityCommit": "Commit",
     "entityIngestedAt": "Ingested at {{when}}",
+    "tabModules": "Modules",
+    "modulesRefresh": "Refresh",
+    "modulesDetect": "Detect modules",
+    "modulesLoading": "Loading modules…",
+    "modulesEmptyTitle": "No modules configured",
+    "modulesEmptyDesc": "Use \"Detect modules\" to derive the package directories of this repository from its indexed code entities, then exclude the ones that should not be auto-updated.",
+    "modulesHint": "A module with auto-update off keeps its documents untouched by AI updates, even when the repository is auto-updating.",
+    "modulesNoneDetected": "No modules detected yet. Index the code entities first — modules are derived from the indexed source files.",
+    "modulesDetected": "Detected {{count}} module(s) in {{name}}.",
+    "colModulePath": "Module path",
+    "colModuleName": "Display name",
+    "colModuleAutoUpdate": "Auto-update",
+    "colActions": "Actions",
+    "autoUpdateRepoTitle": "Turn AI auto-update on or off for this repository.",
+    "autoUpdateOn": "Auto-update ON",
+    "autoUpdateOff": "Auto-update OFF",
+    "autoUpdateRepoEnabled": "Auto-update enabled for {{name}}.",
+    "autoUpdateRepoDisabled": "Auto-update disabled for {{name}}.",
+    "selectedCount": "{{count}} repository(ies) selected.",
+    "clearSelection": "Clear",
+    "connectSelected": "Connect selected",
+    "connectedMultiple": "Connected {{count}} repository(ies).",
+    "connectFailed": "Could not connect: {{names}}",
     "connectGithub": "Connect GitHub",
     "githubNotConnectedTitle": "GitHub account not connected",
     "githubNotConnectedDesc": "Connect your GitHub account to browse and add repositories. You will be redirected to GitHub to grant access.",
@@ -1715,7 +1769,20 @@
     "linkedInAccount": "GitHub is already linked in Account settings.",
     "grantRepoDesc": "Grant repository access so you can sync repos into the workspace.",
     "grantRepoAccess": "Grant repo access",
-    "connectGithub": "Connect GitHub"
+    "connectGithub": "Connect GitHub",
+    "reviewScopes": "Review access scopes"
+  },
+  "githubScopes": {
+    "title": "GitHub access scopes",
+    "description": "Review what LivingDocs is allowed to do in your GitHub account. You can drop the scopes the platform does not need — GitHub will ask you to re-consent with the reduced set.",
+    "signedInAs": "Signed in as",
+    "noConnection": "No GitHub account is connected.",
+    "grantedTitle": "Granted scopes",
+    "availableTitle": "Not granted",
+    "noneGranted": "No scopes are currently granted.",
+    "drop": "Drop",
+    "dropHint": "Dropping a scope re-opens the GitHub consent screen with the reduced set — GitHub does not let a token shed a scope on its own.",
+    "cannotDropAll": "At least one scope is required."
   },
   "docSync": {
     "previewTitle": "Documentation Sync Preview",

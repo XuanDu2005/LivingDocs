@@ -16,10 +16,19 @@ interface CoverageGapsPanelProps {
 
 interface GapEntity {
   id: string;
-  name: string;
-  kind: string;
-  file_path: string;
-  signature: string;
+  /**
+   * The simple name of the entity. The backend returns camelCase
+   * (`CodeEntityResponse`), so the previous snake_case interface made
+   * `gap.name` undefined and crashed the slug builder on every click.
+   */
+  simpleName: string;
+  qualifiedName: string;
+  entityType: string;
+  filePath: string;
+  signature: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  language: string | null;
 }
 
 export default function CoverageGapsPanel({ workspaceId, repositoryId }: CoverageGapsPanelProps) {
@@ -50,7 +59,7 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
 
   // Build a stable slug from a code entity (e.g. "ClassName::methodName" -> "classname-methodname")
   function buildSlug(entity: GapEntity): string {
-    const base = entity.name
+    const base = (entity.simpleName || entity.qualifiedName || 'entity')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
@@ -60,9 +69,9 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
   // Build a documentation body prompt based on the code entity
   function buildInitialBody(entity: GapEntity): string {
     return [
-      `# ${entity.name}`,
+      `# ${entity.simpleName || entity.qualifiedName}`,
       '',
-      `> Auto-generated stub for **${entity.kind}** at \`${entity.file_path}\`.`,
+      `> Auto-generated stub for **${entity.entityType}** at \`${entity.filePath}\`.`,
       '',
       entity.signature ? `## Signature\n\n\`\`\`\n${entity.signature}\n\`\`\`\n` : '',
       '## Overview',
@@ -77,38 +86,47 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
     setError(null);
     try {
       // 1. Create a new document pre-filled with the entity info
-      const title = gap.name;
+      const title = gap.simpleName || gap.qualifiedName;
       const slug = buildSlug(gap) + '-' + Date.now().toString(36);
       const initialBody = buildInitialBody(gap);
-      const docType = 'AUTO_' + (gap.kind || 'CODE').toUpperCase();
+      const docType = 'AUTO_' + (gap.entityType || 'CODE').toUpperCase();
 
       const created = await apiClient
         .post<{ id: string }>(`/workspaces/${workspaceId}/documents`, {
           title,
           slug,
           docType,
-          summary: `Auto-created from coverage gap at ${gap.file_path}`,
+          summary: `Auto-created from coverage gap at ${gap.filePath}`,
           repositoryId,
           autoUpdateEnabled: true,
           initialBody,
         })
         .then((r) => r.data);
 
-      // 2. Trigger AI generation for the new document
+      // 2. Link the code entity to the new document.
+      //    The endpoint reads its parameters from the query string
+      //    (`@RequestParam`), so they must go in the URL — a JSON body
+      //    was silently dropped.
+      //
+      //    This has to happen BEFORE the generation call: the backend
+      //    resolves the source files for the AI prompt from the
+      //    document's linked code entities. Generating first meant
+      //    //    the prompt had nothing to ground on and the AI produced
+      //    //    an empty stub instead of a description of the entity.
       await apiClient.post(
-        `/workspaces/${workspaceId}/documents/${created.id}/generate`,
-        { sourceFiles: [] },
+        `/workspaces/${workspaceId}/documents/${created.id}/links` +
+          `?codeEntityId=${gap.id}&linkKind=AUTO&confidence=1.0`,
       );
 
-      // 3. Link the code entity to the new document so the gap is filled
-      try {
-        await apiClient.post(
-          `/workspaces/${workspaceId}/documents/${created.id}/links`,
-          { codeEntityId: gap.id, linkKind: 'AUTO', confidence: 1.0 },
-        );
-      } catch {
-        // Non-fatal: doc was created even if link failed
-      }
+      // 3. Trigger AI generation for the new document.
+      //    The endpoint takes the source files as a bare JSON *array*
+      //    (`List<AiDtos.SourceFile>`), not an object — sending
+      //    `{ sourceFiles: [] }` made the backend answer 400 and the
+      //    generation was never queued.
+      await apiClient.post(
+        `/workspaces/${workspaceId}/documents/${created.id}/generate`,
+        [],
+      );
 
       // 4. Navigate to the new document so the user can review the AI draft
       navigate(`/workspaces/${workspaceId}/documents/${created.id}`);
@@ -166,12 +184,17 @@ export default function CoverageGapsPanel({ workspaceId, repositoryId }: Coverag
               <FileCode className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono font-semibold text-blue-600 dark:text-blue-400 truncate">{gap.name}</span>
+                  <span className="font-mono font-semibold text-blue-600 dark:text-blue-400 truncate">
+                    {gap.simpleName || gap.qualifiedName}
+                  </span>
                   <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                    {gap.kind}
+                    {gap.entityType}
                   </span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1 font-mono truncate">{gap.file_path}</p>
+                <p className="text-xs text-gray-500 mt-1 font-mono truncate">
+                  {gap.filePath}
+                  {gap.startLine ? `:${gap.startLine}` : ''}
+                </p>
                 {gap.signature && (
                   <div className="mt-2 p-2 bg-gray-100/80 dark:bg-gray-800/80 rounded text-xs font-mono text-gray-600 dark:text-gray-300 overflow-x-auto whitespace-pre">
                     {gap.signature}

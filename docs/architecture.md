@@ -66,6 +66,71 @@ Every review, approval, publish and rollback path routes through it:
 `GET /workspaces/{id}/capabilities` returns the caller's effective
 capabilities so the frontend never renders a button the API would reject.
 
+### The capability axis
+
+Not every capability is tier-shaped. "May read the AI provider
+configuration", "may see operational health metrics", "may publish to
+GitHub" are *capabilities*, not tiers — they do not line up with the
+role ladder. Those live in the `role_permissions` matrix (seeded by
+Flyway `V16`, extended by `V36`), and are enforced with
+`@RequirePermission`.
+
+| Annotation / guard                          | Requires                            |
+| ------------------------------------------- | ----------------------------------- |
+| `@RequirePermission({"HEALTH_DASHBOARD_VIEW"})` | the permission code              |
+| `PermissionService.requireAnyPermission(...)` | the permission code (service layer) |
+
+`common/security/PermissionService.java` resolves the union of the
+permissions granted to every *active* platform role the user holds. A
+user with no role holds no permissions, so every guarded endpoint
+refuses them — the "no privileges" default is what makes the matrix
+meaningful. `common/security/PermissionInterceptor.java` performs the
+check before the controller runs; `ADMIN` always passes.
+
+`GET /users/me` returns the caller's effective permission list as
+`permissions`, so the frontend can hide what it may not use. The backend
+stays the authority — hiding a link is a courtesy, the 403 is the
+control.
+
+#### Capability-gated surfaces
+
+| Surface                             | Permission                     |
+| ----------------------------------- | ------------------------------ |
+| `GET /system-health`                | `HEALTH_DASHBOARD_VIEW`        |
+| `GET /workspaces/{id}/audit-logs`   | `AUDIT_LOG_VIEW`               |
+| `GET /workspaces/{id}/analytics`    | `ANALYTICS_VIEW`               |
+| `GET/PUT /workspaces/{id}/ai-settings` | `AI_CONFIG_READ` / `AI_CONFIG_WRITE` |
+| `GET/PUT /workspaces/{id}/ai-settings/threshold` | `GOVERNANCE_VIEW` / `GOVERNANCE_MANAGE` |
+| `GET /workspaces/{id}/ai-usage`     | `AI_USAGE_VIEW`                |
+| `PUT /workspaces/{id}/ai-usage/limits` | `AI_USAGE_MANAGE`           |
+| `GET/PUT /workspaces/{id}/notification-policies` | `NOTIFICATION_POLICY_VIEW` / `…_MANAGE` |
+| `GET/POST /workspaces/{id}/integrations` | `INTEGRATION_VIEW` / `INTEGRATION_CONNECT` |
+| `GET /workspaces/{id}/governance`   | `GOVERNANCE_VIEW`              |
+| `GET /workspaces/{id}/settings`     | `GOVERNANCE_VIEW`              |
+| `PUT /workspaces/{id}/settings`     | `GOVERNANCE_MANAGE`            |
+| `…/repositories/{id}/commit`, `…/doc-sync/apply` | `SCM_COMMIT`       |
+
+The permission check is **additional** to the workspace check, not a
+replacement for it: reading the AI settings still requires workspace
+`MANAGER`, and publishing to GitHub still requires workspace membership.
+The permission answers *may this tier do this at all*; the workspace
+role answers *may this person do it in this workspace*.
+
+`DEVELOPER` holds **no** oversight permission. It keeps
+`DOCUMENT_CREATE`, `DOCUMENT_UPDATE` and `AI_RUN_GENERATION` —
+contributing is the whole point of the role — but it cannot read
+operational data, the provider configuration, the audit trail, or push to
+GitHub. `STAFF` may read the health dashboard, the governance policy and
+the notification policies (it reviews content against them), but not the
+audit trail or the provider configuration.
+
+> **Why `GET /system-health` is gated.** It exposes DB latency, the AI
+> service base URL, JVM heap usage, thread count and the job-queue
+> depth. That is a deployment fingerprint, not documentation — any
+> authenticated user could use it to profile the infrastructure. The
+> plain liveness probe at `GET /health` stays open: it returns only a
+> status string and is used by the load balancer.
+
 ---
 
 ## 2. The generation pipeline

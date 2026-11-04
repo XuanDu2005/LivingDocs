@@ -3,6 +3,8 @@ package com.livingdocs.modules.version.service;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.AuthorizationService;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.model.Commit;
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -49,21 +52,29 @@ public class DocumentVersionService {
     private final WorkspaceService workspaceService;
     private final CommitRepository commitRepository;
     private final AuthorizationService authorizationService;
+    private final PermissionService permissionService;
 
     public DocumentVersionService(DocumentVersionRepository versionRepository,
                                   DocumentRepository documentRepository,
                                   WorkspaceService workspaceService,
                                   CommitRepository commitRepository,
-                                  AuthorizationService authorizationService) {
+                                  AuthorizationService authorizationService,
+                                  PermissionService permissionService) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
         this.commitRepository = commitRepository;
         this.authorizationService = authorizationService;
+        this.permissionService = permissionService;
     }
 
     /**
      * Append a new version produced by a human actor (author, staff or manager).
+     *
+     * <p>The {@link ActorRole} is derived from the actor's platform role
+     * rather than supplied by the caller: the HTTP layer used to hard-code
+     * {@code STAFF}, which mislabelled every DEVELOPER edit in the change
+     * log.
      */
     @Transactional
     public DocumentVersion createHumanVersion(UUID actorId,
@@ -75,10 +86,13 @@ public class DocumentVersionService {
             throw new BadRequestException("Use createAiVersion for AI / system versions");
         }
         Document document = loadAndAuthorize(actorId, documentId);
+        ActorRole effective = actorRole != null && actorRole != ActorRole.SYSTEM
+                ? actorRole
+                : actorRoleFor(actorId, document.getWorkspaceId());
         int next = nextVersionNumber(documentId);
         DocumentVersion version = new DocumentVersion(
                 documentId, next, bodyMarkdown, changeSummary,
-                actorRole, actorId,
+                effective, actorId,
                 null, null, document.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
@@ -296,15 +310,66 @@ public class DocumentVersionService {
     }
 
     /**
+     * Discard an AI draft without publishing it.
+     *
+     * <p>The version is kept for the audit trail but marked
+     * {@link VersionStatus#REJECTED}, so it disappears from the review
+     * queue while staying visible in the timeline. Only drafts can be
+     * dismissed: a version that already went through review or became
+     * the document head is part of the published history.
+     *
+     * <p>The author of the draft may dismiss their own draft; a Manager
+     * may dismiss any draft in the workspace. This is deliberately
+     * <em>not</em> the publish tier — dismissing a draft is a routine
+     * editorial decision, not a publishing one.
+     */
+    @Transactional
+    public DocumentVersion dismissVersion(UUID actorId, UUID documentId, Integer versionNumber) {
+        Document document = loadAndAuthorize(actorId, documentId);
+        // The capability gate comes first: dismissing a draft is a
+        // documented author capability, so it needs the permission and
+        // not just the "you authored it" rule below.
+        permissionService.requireAnyPermission(actorId, PermissionCodes.DOCUMENT_VERSION_DISMISS);
+        DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, versionNumber)
+                .orElseThrow(() -> new NotFoundException("Version not found"));
+        if (target.getStatus() != VersionStatus.DRAFT) {
+            throw new BadRequestException(
+                    "Only draft versions can be dismissed (this one is " + target.getStatus() + ")");
+        }
+        // Either the author of the draft, or somebody who can approve.
+        boolean isAuthor = target.getActorUserId() != null
+                && target.getActorUserId().equals(actorId);
+        boolean canApprove = authorizationService.platformRoles(actorId).stream().anyMatch(
+                Set.of(AuthorizationService.ROLE_TECHNICAL_LEAD,
+                        AuthorizationService.ROLE_MANAGER,
+                        AuthorizationService.ROLE_ADMIN)::contains);
+        if (!isAuthor && !canApprove) {
+            throw new com.livingdocs.common.exception.ForbiddenException(
+                    "You can only dismiss drafts you authored");
+        }
+        target.setStatus(VersionStatus.REJECTED);
+        DocumentVersion saved = versionRepository.save(target);
+        log.info("Version dismissed: document={} version={} actor={}",
+                documentId, versionNumber, actorId);
+        return saved;
+    }
+
+    /**
      * Roll back a document to a previously published version. A new version
      * is created (so the history remains append-only) whose body is copied
      * from the chosen historical version. Attributed to the actor invoking
      * the rollback.
+     *
+     * <p>The spec asks the author to be able to undo an automatic update
+     * that produced a wrong result. That is a routine correction of the
+     * document's own content, so it only requires the
+     * {@code DOCUMENT_ROLLBACK} permission — not the Manager approval
+     * tier that gates {@link #publishVersion}.
      */
     @Transactional
     public DocumentVersion rollback(UUID actorId, UUID documentId, Integer targetVersionNumber) {
         Document document = loadAndAuthorize(actorId, documentId);
-        authorizationService.requireManagerApprover(actorId, document.getWorkspaceId());
+        permissionService.requireAnyPermission(actorId, PermissionCodes.DOCUMENT_ROLLBACK);
         DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, targetVersionNumber)
                 .orElseThrow(() -> new NotFoundException("Target version not found"));
         if (target.getStatus() != VersionStatus.PUBLISHED && target.getStatus() != VersionStatus.APPROVED) {
@@ -383,7 +448,8 @@ public class DocumentVersionService {
      *
      * <p>Derived from the platform role axis: anyone who can approve
      * (or holds {@code MANAGER}/{@code ADMIN}) is attributed as
-     * {@link ActorRole#MANAGER}; everyone else as
+     * {@link ActorRole#MANAGER}; a {@code DEVELOPER} as
+     * {@link ActorRole#DEVELOPER}; everyone else as
      * {@link ActorRole#STAFF}. Falls back to the workspace role when the
      * user has no platform role assignment.
      */
@@ -394,8 +460,10 @@ public class DocumentVersionService {
                 || roles.contains(AuthorizationService.ROLE_TECHNICAL_LEAD)) {
             return ActorRole.MANAGER;
         }
-        if (roles.contains(AuthorizationService.ROLE_STAFF)
-                || roles.contains(AuthorizationService.ROLE_DEVELOPER)) {
+        if (roles.contains(AuthorizationService.ROLE_DEVELOPER)) {
+            return ActorRole.DEVELOPER;
+        }
+        if (roles.contains(AuthorizationService.ROLE_STAFF)) {
             return ActorRole.STAFF;
         }
         var role = workspaceService.requireRole(actorId, workspaceId,

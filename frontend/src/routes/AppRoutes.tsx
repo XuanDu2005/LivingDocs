@@ -211,7 +211,7 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/health"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['HEALTH_DASHBOARD_VIEW']}>
               <HealthDashboardPage />
             </ProtectedRoute>
           }
@@ -235,11 +235,19 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/ai-settings"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['AI_CONFIG_READ']}>
               <LegacyWorkspaceSettingsRedirect />
             </ProtectedRoute>
           }
         />
+        {/*
+          The consolidated settings page hosts three tabs. The tab
+          contents are gated individually (see WorkspaceSettingsPage):
+          the AI tab needs AI_CONFIG_READ, the notifications tab needs
+          NOTIFICATION_POLICY_VIEW, the languages tab is open to every
+          workspace member. The route itself is not gated so that a
+          member who may only see languages can still reach the page.
+        */}
         <Route
           path="/workspaces/:workspaceId/settings"
           element={
@@ -251,7 +259,7 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/audit-logs"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['AUDIT_LOG_VIEW']}>
               <WorkspaceAuditLogPage />
             </ProtectedRoute>
           }
@@ -259,7 +267,7 @@ export function AppRoutes() {
         <Route
           path="/ai-settings"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['AI_CONFIG_READ']}>
               <AiSettingsIndexPage />
             </ProtectedRoute>
           }
@@ -412,7 +420,7 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/integrations"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['INTEGRATION_VIEW']}>
               <WorkspaceIntegrationsPage />
             </ProtectedRoute>
           }
@@ -420,7 +428,7 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/notification-policies"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['NOTIFICATION_POLICY_VIEW']}>
               <LegacyWorkspaceSettingsRedirect />
             </ProtectedRoute>
           }
@@ -436,7 +444,7 @@ export function AppRoutes() {
         <Route
           path="/workspaces/:workspaceId/analytics"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAnyPermission={['ANALYTICS_VIEW']}>
               <AnalyticsDashboardPage />
             </ProtectedRoute>
           }

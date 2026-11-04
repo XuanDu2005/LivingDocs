@@ -8,6 +8,7 @@ import com.livingdocs.modules.version.dto.DocumentVersionSummary;
 import com.livingdocs.modules.version.service.DocumentVersionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -76,8 +77,24 @@ public class DocumentVersionController {
         versionService.publishVersion(CurrentUser.requireId(), documentId, versionNumber);
     }
 
+    /**
+     * Dismiss an AI draft without publishing it.
+     *
+     * <p>The version stays in the timeline for the audit trail but is
+     * marked REJECTED, so it leaves the review queue. The author of the
+     * draft may dismiss their own draft; a Manager may dismiss any draft
+     * in the workspace.
+     */
+    @DeleteMapping("/documents/{documentId}/versions/{versionNumber}")
+    @Operation(summary = "Dismiss (discard) a draft version without publishing it")
+    public DocumentVersionResponse dismiss(@PathVariable UUID documentId,
+                                           @PathVariable Integer versionNumber) {
+        var v = versionService.dismissVersion(CurrentUser.requireId(), documentId, versionNumber);
+        return DocumentVersionResponse.from(v);
+    }
+
     @PostMapping("/documents/{documentId}/rollback")
-    @Operation(summary = "Roll back a document to a previous version (Manager only)")
+    @Operation(summary = "Roll back a document to a previous version")
     public DocumentVersionResponse rollback(@PathVariable UUID documentId,
                                             @RequestParam("version") Integer version) {
         var v = versionService.rollback(CurrentUser.requireId(), documentId, version);

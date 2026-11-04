@@ -1,10 +1,15 @@
 package com.livingdocs.common.events;
 
+import com.livingdocs.common.email.EmailMessage;
+import com.livingdocs.common.email.EmailService;
+import com.livingdocs.modules.notification.service.NotificationPreferenceService;
 import com.livingdocs.modules.notification.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 /**
  * Consumes {@link NotificationSendEvent}s from Kafka and routes
@@ -22,9 +27,15 @@ public class NotificationEventListener {
     private static final Logger log = LoggerFactory.getLogger(NotificationEventListener.class);
 
     private final NotificationService notificationService;
+    private final NotificationPreferenceService preferenceService;
+    private final EmailService emailService;
 
-    public NotificationEventListener(NotificationService notificationService) {
+    public NotificationEventListener(NotificationService notificationService,
+                                     NotificationPreferenceService preferenceService,
+                                     EmailService emailService) {
         this.notificationService = notificationService;
+        this.preferenceService = preferenceService;
+        this.emailService = emailService;
     }
 
     @KafkaListener(
@@ -37,24 +48,61 @@ public class NotificationEventListener {
                 event.getEventKind(), event.getRecipientUserId(), event.getChannel());
         try {
             switch (event.getChannel()) {
+                // Persist the in-app row. The service no longer publishes
+                // an IN_APP event of its own, so this is the only place
+                // that turns an IN_APP message into a database row — no
+                // risk of the consumer feeding itself an endless stream
+                // of duplicates.
                 case IN_APP -> notificationService.send(
                         event.getRecipientUserId(),
                         event.getEventKind(),
                         event.getTitle(),
                         event.getBody(),
                         event.getLink());
-                case EMAIL, SLACK -> log.warn(
+                case EMAIL -> sendEmail(event);
+                case SLACK -> log.warn(
                         "Channel {} not yet wired into NotificationService; "
                                 + "persisted in-app notification for user {}.",
                         event.getChannel(), event.getRecipientUserId());
             }
         } catch (Exception e) {
             // Don't rethrow: a failing notification must not stall
-            // the consumer. Kafka will redeliver the event on the
-            // next consumer group rebalance, and we've also logged
+            // the consumer. Kafka will redeliver the event on
+            // the next consumer group rebalance, and we've also logged
             // the full stack trace.
             log.error("Failed to deliver notification kind={} to user={}: {}",
                     event.getEventKind(), event.getRecipientUserId(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * Deliver a notification by email.
+     *
+     * <p>The user's email preference is checked first — a user who
+     * turned the event off by email does not get one, even if the
+     * event reached this listener.
+     */
+    private void sendEmail(NotificationSendEvent event) {
+        UUID userId = event.getRecipientUserId();
+        if (!preferenceService.isEmailEnabled(userId, event.getEventKind())) {
+            log.debug("User {} turned off the email notification for kind {} — dropping",
+                    userId, event.getEventKind());
+            return;
+        }
+        String address = preferenceService.emailOf(userId).orElse(null);
+        if (address == null) {
+            log.debug("User {} has no email address on file — dropping email notification",
+                    userId);
+            return;
+        }
+        String body = event.getBody() == null ? "" : event.getBody();
+        if (event.getLink() != null && !event.getLink().isBlank()) {
+            body = body + "\n\n" + event.getLink();
+        }
+        emailService.send(new EmailMessage(
+                address,
+                event.getTitle() == null ? "LivingDocs notification" : event.getTitle(),
+                body));
+        log.info("Sent {} notification to {} by email", event.getEventKind(), address);
     }
 }

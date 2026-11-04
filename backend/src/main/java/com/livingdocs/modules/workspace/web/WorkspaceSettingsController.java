@@ -1,6 +1,7 @@
 package com.livingdocs.modules.workspace.web;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.common.security.RequirePermission;
 import com.livingdocs.modules.workspace.dto.UpdateWorkspaceSettingsRequest;
 import com.livingdocs.modules.workspace.dto.WorkspaceSettingsResponse;
 import com.livingdocs.modules.workspace.service.WorkspaceSettingsService;
@@ -24,6 +25,7 @@ public class WorkspaceSettingsController {
     }
 
     @GetMapping
+    @RequirePermission({"GOVERNANCE_VIEW"})
     @Operation(summary = "Get workspace settings")
     public ResponseEntity<WorkspaceSettingsResponse> getSettings(@PathVariable UUID workspaceId) {
         UUID actor = CurrentUser.requireId();
@@ -31,6 +33,7 @@ public class WorkspaceSettingsController {
     }
 
     @PutMapping
+    @RequirePermission({"GOVERNANCE_MANAGE"})
     @Operation(summary = "Update workspace settings (Manager role required)")
     public ResponseEntity<WorkspaceSettingsResponse> updateSettings(
             @PathVariable UUID workspaceId,

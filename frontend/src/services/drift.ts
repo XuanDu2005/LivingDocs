@@ -54,6 +54,46 @@ export interface ReviewQueueItem {
   createdAt: string;
 }
 
+/**
+ * Where a submitted version currently sits in the review workflow.
+ *
+ * The backend flattens the version status and the latest review verdict
+ * into this single label, so the UI does not have to re-implement the
+ * transition rules.
+ */
+export type SubmissionStage =
+  | 'WAITING_STAFF'
+  | 'WAITING_MANAGER'
+  | 'CHANGES_REQUESTED'
+  | 'REJECTED'
+  | 'APPROVED'
+  | 'PUBLISHED'
+  | 'DRAFT'
+  | 'SUPERSEDED';
+
+/**
+ * A version the current user submitted for review, with the verdict it
+ * received. This is what the author sees — a developer has no reviewing
+ * role, so the three review queues are empty for them.
+ */
+export interface SubmittedVersion {
+  versionId: string;
+  documentId: string;
+  documentTitle: string;
+  docType: string;
+  versionNumber: number;
+  versionStatus: string;
+  changeSummary: string | null;
+  confidenceScore: number | null;
+  submittedAt: string | null;
+  stage: SubmissionStage;
+  latestDecision: ReviewDecision | null;
+  latestReviewerRole: string | null;
+  latestReviewerName: string | null;
+  latestComment: string | null;
+  latestDecidedAt: string | null;
+}
+
 /** The caller's capabilities and queues in one workspace. */
 export interface ReviewQueue {
   workspaceId: string;
@@ -65,6 +105,8 @@ export interface ReviewQueue {
   staffQueue: ReviewQueueItem[];
   managerQueue: ReviewQueueItem[];
   publishQueue: ReviewQueueItem[];
+  /** The versions the caller submitted for review. */
+  mySubmissions: SubmittedVersion[];
 }
 
 /** The effective permissions of the current user in a workspace. */
@@ -209,6 +251,16 @@ export const reviewsApi = {
   publishQueue(workspaceId: string) {
     return apiClient
       .get<ReviewQueueItem[]>(`/workspaces/${workspaceId}/reviews/publish-queue`)
+      .then((r) => r.data);
+  },
+  /**
+   * The versions the caller submitted for review, with the verdict they
+   * received. Available to every workspace member — an author without a
+   * reviewing role still needs to see what happened to their draft.
+   */
+  mySubmissions(workspaceId: string) {
+    return apiClient
+      .get<SubmittedVersion[]>(`/workspaces/${workspaceId}/reviews/my-submissions`)
       .then((r) => r.data);
   },
   /** The caller's effective capabilities in this workspace. */

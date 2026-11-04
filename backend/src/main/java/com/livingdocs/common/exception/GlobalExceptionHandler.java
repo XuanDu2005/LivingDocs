@@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.livingdocs.common.exception.OAuthExchangeException;
 
@@ -124,6 +125,21 @@ public class GlobalExceptionHandler {
         log.warn("Missing request parameter '{}' on {}", ex.getParameterName(), req.getRequestURI());
         return build(HttpStatus.BAD_REQUEST,
                 "Required parameter '" + ex.getParameterName() + "' is missing", req);
+    }
+
+    /**
+     * An unmapped URL.
+     *
+     * <p>Spring raises this when no controller matches the path and the
+     * request falls through to the static-resource handler. It is a
+     * client mistake — the endpoint does not exist — so it maps to 404
+     * instead of the generic 500 the catch-all below would produce.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException ex,
+                                                    HttpServletRequest req) {
+        log.debug("No handler for {} on {}", ex.getResourcePath(), req.getRequestURI());
+        return build(HttpStatus.NOT_FOUND, "Not found", req);
     }
 
     @ExceptionHandler(Exception.class)

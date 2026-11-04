@@ -258,6 +258,13 @@ public class SandboxGithubClient implements GithubClient {
     }
 
     @Override
+    public List<GithubPullRequestFile> listPullRequestFiles(String accessToken, String owner, String repo,
+                                                            long number) {
+        log.info("Sandbox: listPullRequestFiles {}/{}#{}", owner, repo, number);
+        return List.of();
+    }
+
+    @Override
     public String getFileContent(String accessToken, String owner, String repo, String path, String ref) {
         log.info("Sandbox: getFileContent {}/{}/{}", owner, repo, path);
         // Return sample content for known files

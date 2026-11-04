@@ -198,6 +198,42 @@ public class RestGithubClient implements GithubClient {
     }
 
     @Override
+    public List<GithubPullRequestFile> listPullRequestFiles(String accessToken, String owner, String repo,
+                                                            long number) {
+        try {
+            JsonNode arr = webClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/pulls/{number}/files")
+                            .queryParam("per_page", 100)
+                            .build(owner, repo, number))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 404) return Mono.empty();
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofMillis(properties.getApi().getTimeoutMs()));
+            List<GithubPullRequestFile> out = new ArrayList<>();
+            if (arr != null && arr.isArray()) {
+                for (JsonNode f : arr) {
+                    out.add(new GithubPullRequestFile(
+                            f.path("filename").asText(),
+                            f.path("status").asText("modified"),
+                            f.path("patch").asText(null),
+                            f.path("additions").isNumber() ? f.path("additions").asLong() : null,
+                            f.path("deletions").isNumber() ? f.path("deletions").asLong() : null,
+                            f.path("changes").isNumber() ? f.path("changes").asLong() : null));
+                }
+            }
+            return out;
+        } catch (Exception ex) {
+            log.warn("listPullRequestFiles failed for {}/{}#{}: {}",
+                    owner, repo, number, ex.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
     public GithubRepositorySummary fetchRepositoryByUrl(String accessToken, String url) {
         // Parse owner/name from URL
         String owner;

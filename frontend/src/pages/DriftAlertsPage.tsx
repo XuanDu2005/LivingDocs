@@ -133,9 +133,10 @@ export default function DriftAlertsPage() {
   const [scanOpen, setScanOpen] = useState<boolean>(false);
   const [scanRepositoryId, setScanRepositoryId] = useState<string>('');
   const [scanDocumentId, setScanDocumentId] = useState<string>('');
+  const [scanPullRequestId, setScanPullRequestId] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
-  const [scanOptions, setScanOptions] = useState<{ repositories: { id: string; fullName: string }[]; documents: { id: string; title: string }[] }>({ repositories: [], documents: [] });
+  const [scanOptions, setScanOptions] = useState<{ repositories: { id: string; fullName: string }[]; documents: { id: string; title: string }[]; pullRequests: { id: string; number: number; title: string }[] }>({ repositories: [], documents: [], pullRequests: [] });
   const [scanOptionsLoading, setScanOptionsLoading] = useState<boolean>(false);
 
   const load = async () => {
@@ -175,6 +176,7 @@ export default function DriftAlertsPage() {
     setScanResult(null);
     setScanRepositoryId('');
     setScanDocumentId('');
+    setScanPullRequestId('');
     if (scanOptions.repositories.length === 0 && scanOptions.documents.length === 0) {
       setScanOptionsLoading(true);
       try {
@@ -187,9 +189,16 @@ export default function DriftAlertsPage() {
           githubApi.listRepositories(workspaceId).catch(() => []),
           documentsApi.list(workspaceId).catch(() => []),
         ]);
+        // The pull requests of the first repository give the scan a
+        // concrete "before/after" to compare — without one the analyser
+        // has no code change to look at.
+        const prs = repos.length > 0
+          ? await githubApi.listPullRequests(workspaceId, repos[0].id).catch(() => [])
+          : [];
         setScanOptions({
           repositories: repos.map((r) => ({ id: r.id, fullName: r.fullName })),
           documents: docs.map((d) => ({ id: d.id, title: d.title })),
+          pullRequests: prs.map((p) => ({ id: p.id, number: p.number, title: p.title })),
         });
       } catch (err) {
         setError(describeError(err));
@@ -199,14 +208,32 @@ export default function DriftAlertsPage() {
     }
   }
 
+  /** Load the pull requests of the selected repository. */
+  async function loadPullRequestsForRepository(repositoryId: string) {
+    if (!workspaceId) return;
+    try {
+      const { githubApi } = await import('../services/github');
+      const prs = await githubApi.listPullRequests(workspaceId, repositoryId).catch(() => []);
+      setScanOptions((prev) => ({
+        ...prev,
+        pullRequests: prs.map((p) => ({ id: p.id, number: p.number, title: p.title })),
+      }));
+    } catch {
+      setScanOptions((prev) => ({ ...prev, pullRequests: [] }));
+    }
+  }
+
   async function handleTriggerScan() {
     if (!workspaceId || !scanRepositoryId || !scanDocumentId) return;
     setScanning(true);
     setScanResult(null);
     try {
-      // Empty file diffs — backend will use the latest code entity snapshot to detect drift
+      // The backend reconstructs the before/after content from GitHub
+      // when a pull request is given; otherwise the latest code entity
+      // snapshot is used as the comparison base.
       const result = await driftApi.detect(workspaceId, {
         repositoryId: scanRepositoryId,
+        pullRequestId: scanPullRequestId || undefined,
         documentId: scanDocumentId,
         filesBefore: [],
         filesAfter: [],
@@ -262,7 +289,14 @@ export default function DriftAlertsPage() {
                 <>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">{t('drift.scanRepo', 'Repository')}</label>
-                    <Select value={scanRepositoryId} onValueChange={setScanRepositoryId}>
+                    <Select
+                      value={scanRepositoryId}
+                      onValueChange={(v) => {
+                        setScanRepositoryId(v);
+                        setScanPullRequestId('');
+                        void loadPullRequestsForRepository(v);
+                      }}
+                    >
                       <SelectTrigger><SelectValue placeholder={t('drift.scanRepoPlaceholder', 'Select a repository')} /></SelectTrigger>
                       <SelectContent>
                         {scanOptions.repositories.map((r) => (
@@ -270,6 +304,27 @@ export default function DriftAlertsPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">
+                      {t('drift.scanPullRequest', 'Pull request')}
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        {t('drift.scanPullRequestOptional', 'optional')}
+                      </span>
+                    </label>
+                    <Select value={scanPullRequestId} onValueChange={setScanPullRequestId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('drift.scanPullRequestPlaceholder', 'No pull request — use the latest code')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scanOptions.pullRequests.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>#{p.number} — {p.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t('drift.scanPullRequestHint', 'With a pull request, the before/after content is read from GitHub, so the comparison is exact.')}
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">{t('drift.scanDoc', 'Document')}</label>

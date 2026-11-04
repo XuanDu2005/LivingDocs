@@ -3,8 +3,10 @@ package com.livingdocs.modules.github.controller;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.modules.github.dto.GithubCallbackResponse;
 import com.livingdocs.modules.github.dto.GithubConnectionResponse;
+import com.livingdocs.modules.github.dto.GithubScopeResponse;
 import com.livingdocs.modules.github.model.GithubConnection;
 import com.livingdocs.modules.github.service.GithubOAuthService;
+import com.livingdocs.modules.github.service.GithubScopeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,12 +14,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -42,11 +47,14 @@ import java.util.UUID;
 public class GithubOAuthController {
 
     private final GithubOAuthService oauthService;
+    private final GithubScopeService scopeService;
     private final String frontendUrl;
 
     public GithubOAuthController(GithubOAuthService oauthService,
+                                 GithubScopeService scopeService,
                                  @Value("${app.frontend-url:http://localhost:5173}") String frontendUrl) {
         this.oauthService = oauthService;
+        this.scopeService = scopeService;
         this.frontendUrl = frontendUrl;
     }
 
@@ -82,8 +90,49 @@ public class GithubOAuthController {
             @RequestParam("state") String state,
             @RequestParam("expectedState") String expectedState) {
         GithubConnection connection = oauthService.completeCallback(code, state, expectedState);
+        // Mirror the scopes GitHub actually granted into the reviewable
+        // grant table, so the "review the scopes" screen reflects the
+        // real token instead of the requested scope set.
+        scopeService.syncFromToken(connection.getUserId(), connection.getScope());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(GithubCallbackResponse.success(connection.getGithubLogin(), connection.getGithubUserId()));
+    }
+
+    // -----------------------------------------------------------------
+    // Scope review
+    //
+    // The OAuth handshake asks GitHub for a fixed scope set. These
+    // endpoints let the user see what that set actually grants and
+    // re-consent with a narrower one.
+    // -----------------------------------------------------------------
+
+    @GetMapping("/scopes")
+    @Operation(summary = "Review the repository access scopes granted to the GitHub connection")
+    public ResponseEntity<GithubScopeService.ScopeOverview> scopes() {
+        return ResponseEntity.ok(scopeService.overview());
+    }
+
+    @DeleteMapping("/scopes/{scope}")
+    @Operation(summary = "Withdraw a granted repository access scope")
+    public ResponseEntity<GithubScopeResponse> revokeScope(
+            @PathVariable("scope") String scope,
+            @RequestParam(required = false, defaultValue = "false") boolean force) {
+        return ResponseEntity.ok(scopeService.revoke(scope, force));
+    }
+
+    /**
+     * Get a GitHub authorize URL for a narrower scope set.
+     *
+     * <p>The {@code state} token is returned alongside the URL so the
+     * frontend can echo it back on the callback. Dropping it made the
+     * callback fail its CSRF check, because the backend compares the
+     * state GitHub sends back with the one it issued.
+     */
+    @PostMapping("/scopes/reauthorize")
+    @Operation(summary = "Get a GitHub authorize URL for a narrower scope set")
+    public ResponseEntity<AuthorizeUrlResponse> reauthorize(@RequestBody List<String> scopes) {
+        GithubOAuthService.AuthorizeUrl authorizeUrl = scopeService.authorizeUrlFor(scopes);
+        return ResponseEntity.ok(new AuthorizeUrlResponse(authorizeUrl.url(), authorizeUrl.state()));
     }
 
     @GetMapping("/connection")

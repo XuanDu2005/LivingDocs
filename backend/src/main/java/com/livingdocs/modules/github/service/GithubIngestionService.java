@@ -50,6 +50,7 @@ public class GithubIngestionService {
     private final NotificationService notificationService;
     private final GithubOAuthService githubOAuthService;
     private final DocumentAutoUpdateService autoUpdateService;
+    private final DriftDetectionOnPullRequestService driftDetectionService;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
@@ -60,7 +61,8 @@ public class GithubIngestionService {
                                   WorkspaceMemberRepository workspaceMemberRepository,
                                   NotificationService notificationService,
                                   GithubOAuthService githubOAuthService,
-                                  DocumentAutoUpdateService autoUpdateService) {
+                                  DocumentAutoUpdateService autoUpdateService,
+                                  DriftDetectionOnPullRequestService driftDetectionService) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
@@ -71,6 +73,7 @@ public class GithubIngestionService {
         this.notificationService = notificationService;
         this.githubOAuthService = githubOAuthService;
         this.autoUpdateService = autoUpdateService;
+        this.driftDetectionService = driftDetectionService;
     }
 
     /**
@@ -156,12 +159,63 @@ public class GithubIngestionService {
                 List.of());
         upsert(repo.get(), pr);
 
+        // The stored id of the pull request, so the drift alerts that
+        // follow can be linked back to it.
+        UUID pullRequestId = pullRequestRepository
+                .findByRepositoryIdAndGithubPrNumber(repo.get().getId(), pr.number())
+                .map(PullRequest::getId)
+                .orElse(null);
+
         // A pull request is a code change just like a push, so the
         // documentation affected by it must be regenerated too. Without
         // this the whole "documentation drift is detected on every PR"
         // promise — the centrepiece of the CI/CD integration — silently
         // did nothing.
         triggerAutoUpdateForPullRequest(repo.get(), payload);
+
+        // ... and the documentation that covers the changed code must be
+        // checked for drift, so the alert appears without anyone
+        // pressing "Scan".
+        triggerDriftDetectionForPullRequest(repo.get(), payload, pullRequestId);
+    }
+
+    /**
+     * Detect documentation drift for the files a pull request touches.
+     *
+     * <p>Mirrors the auto-update path: a failure never fails the
+     * webhook, because a missed drift alert is far better than a
+     * rejected webhook delivery.
+     */
+    private void triggerDriftDetectionForPullRequest(Repository repo, JsonNode payload,
+                                                     UUID pullRequestId) {
+        Optional<com.livingdocs.modules.workspace.model.WorkspaceSettings> settingsOpt =
+                workspaceSettingsRepository.findByWorkspaceId(repo.getWorkspaceId());
+        if (settingsOpt.isPresent() && !settingsOpt.get().isAutoUpdateOnPr()) {
+            // The workspace turned off PR-driven automation entirely —
+            // the drift scan is part of that automation.
+            log.debug("Workspace autoUpdateOnPr disabled, skipping drift detection for PR");
+            return;
+        }
+
+        String accessToken = autoUpdateService.resolveAccessToken(repo.getWorkspaceId());
+        if (accessToken == null || accessToken.isBlank()) {
+            log.warn("No active GitHub connection for workspace {} — "
+                    + "pull request was ingested but drift detection was skipped",
+                    repo.getWorkspaceId());
+            return;
+        }
+
+        try {
+            int filed = driftDetectionService.detectForPullRequest(
+                    repo, payload, pullRequestId, accessToken);
+            if (filed > 0) {
+                log.info("Filed {} drift alert(s) from pull request in repo {}",
+                        filed, repo.getFullName());
+            }
+        } catch (Exception ex) {
+            log.warn("Drift detection failed for repo {} on pull request: {}",
+                    repo.getFullName(), ex.getMessage());
+        }
     }
 
     /**

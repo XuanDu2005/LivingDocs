@@ -21,6 +21,7 @@ import {
   Play,
   BookOpen,
   AlertTriangle,
+  Boxes,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -34,7 +35,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
-import { githubApi, Repository, PullRequest, Commit } from '../services/github';
+import { githubApi, Repository, PullRequest, Commit, RepositoryModule } from '../services/github';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { documentsApi } from '../services/documents';
 import { driftApi } from '../services/drift';
@@ -42,6 +43,8 @@ import { docSyncApi, DocScanResult } from '../services/docSync';
 import { aiApi, BulkGenerationJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import { describeError } from '../services/auth';
+import { usePermission } from '../hooks/usePermission';
+import { PermissionCodes } from '../services/permissions';
 
 /**
  * Per-workspace repository browser.
@@ -57,6 +60,10 @@ import { describeError } from '../services/auth';
 export default function RepositoryPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { t } = useTranslation();
+  const canManageAutoUpdate = usePermission(
+    PermissionCodes.REPOSITORY_AUTO_UPDATE_MANAGE,
+    PermissionCodes.MODULE_AUTO_UPDATE_MANAGE,
+  );
 
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -76,6 +83,8 @@ export default function RepositoryPage() {
   const [urlInput, setUrlInput] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
+  // Repositories ticked in the catalog dialog, connected in one go.
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState<number[]>([]);
 
   // Detail panel state
   const [selected, setSelected] = useState<Repository | null>(null);
@@ -83,7 +92,12 @@ export default function RepositoryPage() {
   const [prsLoading, setPrsLoading] = useState<boolean>(false);
   const [commits, setCommits] = useState<Commit[]>([]);
   const [commitsLoading, setCommitsLoading] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'pulls' | 'commits' | 'entities'>('pulls');
+  const [activeTab, setActiveTab] = useState<'pulls' | 'commits' | 'entities' | 'modules'>('pulls');
+
+  // Auto-update configuration (repository level + per module)
+  const [modules, setModules] = useState<RepositoryModule[]>([]);
+  const [modulesLoading, setModulesLoading] = useState<boolean>(false);
+  const [modulesError, setModulesError] = useState<string | null>(null);
 
   // Code entities state
   const [entities, setEntities] = useState<CodeEntity[]>([]);
@@ -184,6 +198,7 @@ export default function RepositoryPage() {
     setTab('catalog');
     setCatalogErr(null);
     setCatalogSearch('');
+    setSelectedCatalogIds([]);
     if (catalog.length === 0) {
       try {
         setCatalogLoading(true);
@@ -213,6 +228,58 @@ export default function RepositoryPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Connect every repository ticked in the catalog.
+   *
+   * <p>Each connect is independent: one repository that fails does not
+   * abort the rest, because a partial success is far more useful than an
+   * all-or-nothing operation.
+   */
+  async function connectSelectedFromCatalog() {
+    if (!workspaceId || selectedCatalogIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    const succeeded: string[] = [];
+    const failed: { name: string; reason: string }[] = [];
+    for (const githubId of selectedCatalogIds) {
+      const label = catalog.find((c) => c.githubId === githubId)?.fullName ?? String(githubId);
+      try {
+        const repo = await githubApi.connectRepository(workspaceId, githubId);
+        succeeded.push(repo.fullName);
+      } catch (err) {
+        failed.push({ name: label, reason: describeError(err) });
+      }
+    }
+    setSelectedCatalogIds([]);
+    await load();
+    if (succeeded.length > 0) {
+      setInfo(
+        t('repository.connectedMultiple', {
+          count: succeeded.length,
+          defaultValue: `Connected ${succeeded.length} repository(ies).`,
+        }),
+      );
+    }
+    if (failed.length > 0) {
+      setError(
+        t('repository.connectFailed', {
+          names: failed.map((f) => f.name).join(', '),
+          defaultValue: `Could not connect: ${failed.map((f) => f.name).join(', ')}`,
+        }),
+      );
+    }
+    setBusy(false);
+  }
+
+  function toggleCatalogSelection(githubId: number) {
+    setSelectedCatalogIds((prev) =>
+      prev.includes(githubId)
+        ? prev.filter((id) => id !== githubId)
+        : [...prev, githubId],
+    );
   }
 
   async function connectFromUrl() {
@@ -273,6 +340,128 @@ export default function RepositoryPage() {
     }
   }
 
+  async function toggleRepoAutoUpdate(repo: Repository) {
+    if (!workspaceId) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const updated = await githubApi.setRepositoryAutoUpdate(
+        workspaceId,
+        repo.id,
+        !repo.autoUpdateEnabled,
+      );
+      setInfo(
+        updated.autoUpdateEnabled
+          ? t('repository.autoUpdateRepoEnabled', {
+              name: updated.fullName,
+              defaultValue: `Auto-update enabled for ${updated.fullName}`,
+            })
+          : t('repository.autoUpdateRepoDisabled', {
+              name: updated.fullName,
+              defaultValue: `Auto-update disabled for ${updated.fullName}`,
+            }),
+      );
+      await load();
+      if (selected?.id === updated.id) setSelected(updated);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadModules(repo: Repository) {
+    if (!workspaceId) return;
+    setModulesLoading(true);
+    setModulesError(null);
+    try {
+      const list = await githubApi.listModules(workspaceId, repo.id);
+      setModules(list);
+    } catch (err) {
+      setModulesError(describeError(err));
+      setModules([]);
+    } finally {
+      setModulesLoading(false);
+    }
+  }
+
+  async function detectModules(repo: Repository) {
+    if (!workspaceId) return;
+    setModulesLoading(true);
+    setModulesError(null);
+    try {
+      const detected = await githubApi.detectModules(workspaceId, repo.id);
+      if (detected.length === 0) {
+        setInfo(
+          t('repository.modulesNoneDetected', {
+            defaultValue:
+              'No modules detected yet. Index the code entities first — modules are derived from the indexed source files.',
+          }),
+        );
+        return;
+      }
+      // Persist the detected modules so they become part of the
+      // auto-update hierarchy instead of a one-off preview.
+      const saved = await Promise.all(
+        detected.map((m) =>
+          githubApi
+            .upsertModule(
+              workspaceId,
+              repo.id,
+              m.modulePath,
+              m.autoUpdateEnabled,
+              m.displayName ?? undefined,
+            )
+            .catch(() => null),
+        ),
+      );
+      const ok = saved.filter(Boolean) as RepositoryModule[];
+      setModules(ok);
+      setInfo(
+        t('repository.modulesDetected', {
+          count: ok.length,
+          defaultValue: `Detected ${ok.length} module(s) in ${repo.fullName}.`,
+        }),
+      );
+    } catch (err) {
+      setModulesError(describeError(err));
+    } finally {
+      setModulesLoading(false);
+    }
+  }
+
+  async function toggleModuleAutoUpdate(module: RepositoryModule) {
+    if (!workspaceId || !module.id) return;
+    setBusy(true);
+    setModulesError(null);
+    try {
+      const updated = await githubApi.setModuleAutoUpdate(
+        workspaceId,
+        module.id,
+        !module.autoUpdateEnabled,
+      );
+      setModules((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    } catch (err) {
+      setModulesError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeModule(module: RepositoryModule) {
+    if (!workspaceId || !module.id) return;
+    setBusy(true);
+    try {
+      await githubApi.deleteModule(workspaceId, module.id);
+      setModules((prev) => prev.filter((m) => m.id !== module.id));
+    } catch (err) {
+      setModulesError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function disconnectRepo(repo: Repository) {
     if (!workspaceId) return;
     if (!window.confirm(t('repository.disconnectConfirm', { name: repo.fullName }))) return;
@@ -299,6 +488,8 @@ export default function RepositoryPage() {
     setEntityDetail(null);
     setEntitySearch('');
     setEntityTypeFilter('ALL');
+    setModules([]);
+    setModulesError(null);
     setPrsLoading(true);
     setCommitsLoading(true);
     setActiveTab('pulls');
@@ -503,6 +694,14 @@ export default function RepositoryPage() {
   useEffect(() => {
     if (selected && activeTab === 'entities' && entities.length === 0 && !entitiesLoading) {
       void loadEntities(selected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selected?.id]);
+
+  // Load the module auto-update settings when the modules tab is opened.
+  useEffect(() => {
+    if (selected && activeTab === 'modules' && modules.length === 0 && !modulesLoading) {
+      void loadModules(selected);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, selected?.id]);
@@ -720,6 +919,21 @@ export default function RepositoryPage() {
                   >
                     <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.sync')}
                   </Button>
+                  {canManageAutoUpdate && (
+                    <Button
+                      size="sm"
+                      variant={r.autoUpdateEnabled ? 'ghost' : 'outline'}
+                      className="h-7 text-xs"
+                      onClick={() => toggleRepoAutoUpdate(r)}
+                      disabled={busy}
+                      title={t('repository.autoUpdateRepoTitle', 'Turn AI auto-update on or off for this repository.')}
+                    >
+                      <RefreshCw className="mr-1 h-3 w-3" />
+                      {r.autoUpdateEnabled
+                        ? t('repository.autoUpdateOn', 'Auto-update ON')
+                        : t('repository.autoUpdateOff', 'Auto-update OFF')}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1013,6 +1227,15 @@ export default function RepositoryPage() {
                     <Code2 className="h-3 w-3" />
                     {t('repository.tabEntities', 'Code Entities')} ({entities.length})
                   </button>
+                  <button
+                    onClick={() => setActiveTab('modules')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      activeTab === 'modules' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <Boxes className="h-3 w-3" />
+                    {t('repository.tabModules', 'Modules')} ({modules.length})
+                  </button>
                 </div>
                 {activeTab === 'pulls' && (
                   <Button
@@ -1050,6 +1273,30 @@ export default function RepositoryPage() {
                   >
                     <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.fetchFromGithub', 'Fetch from GitHub')}
                   </Button>
+                )}
+                {activeTab === 'modules' && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void loadModules(selected)}
+                      disabled={modulesLoading}
+                    >
+                      <RefreshCw className={`mr-1 h-3 w-3 ${modulesLoading ? 'animate-spin' : ''}`} />
+                      {t('repository.modulesRefresh', 'Refresh')}
+                    </Button>
+                    {canManageAutoUpdate && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void detectModules(selected)}
+                        disabled={modulesLoading}
+                      >
+                        <Boxes className="mr-1 h-3 w-3" />
+                        {t('repository.modulesDetect', 'Detect modules')}
+                      </Button>
+                    )}
+                  </div>
                 )}
                 {activeTab === 'entities' && (
                   <Button
@@ -1258,6 +1505,100 @@ export default function RepositoryPage() {
               </>
             )}
 
+            {/* Modules Tab — per-module AI auto-update hierarchy */}
+            {activeTab === 'modules' && (
+              <>
+                <div className="flex items-center justify-between gap-2 p-4 border-b">
+                  <p className="text-xs text-muted-foreground">
+                    {t('repository.modulesHint', {
+                      defaultValue:
+                        'A module with auto-update off keeps its documents untouched by AI updates, even when the repository is auto-updating.',
+                    })}
+                  </p>
+                  {modulesError && (
+                    <span className="text-xs text-destructive">{modulesError}</span>
+                  )}
+                </div>
+                {modulesLoading ? (
+                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('repository.modulesLoading', 'Loading modules…')}
+                  </div>
+                ) : modules.length === 0 ? (
+                  <div className="text-center py-12 px-4">
+                    <Boxes className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-sm font-medium mb-1">
+                      {t('repository.modulesEmptyTitle', 'No modules configured')}
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                      {t('repository.modulesEmptyDesc', {
+                        defaultValue:
+                          'Use "Detect modules" to derive the package directories of this repository from its indexed code entities, then exclude the ones that should not be auto-updated.',
+                      })}
+                    </p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('repository.colModulePath', 'Module path')}</TableHead>
+                        <TableHead>{t('repository.colModuleName', 'Display name')}</TableHead>
+                        <TableHead>{t('repository.colModuleAutoUpdate', 'Auto-update')}</TableHead>
+                        {canManageAutoUpdate && (
+                          <TableHead className="text-right">
+                            {t('repository.colActions', 'Actions')}
+                          </TableHead>
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {modules.map((m) => (
+                        <TableRow key={m.id ?? m.modulePath}>
+                          <TableCell className="font-mono text-xs">{m.modulePath}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {m.displayName || '—'}
+                          </TableCell>
+                          <TableCell>
+                            {canManageAutoUpdate ? (
+                              <Button
+                                size="sm"
+                                variant={m.autoUpdateEnabled ? 'ghost' : 'outline'}
+                                className="h-7 text-xs"
+                                onClick={() => void toggleModuleAutoUpdate(m)}
+                                disabled={busy || !m.id}
+                              >
+                                <RefreshCw className="mr-1 h-3 w-3" />
+                                {m.autoUpdateEnabled
+                                  ? t('repository.autoUpdateOn', 'Auto-update ON')
+                                  : t('repository.autoUpdateOff', 'Auto-update OFF')}
+                              </Button>
+                            ) : (
+                              <Badge variant={m.autoUpdateEnabled ? 'success' : 'muted'} className="text-[10px]">
+                                {m.autoUpdateEnabled ? 'ON' : 'OFF'}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          {canManageAutoUpdate && (
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-destructive"
+                                onClick={() => void removeModule(m)}
+                                disabled={busy || !m.id}
+                              >
+                                {t('common.remove', 'Remove')}
+                              </Button>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </>
+            )}
+
             {/* Commits Tab */}
             {activeTab === 'commits' && (
               <>
@@ -1381,6 +1722,32 @@ export default function RepositoryPage() {
                 onChange={(e) => setCatalogSearch(e.target.value)}
                 placeholder={t('repository.searchCatalogPlaceholder')}
               />
+              {selectedCatalogIds.length > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                  <span className="text-xs">
+                    {t('repository.selectedCount', { count: selectedCatalogIds.length })}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => setSelectedCatalogIds([])}
+                    >
+                      {t('repository.clearSelection', 'Clear')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => void connectSelectedFromCatalog()}
+                      disabled={busy}
+                    >
+                      {busy && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                      {t('repository.connectSelected', 'Connect selected')}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {catalogLoading ? (
                 <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> {t('repository.loadingCatalog')}
@@ -1407,35 +1774,49 @@ export default function RepositoryPage() {
                 </p>
               ) : (
                 <div className="space-y-1 max-h-96 overflow-y-auto">
-                  {filteredCatalog.map((c) => (
-                    <div
-                      key={c.githubId}
-                      className="flex items-center justify-between rounded-md border px-3 py-2 hover:bg-muted/30"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">{c.fullName}</div>
-                        <div className="text-xs text-muted-foreground flex items-center gap-2">
-                          <GitBranch className="h-3 w-3" />
-                          {c.defaultBranch}
-                          {c.isPrivate && <Badge variant="muted" className="text-[10px]">private</Badge>}
-                          {c.isArchived && <Badge variant="muted" className="text-[10px]">archived</Badge>}
-                        </div>
-                        {c.description && (
-                          <div className="text-xs text-muted-foreground line-clamp-1">
-                            {c.description}
-                          </div>
-                        )}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => connectFromCatalog(c.githubId)}
-                        disabled={busy}
+                  {filteredCatalog.map((c) => {
+                    const ticked = selectedCatalogIds.includes(c.githubId);
+                    return (
+                      <div
+                        key={c.githubId}
+                        className={`flex items-center justify-between rounded-md border px-3 py-2 ${
+                          ticked ? 'bg-primary/5 border-primary/40' : 'hover:bg-muted/30'
+                        }`}
                       >
-                        {t('repository.connect')}
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={ticked}
+                            onChange={() => toggleCatalogSelection(c.githubId)}
+                            className="h-4 w-4 shrink-0 rounded border-input"
+                            aria-label={c.fullName}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">{c.fullName}</div>
+                            <div className="text-xs text-muted-foreground flex items-center gap-2">
+                              <GitBranch className="h-3 w-3" />
+                              {c.defaultBranch}
+                              {c.isPrivate && <Badge variant="muted" className="text-[10px]">private</Badge>}
+                              {c.isArchived && <Badge variant="muted" className="text-[10px]">archived</Badge>}
+                            </div>
+                            {c.description && (
+                              <div className="text-xs text-muted-foreground line-clamp-1">
+                                {c.description}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => connectFromCatalog(c.githubId)}
+                          disabled={busy}
+                        >
+                          {t('repository.connect')}
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

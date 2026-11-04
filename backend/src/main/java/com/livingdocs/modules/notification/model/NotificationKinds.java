@@ -31,9 +31,57 @@ public final class NotificationKinds {
     /** Lifecycle event emitted by the review workflow. */
     public static final String REVIEW_ASSIGNED = "REVIEW_ASSIGNED";
 
+    /**
+     * The AI could not generate the documentation.
+     *
+     * <p>Emitted by the generation worker when the LLM call fails, so
+     * the user learns about it without polling the job.
+     */
+    public static final String DOC_GENERATION_FAILED = "doc.generation.failed";
+
+    /**
+     * The GitHub connection lost its authorisation.
+     *
+     * <p>Emitted by the integration health check when GitHub answers
+     * 401 for the stored token.
+     */
+    public static final String GITHUB_TOKEN_INVALID = "github.tokenInvalid";
+
+    /**
+     * The AI refreshed a document after a code change.
+     */
+    public static final String DOC_AUTO_UPDATED = "doc.auto.updated";
+
+    /**
+     * A review was requested on a document version.
+     */
+    public static final String REVIEW_REQUESTED = "review.requested";
+
+    /**
+     * A reviewer decided on a version the user had submitted.
+     *
+     * <p>Tells the author that their draft was approved, rejected, or
+     * sent back for changes — without them having to watch the review
+     * queue page.
+     */
+    public static final String REVIEW_DECIDED = "review.decided";
+
     /** Indexing job finished (success or failure). */
     public static final String INDEXING_DONE = "INDEXING_DONE";
 
+    /**
+     * A synthetic notification used to verify the delivery pipeline.
+     */
+    public static final String SYSTEM_TEST = "system.test";
+
+    /**
+     * Every kind the platform emits.
+     *
+     * <p>This list is the source of truth for the policies screens:
+     * a kind that is emitted but missing here cannot be switched off
+     * by an administrator, and the per-user preference that controls
+     * it has nowhere to show up.
+     */
     public static final List<String> ALL = List.of(
             ADMIN_BROADCAST,
             DRIFT_DETECTED,
@@ -43,6 +91,12 @@ public final class NotificationKinds {
             SCM_RELEASE,
             JIRA_ISSUE_EVENT,
             REVIEW_ASSIGNED,
-            INDEXING_DONE
+            REVIEW_REQUESTED,
+            REVIEW_DECIDED,
+            DOC_GENERATION_FAILED,
+            GITHUB_TOKEN_INVALID,
+            DOC_AUTO_UPDATED,
+            INDEXING_DONE,
+            SYSTEM_TEST
     );
 }

@@ -19,6 +19,18 @@ public interface RolePermissionRepository extends JpaRepository<RolePermission, 
 
     long countByRoleId(UUID roleId);
 
+    /**
+     * The permission <em>codes</em> granted to a role. Resolving the
+     * codes in the database keeps the hot authorization path to a single
+     * query instead of a row fetch plus an id→code mapping in Java.
+     */
+    @Query("""
+           SELECT p.code FROM RolePermission rp, Permission p
+           WHERE rp.permissionId = p.id
+             AND rp.roleId = :roleId
+           """)
+    List<String> findPermissionCodesByRoleId(@Param("roleId") UUID roleId);
+
     @Modifying
     @Query("DELETE FROM RolePermission rp WHERE rp.roleId = :roleId AND rp.permissionId = :permissionId")
     int deleteByRoleIdAndPermissionId(@Param("roleId") UUID roleId,

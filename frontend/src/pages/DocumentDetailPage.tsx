@@ -3,7 +3,7 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -30,7 +30,8 @@ import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
 import { githubApi, Repository } from '../services/github';
-import { describeError } from '../services/auth';
+import { describeError, hasPermission } from '../services/auth';
+import { useAuth } from '../contexts/AuthContext';
 import { templatesApi, DocTemplate } from '../services/templates';
 import { format } from 'date-fns';
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
@@ -46,6 +47,7 @@ const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'i
 const ROLE_VARIANT: Record<ActorRole, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
   AI: 'info',
   STAFF: 'warning',
+  DEVELOPER: 'warning',
   MANAGER: 'success',
   SYSTEM: 'muted',
 };
@@ -63,6 +65,7 @@ const VERSION_STATUS_KEY: Record<VersionStatus, string> = {
 const ROLE_LABEL_KEY: Record<ActorRole, string> = {
   AI: 'documentDetail.roleAI',
   STAFF: 'documentDetail.roleStaff',
+  DEVELOPER: 'documentDetail.roleDeveloper',
   MANAGER: 'documentDetail.roleManager',
   SYSTEM: 'documentDetail.roleSystem',
 };
@@ -82,6 +85,17 @@ function DiffViewer({ diff }: { diff: string }) {
 export default function DocumentDetailPage() {
   const { t } = useTranslation();
   const { workspaceId, documentId } = useParams<{ workspaceId: string; documentId: string }>();
+  const { user } = useAuth();
+  // Publishing a document to GitHub is a separate capability from
+  // editing it: it needs SCM_COMMIT on top of workspace membership.
+  const canCommitToGithub = hasPermission(user, 'SCM_COMMIT');
+  // Publishing a version and rolling one back are gated by the
+  // permission matrix on the backend. Rendering the buttons
+  // unconditionally meant a DEVELOPER clicked "Publish" and got a 403.
+  const canPublish = hasPermission(user, 'DOCUMENT_VERSION_PUBLISH');
+  const canRollback = hasPermission(user, 'DOCUMENT_ROLLBACK');
+  const canDismiss = hasPermission(user, 'DOCUMENT_VERSION_DISMISS');
+  const canRegenerate = hasPermission(user, 'DOCUMENT_REGENERATE_AI');
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -437,6 +451,44 @@ export default function DocumentDetailPage() {
       await load();
     } catch (err) {
       setError(describeError(err));
+    }
+  }
+
+  /**
+   * Dismiss an AI draft that turned out to be wrong.
+   *
+   * <p>The version stays in the timeline for the audit trail but leaves
+   * the review queue, so the author is not blocked by a bad draft.
+   */
+  async function handleDismissVersion(versionNumber: number) {
+    if (!workspaceId || !documentId) return;
+    if (!window.confirm(`Dismiss v${versionNumber}? It will be discarded and leave the review queue.`)) return;
+    try {
+      await documentsApi.dismissVersion(documentId, versionNumber);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }
+
+  /**
+   * Ask the AI to regenerate the document from its current source.
+   *
+   * <p>The run is asynchronous: the backend answers 202 with a job id and
+   * the worker produces a new draft version.
+   */
+  async function handleRegenerate() {
+    if (!workspaceId || !documentId) return;
+    if (!window.confirm('Regenerate this document with AI? A new draft version will be created.')) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      await aiApi.regenerate(workspaceId, documentId);
+      await load();
+    } catch (err) {
+      setGenError(describeError(err));
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -853,6 +905,7 @@ export default function DocumentDetailPage() {
               </DialogContent>
             </Dialog>
           </div>
+
           {/* --------------------------------------- */}
         <div className="flex gap-2 flex-shrink-0">
           <div className="flex items-center gap-1">
@@ -879,19 +932,33 @@ export default function DocumentDetailPage() {
           <Button size="sm" onClick={() => void handleGenerateWithAI()} disabled={generating}>
             <Bot className="mr-1 h-4 w-4" /> {generating ? t('documentDetail.generating') : t('documentDetail.generateAi')}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={openCommitDialog}
-            disabled={!doc?.repositoryId}
-            title={
-              !doc?.repositoryId
-                ? t('documentDetail.commitNeedsRepo', 'Attach a repository first to commit.')
-                : undefined
-            }
-          >
-            <Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitToGithub', 'Commit to GitHub')}
-          </Button>
+          {canRegenerate && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleRegenerate()}
+              disabled={generating}
+              title={t('documentDetail.regenerateTitle', 'Ask the AI to rewrite this document from its current source.')}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              {t('documentDetail.regenerate', 'Regenerate')}
+            </Button>
+          )}
+          {canCommitToGithub && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={openCommitDialog}
+              disabled={!doc?.repositoryId}
+              title={
+                !doc?.repositoryId
+                  ? t('documentDetail.commitNeedsRepo', 'Attach a repository first to commit.')
+                  : undefined
+              }
+            >
+              <Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitToGithub', 'Commit to GitHub')}
+            </Button>
+          )}
           <Dialog open={showNewVersion} onOpenChange={setShowNewVersion}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
@@ -1069,7 +1136,7 @@ export default function DocumentDetailPage() {
                             <Send className="h-3 w-3 mr-0.5" /> Submit for review
                           </Button>
                         )}
-                        {v.status !== 'PUBLISHED' && v.status !== 'DRAFT' && (
+                        {canPublish && v.status === 'APPROVED' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1079,14 +1146,27 @@ export default function DocumentDetailPage() {
                             <Upload className="h-3 w-3 mr-0.5" /> Publish
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 text-xs px-1.5"
-                          onClick={(e) => { e.stopPropagation(); void handleRollback(v.versionNumber); }}
-                        >
-                          <RotateCcw className="h-3 w-3 mr-0.5" /> Rollback
-                        </Button>
+                        {canRollback && (v.status === 'PUBLISHED' || v.status === 'APPROVED') && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs px-1.5"
+                            onClick={(e) => { e.stopPropagation(); void handleRollback(v.versionNumber); }}
+                          >
+                            <RotateCcw className="h-3 w-3 mr-0.5" /> Rollback
+                          </Button>
+                        )}
+                        {canDismiss && v.status === 'DRAFT' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs px-1.5 text-destructive"
+                            onClick={(e) => { e.stopPropagation(); void handleDismissVersion(v.versionNumber); }}
+                            title={t('documentDetail.dismissDraftTitle')}
+                          >
+                            <X className="h-3 w-3 mr-0.5" /> Dismiss
+                          </Button>
+                        )}
                         {v.actorRole === 'AI' && (
                           <Button
                             size="sm"
@@ -1224,7 +1304,7 @@ export default function DocumentDetailPage() {
                                 <Send className="h-3 w-3 mr-1" /> Submit for review
                               </Button>
                             )}
-                            {v.status !== 'PUBLISHED' && v.status !== 'DRAFT' && (
+                            {canPublish && v.status === 'APPROVED' && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1234,14 +1314,27 @@ export default function DocumentDetailPage() {
                                 Publish
                               </Button>
                             )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs"
-                              onClick={() => void handleRollback(v.versionNumber)}
-                            >
-                              <RotateCcw className="h-3 w-3 mr-1" /> Rollback
-                            </Button>
+                            {canRollback && (v.status === 'PUBLISHED' || v.status === 'APPROVED') && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => void handleRollback(v.versionNumber)}
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" /> Rollback
+                              </Button>
+                            )}
+                            {canDismiss && v.status === 'DRAFT' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs text-destructive"
+                                onClick={() => void handleDismissVersion(v.versionNumber)}
+                                title={t('documentDetail.dismissDraftTitle')}
+                              >
+                                <X className="h-3 w-3 mr-1" /> Dismiss
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

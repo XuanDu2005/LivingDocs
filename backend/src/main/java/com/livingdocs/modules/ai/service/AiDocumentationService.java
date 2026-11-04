@@ -2,6 +2,8 @@ package com.livingdocs.modules.ai.service;
 
 import com.livingdocs.common.events.DocGenerationRequestedEvent;
 import com.livingdocs.common.events.EventPublisher;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.client.AiServiceClient;
 import com.livingdocs.modules.ai.job.DocGenerationJobService;
@@ -78,6 +80,7 @@ public class AiDocumentationService {
     private final ConfidenceThresholdService confidenceThresholdService;
     private final AiRateLimitService rateLimitService;
     private final GovernancePolicyService governancePolicyService;
+    private final PermissionService permissionService;
 
     public AiDocumentationService(AiServiceClient aiClient,
                                   CachedAiClient cachedAiClient,
@@ -97,7 +100,8 @@ public class AiDocumentationService {
                                   CodeDocumentLinkRepository codeDocumentLinkRepository,
                                   ConfidenceThresholdService confidenceThresholdService,
                                   AiRateLimitService rateLimitService,
-                                  GovernancePolicyService governancePolicyService) {
+                                  GovernancePolicyService governancePolicyService,
+                                  PermissionService permissionService) {
         this.aiClient = aiClient;
         this.cachedAiClient = cachedAiClient;
         this.documentRepository = documentRepository;
@@ -117,6 +121,7 @@ public class AiDocumentationService {
         this.confidenceThresholdService = confidenceThresholdService;
         this.rateLimitService = rateLimitService;
         this.governancePolicyService = governancePolicyService;
+        this.permissionService = permissionService;
     }
 
     /**
@@ -232,6 +237,8 @@ public class AiDocumentationService {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, workspaceId);
+        // Running a drift scan is a documented author capability.
+        permissionService.requireAnyPermission(actorId, PermissionCodes.DRIFT_DETECT_RUN);
 
         String currentBody = _currentBodyFor(documentId);
 
@@ -395,6 +402,9 @@ public class AiDocumentationService {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, workspaceId);
+        // Regenerating on demand costs an LLM call, so it is a
+        // capability rather than a plain member action.
+        permissionService.requireAnyPermission(actorId, PermissionCodes.DOCUMENT_REGENERATE_AI);
 
         // Resolve the source the same way a fresh generation does: the
         // linked code entities (real implementation from GitHub) plus the

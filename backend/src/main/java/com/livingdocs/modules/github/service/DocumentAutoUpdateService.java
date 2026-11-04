@@ -68,6 +68,7 @@ public class DocumentAutoUpdateService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final GithubClient githubClient;
     private final AiDocumentationService aiDocumentationService;
+    private final ModuleAutoUpdateService moduleAutoUpdateService;
 
     public DocumentAutoUpdateService(ObjectMapper objectMapper,
                                      CodeEntityRepository codeEntityRepository,
@@ -76,7 +77,8 @@ public class DocumentAutoUpdateService {
                                      GithubConnectionRepository githubConnectionRepository,
                                      WorkspaceMemberRepository workspaceMemberRepository,
                                      GithubClient githubClient,
-                                     AiDocumentationService aiDocumentationService) {
+                                     AiDocumentationService aiDocumentationService,
+                                     ModuleAutoUpdateService moduleAutoUpdateService) {
         this.objectMapper = objectMapper;
         this.codeEntityRepository = codeEntityRepository;
         this.linkRepository = linkRepository;
@@ -85,6 +87,7 @@ public class DocumentAutoUpdateService {
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.githubClient = githubClient;
         this.aiDocumentationService = aiDocumentationService;
+        this.moduleAutoUpdateService = moduleAutoUpdateService;
     }
 
     /**
@@ -117,6 +120,25 @@ public class DocumentAutoUpdateService {
             log.debug("No indexed code entities for {} changed file(s) in {} — nothing to update",
                     changedFilePaths.size(), repo.getFullName());
             return 0;
+        }
+
+        // 1b. Drop the files whose module has auto-update disabled. This
+        //     is the middle level of the auto-update hierarchy: the
+        //     repository toggle gates the whole repository, the module
+        //     toggle gates one package inside it, and the document
+        //     toggle (step 4) gates a single document.
+        Set<String> vetoed = moduleAutoUpdateService.vetoedFiles(repo.getId(), changedFilePaths);
+        if (!vetoed.isEmpty()) {
+            log.info("Skipping {} file(s) in {} — their module has auto-update disabled",
+                    vetoed.size(), repo.getFullName());
+            changedFilePaths = new LinkedHashSet<>(changedFilePaths);
+            changedFilePaths.removeAll(vetoed);
+            entities = entities.stream()
+                    .filter(e -> !vetoed.contains(e.getFilePath()))
+                    .toList();
+            if (entities.isEmpty()) {
+                return 0;
+            }
         }
 
         // 2. Which documents reference those entities?

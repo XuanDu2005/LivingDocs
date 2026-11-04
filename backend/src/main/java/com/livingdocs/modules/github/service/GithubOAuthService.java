@@ -55,11 +55,22 @@ public class GithubOAuthService {
      * Builds the GitHub authorize URL the user should be redirected to.
      */
     public AuthorizeUrl buildAuthorizeUrl(UUID currentUserId) {
+        return buildAuthorizeUrl(currentUserId, properties.getOauth().getScopes());
+    }
+
+    /**
+     * Builds the GitHub authorize URL for an explicit scope set.
+     *
+     * <p>Used by the scope-review screen: withdrawing a scope is only
+     * real if the user can re-consent with a narrower scope set, and
+     * GitHub only offers that through a fresh authorize URL.
+     */
+    public AuthorizeUrl buildAuthorizeUrl(UUID currentUserId, String scopes) {
         String state = generateState();
         StringBuilder url = new StringBuilder("https://github.com/login/oauth/authorize")
                 .append("?client_id=").append(urlEncode(properties.getOauth().getClientId()))
                 .append("&redirect_uri=").append(urlEncode(properties.getOauth().getRedirectUri()))
-                .append("&scope=").append(urlEncode(properties.getOauth().getScopes()))
+                .append("&scope=").append(urlEncode(scopes))
                 .append("&state=").append(urlEncode(state))
                 .append("&allow_signup=true")
                 .append("&prompt=select_account");

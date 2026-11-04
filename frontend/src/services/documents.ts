@@ -29,7 +29,7 @@ export interface Document {
   publishedAt: string | null;
 }
 
-export type ActorRole = 'AI' | 'STAFF' | 'MANAGER' | 'SYSTEM';
+export type ActorRole = 'AI' | 'STAFF' | 'DEVELOPER' | 'MANAGER' | 'SYSTEM';
 export type VersionStatus =
   | 'DRAFT'
   | 'PENDING'
@@ -206,6 +206,19 @@ export const documentsApi = {
     return apiClient
       .post<DocumentVersion>(
         `/documents/${documentId}/rollback?version=${version}`,
+      )
+      .then((r) => r.data);
+  },
+  /**
+   * Dismiss (discard) a draft version.
+   *
+   * <p>The version stays in the timeline for the audit trail but leaves
+   * the review queue. Only drafts can be dismissed.
+   */
+  dismissVersion(documentId: string, versionNumber: number) {
+    return apiClient
+      .delete<DocumentVersion>(
+        `/documents/${documentId}/versions/${versionNumber}`,
       )
       .then((r) => r.data);
   },

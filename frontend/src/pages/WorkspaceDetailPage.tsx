@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowLeft,
+  BarChart3,
   Check,
   FileText,
   Library,
+  PlugZap,
   ScrollText,
   Shield,
   Sparkles,
@@ -37,7 +39,7 @@ import {
 } from '../components/ui/select';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { useAuth } from '../contexts/AuthContext';
-import { describeError } from '../services/auth';
+import { describeError, hasPermission } from '../services/auth';
 import {
   addMember,
   deleteWorkspace,
@@ -61,15 +63,50 @@ import GovernancePanel from '../components/GovernancePanel';
 import { format } from 'date-fns';
 import { Switch } from '../components/ui/switch';
 
+/**
+ * The tool shortcuts shown on the workspace detail page.
+ *
+ * <p>Each entry may declare the permission codes that unlock it. The
+ * link is hidden for users without one of them, so a DEVELOPER no longer
+ * sees a "Health dashboard" or "Audit log" shortcut that would only
+ * come back with a 403.
+ */
 const toolLinks = (workspaceId: string) => [
   { to: `/workspaces/${workspaceId}/documents`, icon: FileText, label: 'Documents' },
   { to: `/workspaces/${workspaceId}/templates`, icon: Sparkles, label: 'Templates' },
   { to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle, label: 'Drift alerts' },
   { to: `/workspaces/${workspaceId}/reviews`, icon: Shield, label: 'Review queue' },
   { to: `/workspaces/${workspaceId}/knowledge`, icon: Library, label: 'Knowledge base' },
-  { to: `/workspaces/${workspaceId}/ai-settings`, icon: Sparkles, label: 'AI settings' },
-  { to: `/workspaces/${workspaceId}/health`, icon: Stethoscope, label: 'Health dashboard' },
-  { to: `/workspaces/${workspaceId}/audit-logs`, icon: ScrollText, label: 'Audit log' },
+  {
+    to: `/workspaces/${workspaceId}/ai-settings`,
+    icon: Sparkles,
+    label: 'AI settings',
+    permissions: ['AI_CONFIG_READ'],
+  },
+  {
+    to: `/workspaces/${workspaceId}/health`,
+    icon: Stethoscope,
+    label: 'Health dashboard',
+    permissions: ['HEALTH_DASHBOARD_VIEW'],
+  },
+  {
+    to: `/workspaces/${workspaceId}/audit-logs`,
+    icon: ScrollText,
+    label: 'Audit log',
+    permissions: ['AUDIT_LOG_VIEW'],
+  },
+  {
+    to: `/workspaces/${workspaceId}/analytics`,
+    icon: BarChart3,
+    label: 'Analytics',
+    permissions: ['ANALYTICS_VIEW'],
+  },
+  {
+    to: `/workspaces/${workspaceId}/integrations`,
+    icon: PlugZap,
+    label: 'Integrations',
+    permissions: ['INTEGRATION_VIEW'],
+  },
 ];
 
 export default function WorkspaceDetailPage() {
@@ -152,6 +189,18 @@ export default function WorkspaceDetailPage() {
   const isOwner = workspace && user && workspace.ownerId === user.id;
   const isManager = members.some((m) => m.userId === user?.id && m.role === 'MANAGER');
   const canManage = !!isManager || !!isOwner;
+  // Connecting a repository only requires workspace membership on the
+  // backend, so every member may do it. It used to be hidden behind
+  // `canManage`, which made the workspace page refuse what the
+  // repository page happily allowed.
+  const isMember = members.some((m) => m.userId === user?.id) || !!isOwner;
+  // The effective governance policy is capability-gated, not
+  // role-gated: it is read-only information, but it reveals the
+  // approval thresholds the runtime enforces.
+  const canViewGovernance = hasPermission(user, 'GOVERNANCE_VIEW');
+  // Changing the governance knobs is a separate capability from
+  // reading them.
+  const canManageGovernance = hasPermission(user, 'GOVERNANCE_MANAGE');
 
   async function onSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -320,8 +369,9 @@ export default function WorkspaceDetailPage() {
         </Card>
       )}
 
-      {/* Governance Settings Card - shown only to Managers */}
-      {isManager && settings && (
+      {/* Governance Settings Card - shown only to Managers who may also
+          change the governance knobs (GOVERNANCE_MANAGE). */}
+      {isManager && settings && canManageGovernance && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Governance settings</CardTitle>
@@ -466,8 +516,10 @@ export default function WorkspaceDetailPage() {
       )}
 
       {/* Effective policy — what the runtime actually enforces, including
-          the per-doc-type overrides the settings form does not show. */}
-      {workspaceId && <GovernancePanel workspaceId={workspaceId} />}
+          the per-doc-type overrides the settings form does not show.
+          Gated by GOVERNANCE_VIEW: a member without that permission
+          must not see the policy the runtime enforces. */}
+      {workspaceId && canViewGovernance && <GovernancePanel workspaceId={workspaceId} />}
 
       <Card>
         <CardHeader>
@@ -568,7 +620,13 @@ export default function WorkspaceDetailPage() {
         </CardContent>
       </Card>
 
-      {workspaceId && <RepositoriesPanel workspaceId={workspaceId} canManage={canManage} />}
+      {workspaceId && (
+        <RepositoriesPanel
+          workspaceId={workspaceId}
+          canManage={canManage}
+          canConnect={isMember}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -577,7 +635,14 @@ export default function WorkspaceDetailPage() {
         <CardContent>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {workspaceId &&
-              toolLinks(workspaceId).map((t) => (
+              toolLinks(workspaceId)
+                .filter(
+                  (t) =>
+                    !t.permissions ||
+                    t.permissions.length === 0 ||
+                    hasPermission(user, ...t.permissions),
+                )
+                .map((t) => (
                 <Button
                   key={t.to}
                   variant="outline"

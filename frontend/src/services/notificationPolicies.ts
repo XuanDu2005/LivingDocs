@@ -71,6 +71,8 @@ export const NOTIFICATION_KIND_LABEL_KEYS: Record<string, string> = {
   SCM_RELEASE: 'SCM_RELEASE',
   JIRA_ISSUE_EVENT: 'JIRA_ISSUE_EVENT',
   REVIEW_ASSIGNED: 'REVIEW_ASSIGNED',
+  'review.requested': 'review_requested',
+  'review.decided': 'review_decided',
   INDEXING_DONE: 'INDEXING_DONE',
   GITHUB_PR_EVENT: 'GITHUB_PR_EVENT',
   GITHUB_PUSH: 'GITHUB_PUSH',
