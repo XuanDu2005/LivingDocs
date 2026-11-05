@@ -3,7 +3,7 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, Plus, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, MessageSquare, Plus, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -25,7 +25,8 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { documentsApi, Document, DocumentVersion, DocumentVersionSummary, ActorRole, VersionStatus } from '../services/documents';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
-import { driftApi, DriftAlert } from '../services/drift';
+import ReviewDrawer from '../components/review/ReviewDrawer';
+import { driftApi, DriftAlert, reviewsApi, ReviewDecision } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi } from '../services/ai';
@@ -96,6 +97,12 @@ export default function DocumentDetailPage() {
   const canRollback = hasPermission(user, 'DOCUMENT_ROLLBACK');
   const canDismiss = hasPermission(user, 'DOCUMENT_VERSION_DISMISS');
   const canRegenerate = hasPermission(user, 'DOCUMENT_REGENERATE_AI');
+  // The review tier. The Staff tier reviews a version that is awaiting
+  // a first look; the Manager tier decides on a version that Staff
+  // already approved. Both are gated by the permission matrix, and both
+  // also require the reviewer to be a member of the workspace.
+  const canReview = hasPermission(user, 'DOCUMENT_VERSION_REVIEW');
+  const canApprove = hasPermission(user, 'DOCUMENT_VERSION_APPROVE');
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -127,6 +134,11 @@ export default function DocumentDetailPage() {
   const [commitRepos, setCommitRepos] = useState<import('../services/github').Repository[]>([]);
   const [commitReposLoading, setCommitReposLoading] = useState<boolean>(false);
   const [tab, setTab] = useState<string>('content');
+  // Review state: the comment a reviewer is typing, and the version the
+  // review drawer is open on.
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [reviewDrawerVersionId, setReviewDrawerVersionId] = useState<string | null>(null);
+  const [reviewDrawerKind, setReviewDrawerKind] = useState<'staff' | 'manager'>('staff');
   const [docTags, setDocTags] = useState<DocumentTag[]>([]);
 
   useEffect(() => {
@@ -502,6 +514,36 @@ export default function DocumentDetailPage() {
     if (!workspaceId || !documentId) return;
     try {
       await documentsApi.submitForReview(workspaceId, documentId, versionId);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }
+
+  /**
+   * Record a verdict on a version that is under review.
+   *
+   * <p>The Staff tier acts on a version that is awaiting a first look
+   * ({@code PENDING}); the Manager tier acts on one that Staff already
+   * approved ({@code IN_REVIEW}). A comment on its own leaves the
+   * version where it is.
+   */
+  async function handleReviewDecision(
+    versionId: string,
+    decision: ReviewDecision,
+  ) {
+    if (!workspaceId || !documentId) return;
+    try {
+      if (canApprove && !canReview) {
+        await reviewsApi.managerDecision(
+          workspaceId, documentId, versionId, decision, reviewComment || undefined,
+        );
+      } else {
+        await reviewsApi.staffReview(
+          workspaceId, documentId, versionId, decision, reviewComment || undefined,
+        );
+      }
+      setReviewComment('');
       await load();
     } catch (err) {
       setError(describeError(err));
@@ -1292,7 +1334,12 @@ export default function DocumentDetailPage() {
                           {v.sourceCommitSha ? v.sourceCommitSha.slice(0, 7) : '—'}
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-1">
+                          <div className="flex flex-wrap gap-1">
+                            {v.sourceTicketRef && (
+                              <Badge variant="info" className="h-6 text-xs">
+                                {v.sourceTicketRef}
+                              </Badge>
+                            )}
                             {v.status === 'DRAFT' && (
                               <Button
                                 size="sm"
@@ -1303,6 +1350,72 @@ export default function DocumentDetailPage() {
                               >
                                 <Send className="h-3 w-3 mr-1" /> Submit for review
                               </Button>
+                            )}
+                            {canReview && v.status === 'PENDING' && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setReviewDrawerVersionId(v.id);
+                                    setReviewDrawerKind('staff');
+                                  }}
+                                >
+                                  {t('reviews.action.open', 'Open')}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs text-destructive"
+                                  onClick={() => void handleReviewDecision(v.id, 'REJECTED')}
+                                  title={t('reviews.action.reject', 'Reject')}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => void handleReviewDecision(v.id, 'COMMENT')}
+                                  title={t('reviews.action.comment', 'Comment only')}
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                </Button>
+                              </>
+                            )}
+                            {canApprove && v.status === 'IN_REVIEW' && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setReviewDrawerVersionId(v.id);
+                                    setReviewDrawerKind('manager');
+                                  }}
+                                >
+                                  {t('reviews.action.open', 'Open')}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs text-destructive"
+                                  onClick={() => void handleReviewDecision(v.id, 'REJECTED')}
+                                  title={t('reviews.action.reject', 'Reject')}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => void handleReviewDecision(v.id, 'COMMENT')}
+                                  title={t('reviews.action.comment', 'Comment only')}
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                </Button>
+                              </>
                             )}
                             {canPublish && v.status === 'APPROVED' && (
                               <Button
@@ -2056,6 +2169,19 @@ export default function DocumentDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Review drawer — the full review surface of one version. */}
+      {workspaceId && documentId && reviewDrawerVersionId && (
+        <ReviewDrawer
+          workspaceId={workspaceId}
+          documentId={documentId}
+          versionId={reviewDrawerVersionId}
+          kind={reviewDrawerKind}
+          open={!!reviewDrawerVersionId}
+          onOpenChange={(open) => { if (!open) setReviewDrawerVersionId(null); }}
+          onDecided={() => { void load(); }}
+        />
+      )}
     </div>
   );
 }

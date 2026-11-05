@@ -62,21 +62,28 @@ public class AuthorizationService {
     public static final String ROLE_MANAGER = "MANAGER";
     public static final String ROLE_ADMIN = "ADMIN";
 
-    /** Platform roles that can perform the first-tier (Staff) review. */
-    private static final Set<String> STAFF_CAPABLE = Set.of(
-            ROLE_STAFF, ROLE_TECHNICAL_LEAD, ROLE_MANAGER, ROLE_ADMIN);
-
-    /** Platform roles that can perform the second-tier (Manager) approval. */
+    /**
+     * Platform roles that can perform the second-tier (Manager) approval.
+     *
+     * @deprecated The capability now comes from the permission matrix —
+     *     see {@link #capabilities(UUID, UUID)}. Kept only as the
+     *     documented list of which roles are *expected* to hold the
+     *     approve/publish grants; the seed in V40 asserts it.
+     */
+    @Deprecated
     private static final Set<String> MANAGER_CAPABLE = Set.of(
             ROLE_TECHNICAL_LEAD, ROLE_MANAGER, ROLE_ADMIN);
 
     private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final WorkspaceMemberRepository memberRepository;
+    private final PermissionService permissionService;
 
     public AuthorizationService(UserRoleAssignmentRepository roleAssignmentRepository,
-                                 WorkspaceMemberRepository memberRepository) {
+                                 WorkspaceMemberRepository memberRepository,
+                                 PermissionService permissionService) {
         this.roleAssignmentRepository = roleAssignmentRepository;
         this.memberRepository = memberRepository;
+        this.permissionService = permissionService;
     }
 
     // -----------------------------------------------------------------
@@ -144,7 +151,14 @@ public class AuthorizationService {
      *
      * <p>Requires a platform role that can review, <em>and</em> workspace
      * membership.
+     *
+     * @deprecated The role list was hard-coded, which made the permission
+     *     matrix decorative: revoking {@code DOCUMENT_VERSION_REVIEW} from
+     *     the STAFF role in the admin UI had no effect on this guard.
+     *     Use {@link #requireDocumentReviewer(UUID, UUID)} instead — it
+     *     resolves the capability from the matrix.
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public void requireStaffReviewer(UUID userId, UUID workspaceId) {
         requireAnyPlatformRole(userId, ROLE_STAFF, ROLE_TECHNICAL_LEAD, ROLE_MANAGER, ROLE_ADMIN);
@@ -152,14 +166,77 @@ public class AuthorizationService {
     }
 
     /**
-     * Guard for the second-tier (Manager) approval and for publishing.
+     * Guard for the second-tier (Manager) approval.
      *
      * <p>Requires a platform role that can approve, <em>and</em> workspace
      * membership.
+     *
+     * @deprecated Same problem as {@link #requireStaffReviewer}: the role
+     *     list was hard-coded. Use
+     *     {@link #requireDocumentApprover(UUID, UUID)} instead.
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public void requireManagerApprover(UUID userId, UUID workspaceId) {
         requireAnyPlatformRole(userId, ROLE_TECHNICAL_LEAD, ROLE_MANAGER, ROLE_ADMIN);
+        requireWorkspaceMember(userId, workspaceId);
+    }
+
+    /**
+     * Guard for the first-tier (Staff) review, resolved from the
+     * permission matrix.
+     *
+     * <p>The two axes stay separated on purpose:
+     * <ul>
+     *   <li>the <b>permission</b> answers "may this person review at
+     *       all?" — it is resolved from {@code role_permissions} so an
+     *       administrator can revoke {@code DOCUMENT_VERSION_REVIEW}
+     *       without touching code;</li>
+     *   <li>the <b>workspace membership</b> answers "may this person
+     *       act on <em>this</em> workspace's content?" — a platform
+     *       {@code ADMIN} who is not a member must not be able to review
+     *       a document in it.</li>
+     * </ul>
+     *
+     * <p>{@code ADMIN} keeps its blanket bypass: the matrix pins its row
+     * to "every permission granted", and an operator must never be able
+     * to lock the platform out of its own review surface.
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentReviewer(UUID userId, UUID workspaceId) {
+        if (!isAdmin(userId)) {
+            permissionService.requireAnyPermission(userId, PermissionCodes.DOCUMENT_VERSION_REVIEW);
+        }
+        requireWorkspaceMember(userId, workspaceId);
+    }
+
+    /**
+     * Guard for the second-tier (Manager) approval, resolved from the
+     * permission matrix.
+     *
+     * @see #requireDocumentReviewer(UUID, UUID)
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentApprover(UUID userId, UUID workspaceId) {
+        if (!isAdmin(userId)) {
+            permissionService.requireAnyPermission(userId, PermissionCodes.DOCUMENT_VERSION_APPROVE);
+        }
+        requireWorkspaceMember(userId, workspaceId);
+    }
+
+    /**
+     * Guard for publishing an approved version, resolved from the
+     * permission matrix.
+     *
+     * <p>Publishing used to reuse the Manager-approval guard, which meant
+     * a role could publish without the matrix saying so. The publish
+     * capability is now its own permission.
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentPublisher(UUID userId, UUID workspaceId) {
+        if (!isAdmin(userId)) {
+            permissionService.requireAnyPermission(userId, PermissionCodes.DOCUMENT_VERSION_PUBLISH);
+        }
         requireWorkspaceMember(userId, workspaceId);
     }
 
@@ -190,23 +267,36 @@ public class AuthorizationService {
      *
      * <p>Used by the frontend to decide which buttons to render, so the
      * UI never shows an action the API would reject.
+     *
+     * <p>The review capabilities are resolved from the <em>permission
+     * matrix</em>, not from the platform role list. The two used to be
+     * equivalent, but only the matrix is editable at runtime — an
+     * administrator who revokes {@code DOCUMENT_VERSION_REVIEW} from
+     * STAFF must see the review buttons disappear, and the API must
+     * answer 403. Deriving the capability from the role list made the
+     * matrix decorative.
+     *
+     * <p>{@code ADMIN} keeps its blanket bypass, mirroring
+     * {@link PermissionInterceptor}.
      */
     @Transactional(readOnly = true)
     public Capabilities capabilities(UUID userId, UUID workspaceId) {
         Set<String> roles = platformRoles(userId);
         WorkspaceRole wsRole = workspaceRole(userId, workspaceId);
         boolean member = wsRole != null;
+        boolean admin = roles.contains(ROLE_ADMIN);
 
-        boolean staff = member && roles.stream().anyMatch(STAFF_CAPABLE::contains);
-        boolean manager = member && roles.stream().anyMatch(MANAGER_CAPABLE::contains);
-        boolean workspaceManager = wsRole == WorkspaceRole.MANAGER;
+        boolean staff = member && (admin || permissionService.hasAnyPermission(
+                userId, PermissionCodes.DOCUMENT_VERSION_REVIEW));
+        boolean manager = member && (admin || permissionService.hasAnyPermission(
+                userId, PermissionCodes.DOCUMENT_VERSION_APPROVE));
 
         return new Capabilities(
                 member,
-                workspaceManager,
+                member && wsRole == WorkspaceRole.MANAGER,
                 staff,
                 manager,
-                roles.contains(ROLE_ADMIN),
+                admin,
                 List.copyOf(roles));
     }
 

@@ -32,7 +32,14 @@ public class UserRoleAssignment {
     @Column(name = "assigned_by")
     private UUID assignedBy;
 
-    @Column(name = "assigned_at", nullable = false, updatable = false)
+    /**
+     * When the assignment was made.
+     *
+     * <p>Not {@code updatable = false}: a revoked assignment that is
+     * granted again is re-activated, and that re-activation is a new
+     * grant, so the timestamp has to move.
+     */
+    @Column(name = "assigned_at", nullable = false)
     private OffsetDateTime assignedAt;
 
     @Column(name = "revoked_at")
@@ -73,5 +80,20 @@ public class UserRoleAssignment {
         if (revokedAt == null) {
             revokedAt = OffsetDateTime.now();
         }
+    }
+
+    /**
+     * Re-activate a previously revoked assignment.
+     *
+     * <p>The role is granted again rather than inserted as a second row:
+     * the table is a soft-delete log of assignments, so one row per
+     * (user, role) pair is the invariant. {@code assignedAt} is reset to
+     * the moment of the new grant, because that is when the role became
+     * effective again.
+     */
+    public void reactivate(UUID actorId) {
+        this.revokedAt = null;
+        this.assignedBy = actorId;
+        this.assignedAt = OffsetDateTime.now();
     }
 }

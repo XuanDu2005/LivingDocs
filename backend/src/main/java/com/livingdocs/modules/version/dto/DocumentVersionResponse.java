@@ -22,30 +22,28 @@ public record DocumentVersionResponse(
         String changeSummary,
         ActorRole actorRole,
         UUID actorUserId,
+        /**
+         * The user who pushed this version into the review queue.
+         *
+         * <p>Distinct from {@code actorUserId}: when a reviewer revises
+         * a pending version in place, the actor is the reviewer but the
+         * submission still belongs to the author who asked for the
+         * review.
+         */
+        UUID submittedByUserId,
+        /** When the version was submitted for review. */
+        OffsetDateTime submittedAt,
         String sourceCommitSha,
         UUID sourcePrId,
+        /** The ticket the change belongs to, e.g. {@code PROJ-123}. */
+        String sourceTicketRef,
         UUID templateId,
         VersionStatus status,
         Float confidenceScore,
         OffsetDateTime createdAt,
         CommitSummaryDto triggerCommit) {
     public static DocumentVersionResponse from(DocumentVersion v) {
-        return new DocumentVersionResponse(
-                v.getId(),
-                v.getDocumentId(),
-                v.getVersionNumber(),
-                v.getBodyMarkdown(),
-                v.getChangeSummary(),
-                v.getActorRole(),
-                v.getActorUserId(),
-                v.getSourceCommitSha(),
-                v.getSourcePrId(),
-                v.getTemplateId(),
-                v.getStatus(),
-                v.getConfidenceScore(),
-                v.getCreatedAt(),
-                null
-        );
+        return from(v, null);
     }
 
     public static DocumentVersionResponse from(DocumentVersion v, CommitSummaryDto triggerCommit) {
@@ -57,8 +55,11 @@ public record DocumentVersionResponse(
                 v.getChangeSummary(),
                 v.getActorRole(),
                 v.getActorUserId(),
+                v.getSubmittedByUserId(),
+                v.getSubmittedAt(),
                 v.getSourceCommitSha(),
                 v.getSourcePrId(),
+                v.getSourceTicketRef(),
                 v.getTemplateId(),
                 v.getStatus(),
                 v.getConfidenceScore(),

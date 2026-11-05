@@ -17,7 +17,6 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -62,13 +61,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 boolean enabled = userRepository.findById(userId)
                         .map(u -> u.isEnabled())
                         .orElse(true);
-                // Prefer roles embedded in the JWT (cheap); fall back to
-                // a DB lookup when the claim is missing (e.g. tokens
-                // issued before this code shipped).
-                List<String> roleCodes = extractRoleCodes(claims);
-                if (roleCodes.isEmpty()) {
-                    roleCodes = roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
-                }
+                // The active role codes are always read from the database,
+                // never from the token's `roles` claim.
+                //
+                // The claim was a snapshot taken when the token was
+                // issued. An administrator who promotes an account from
+                // DEVELOPER to STAFF would otherwise keep the stale
+                // claim for the whole lifetime of the token (up to 24
+                // hours), and every `@RequirePlatformRole`-guarded
+                // endpoint would keep judging the account by its old
+                // role. The permission matrix has the same problem and
+                // solves it by evicting its cache; the role list has no
+                // cache, so the lookup is simply always made.
+                List<String> roleCodes =
+                        roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
 
                 AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", enabled, roleCodes);
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
@@ -101,17 +107,5 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return request.getParameter("token");
         }
         return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> extractRoleCodes(Claims claims) {
-        Object raw = claims.get(AppConstants.JWT_CLAIM_ROLES);
-        if (raw instanceof List<?> list) {
-            return list.stream()
-                    .filter(o -> o instanceof String)
-                    .map(Object::toString)
-                    .toList();
-        }
-        return Collections.emptyList();
     }
 }

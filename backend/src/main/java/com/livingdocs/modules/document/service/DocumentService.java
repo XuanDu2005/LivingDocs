@@ -6,6 +6,8 @@ import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.common.security.AuthorizationService;
+import com.livingdocs.common.security.PermissionCodes;
+import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.document.dto.CreateDocumentRequest;
 import com.livingdocs.modules.document.dto.DocumentResponse;
 import com.livingdocs.modules.document.dto.UpdateDocumentRequest;
@@ -57,19 +59,22 @@ public class DocumentService {
     private final DocTemplateService templateService;
     private final AuditLogService auditLogService;
     private final AuthorizationService authorizationService;
+    private final PermissionService permissionService;
 
     public DocumentService(DocumentRepository documentRepository,
                            DocumentVersionRepository versionRepository,
                            WorkspaceService workspaceService,
                            DocTemplateService templateService,
                            AuditLogService auditLogService,
-                           AuthorizationService authorizationService) {
+                           AuthorizationService authorizationService,
+                           PermissionService permissionService) {
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
         this.workspaceService = workspaceService;
         this.templateService = templateService;
         this.auditLogService = auditLogService;
         this.authorizationService = authorizationService;
+        this.permissionService = permissionService;
     }
 
     @Transactional
@@ -150,10 +155,27 @@ public class DocumentService {
                 .stream().map(DocumentResponse::from).toList();
     }
 
+    /**
+     * Update the metadata of a document.
+     *
+     * <p>Two guards apply, and both are needed:
+     * <ul>
+     *   <li>the {@code DOCUMENT_UPDATE} permission — the matrix decides
+     *       whether the role may edit documents at all;</li>
+     *   <li>the ownership rule — the owner of the document, or a
+     *       workspace manager. That is a business rule the permission
+     *       matrix cannot express, so it stays here.</li>
+ * </ul>
+ *
+ * <p>Before this, the ownership rule was the only check, which meant
+ * the {@code DOCUMENT_UPDATE} permission existed in the matrix but was
+ * never consulted — the matrix was decorative for this endpoint.
+ */
     @Transactional
     public DocumentResponse update(UUID actorId, UUID workspaceId, UUID documentId,
                                    UpdateDocumentRequest req) {
         Document d = loadAndAuthorize(actorId, workspaceId, documentId);
+        permissionService.requireAnyPermission(actorId, PermissionCodes.DOCUMENT_UPDATE);
         if (!d.getOwnerId().equals(actorId)) {
             workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
         }
@@ -218,14 +240,22 @@ public class DocumentService {
     /**
      * Toggle the auto-update setting for a document. If enabled, the system will
      * automatically regenerate the document when the linked code repository changes.
+     *
+     * <p>Guarded by {@code REPOSITORY_AUTO_UPDATE_MANAGE} — the same
+     * capability that controls the repository-level toggle. A per-document
+     * permission would be more precise, but the document toggle is only
+     * meaningful when the repository toggle is on, so splitting the two
+     * would let somebody enable a document whose repository cannot
+     * auto-update at all.
      */
     @Transactional
     public Document toggleAutoUpdate(UUID actorId, UUID workspaceId, UUID documentId, boolean enabled) {
         workspaceService.requireMember(actorId, workspaceId);
-        
+        permissionService.requireAnyPermission(actorId, PermissionCodes.REPOSITORY_AUTO_UPDATE_MANAGE);
+
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
-        
+
         if (!doc.getWorkspaceId().equals(workspaceId)) {
             throw new ForbiddenException("Document does not belong to this workspace");
         }

@@ -20,6 +20,13 @@ import java.util.UUID;
  * (Staff or Manager). The same version may receive multiple review rows
  * (e.g. Staff approves, then Manager approves) — the latest entry per
  * {@code (versionId, reviewerRole)} is the authoritative verdict.
+ *
+ * <p>The three {@code section*} fields anchor a comment to one specific
+ * part of the document (requirement #8 of the STAFF role: "comment /
+ * request changes on a specific section"). A document is markdown, so a
+ * section is a markdown heading; the reviewer picks the heading and the
+ * backend stores its slug, its text and a GitHub-style anchor. They stay
+ * {@code null} for a review that comments on the document as a whole.
  */
 @Entity
 @Table(
@@ -52,6 +59,18 @@ public class DocumentReview {
     @Column(name = "comment", columnDefinition = "text")
     private String comment;
 
+    /** Slug of the markdown heading the comment targets, e.g. {@code overview}. */
+    @Column(name = "section_id", length = 120)
+    private String sectionId;
+
+    /** The heading text as it appears in the document, e.g. {@code Overview}. */
+    @Column(name = "section_heading", length = 255)
+    private String sectionHeading;
+
+    /** GitHub-style anchor for deep-linking, e.g. {@code #overview}. */
+    @Column(name = "section_anchor", length = 255)
+    private String sectionAnchor;
+
     @Column(name = "decided_at", nullable = false, updatable = false)
     private OffsetDateTime decidedAt;
 
@@ -61,11 +80,20 @@ public class DocumentReview {
 
     public DocumentReview(UUID documentVersionId, UUID reviewerUserId,
                           String reviewerRole, ReviewDecision decision, String comment) {
+        this(documentVersionId, reviewerUserId, reviewerRole, decision, comment, null, null, null);
+    }
+
+    public DocumentReview(UUID documentVersionId, UUID reviewerUserId,
+                          String reviewerRole, ReviewDecision decision, String comment,
+                          String sectionId, String sectionHeading, String sectionAnchor) {
         this.documentVersionId = documentVersionId;
         this.reviewerUserId = reviewerUserId;
         this.reviewerRole = reviewerRole;
         this.decision = decision;
         this.comment = comment;
+        this.sectionId = sectionId;
+        this.sectionHeading = sectionHeading;
+        this.sectionAnchor = sectionAnchor;
     }
 
     @jakarta.persistence.PrePersist
@@ -79,5 +107,8 @@ public class DocumentReview {
     public String getReviewerRole() { return reviewerRole; }
     public ReviewDecision getDecision() { return decision; }
     public String getComment() { return comment; }
+    public String getSectionId() { return sectionId; }
+    public String getSectionHeading() { return sectionHeading; }
+    public String getSectionAnchor() { return sectionAnchor; }
     public OffsetDateTime getDecidedAt() { return decidedAt; }
 }

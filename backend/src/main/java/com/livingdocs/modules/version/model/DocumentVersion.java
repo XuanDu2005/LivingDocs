@@ -84,6 +84,18 @@ public class DocumentVersion {
     @Column(name = "source_pr_id")
     private UUID sourcePrId;
 
+    /**
+     * The ticket the change belongs to, e.g. {@code PROJ-123}.
+     *
+     * <p>Requirement #2 of the STAFF role asks the grounding panel to
+     * show the ticket next to the source file, the code entity, the
+     * commit and the diff. The reference is extracted from the commit
+     * message or the pull-request title of the change that triggered
+     * the generation, so it is best-effort and may be {@code null}.
+     */
+    @Column(name = "source_ticket_ref", length = 120)
+    private String sourceTicketRef;
+
     @Column(name = "template_id")
     private UUID templateId;
 
@@ -146,6 +158,8 @@ public class DocumentVersion {
     public void setSubmittedAt(OffsetDateTime submittedAt) { this.submittedAt = submittedAt; }
     public String getSourceCommitSha() { return sourceCommitSha; }
     public UUID getSourcePrId() { return sourcePrId; }
+    public String getSourceTicketRef() { return sourceTicketRef; }
+    public void setSourceTicketRef(String ref) { this.sourceTicketRef = ref; }
     public UUID getTemplateId() { return templateId; }
     public VersionStatus getStatus() { return status; }
     public Float getConfidenceScore() { return confidenceScore; }

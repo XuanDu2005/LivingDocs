@@ -34,6 +34,12 @@ export interface DocumentReview {
   reviewerRole: string;
   decision: ReviewDecision;
   comment: string | null;
+  /** Slug of the markdown heading the comment targets, e.g. `overview`. */
+  sectionId: string | null;
+  /** The heading text as it appears in the document, e.g. `Overview`. */
+  sectionHeading: string | null;
+  /** GitHub-style anchor for deep-linking, e.g. `#overview`. */
+  sectionAnchor: string | null;
   decidedAt: string;
 }
 
@@ -51,7 +57,33 @@ export interface ReviewQueueItem {
   actorRole: string | null;
   changeSummary: string | null;
   action: 'STAFF_REVIEW' | 'MANAGER_APPROVAL' | 'PUBLISH';
+  /** When the version was written. */
   createdAt: string;
+  /** When the version entered the review queue — the sort key. */
+  submittedAt: string | null;
+  submittedByUserId: string | null;
+  submittedByName: string | null;
+  repositoryId: string | null;
+  templateId: string | null;
+  templateName: string | null;
+  /** The worst open drift severity of the document, e.g. `HIGH`. */
+  maxDriftSeverity: DriftSeverity | null;
+  /** How many open drift alerts the document has. */
+  openDriftCount: number | null;
+  /** Whether the version follows its template structure. */
+  templateCompliant: boolean | null;
+}
+
+/** The filter and sort options of a review queue. */
+export interface ReviewQueueFilters {
+  repositoryId?: string;
+  templateId?: string;
+  severity?: DriftSeverity;
+  docType?: string;
+  submittedFrom?: string;
+  submittedTo?: string;
+  sort?: 'SUBMITTED_AT' | 'CONFIDENCE' | 'SEVERITY';
+  direction?: 'ASC' | 'DESC';
 }
 
 /**
@@ -117,6 +149,45 @@ export interface WorkspaceCapabilities {
   canManagerApprove: boolean;
   admin: boolean;
   platformRoles: string[];
+}
+
+/**
+ * The state of one template section inside a document body.
+ */
+export interface TemplateSectionCompliance {
+  id: string;
+  heading: string;
+  present: boolean;
+  inOrder: boolean;
+  empty: boolean;
+  required: boolean;
+}
+
+/**
+ * Whether a document version follows the template it was generated
+ * from. Requirement #5 of the STAFF role: "verify template structure".
+ */
+export interface TemplateCompliance {
+  templateId: string | null;
+  templateName: string | null;
+  compliant: boolean;
+  sections: TemplateSectionCompliance[];
+  missingHeadings: string[];
+  outOfOrderHeadings: string[];
+}
+
+/**
+ * Turn a filter object into a query string, skipping the empty values.
+ */
+function toQueryString(filters?: ReviewQueueFilters): string {
+  if (!filters) return '';
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === '') continue;
+    params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
 }
 
 export const driftApi = {
@@ -198,11 +269,12 @@ export const reviewsApi = {
     versionId: string,
     decision: ReviewDecision,
     comment?: string,
+    section?: { sectionId?: string; sectionHeading?: string; sectionAnchor?: string },
   ) {
     return apiClient
       .post<DocumentReview>(
         `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/staff-review`,
-        { decision, comment },
+        { decision, comment, ...(section ?? {}) },
       )
       .then((r) => r.data);
   },
@@ -212,11 +284,47 @@ export const reviewsApi = {
     versionId: string,
     decision: ReviewDecision,
     comment?: string,
+    section?: { sectionId?: string; sectionHeading?: string; sectionAnchor?: string },
   ) {
     return apiClient
       .post<DocumentReview>(
         `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/manager-decision`,
-        { decision, comment },
+        { decision, comment, ...(section ?? {}) },
+      )
+      .then((r) => r.data);
+  },
+  /**
+   * Fix small errors in a version that is awaiting review.
+   *
+   * The revision creates a new version that supersedes the one under
+   * review; the new version keeps the original submitter and stays in
+   * the queue.
+   */
+  revise(
+    workspaceId: string,
+    documentId: string,
+    versionId: string,
+    bodyMarkdown: string,
+    changeSummary?: string,
+  ) {
+    return apiClient
+      .put<import('./documents').DocumentVersion>(
+        `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/revise`,
+        { bodyMarkdown, changeSummary },
+      )
+      .then((r) => r.data);
+  },
+  /**
+   * Check a version against the template it was generated from.
+   */
+  templateCompliance(
+    workspaceId: string,
+    documentId: string,
+    versionId: string,
+  ) {
+    return apiClient
+      .get<TemplateCompliance>(
+        `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/template-compliance`,
       )
       .then((r) => r.data);
   },
@@ -233,24 +341,32 @@ export const reviewsApi = {
    * capability for come back empty rather than forbidden, so a single
    * request drives the whole page.
    */
-  pendingOnMe(workspaceId: string) {
+  pendingOnMe(workspaceId: string, filters?: ReviewQueueFilters) {
     return apiClient
-      .get<ReviewQueue>(`/workspaces/${workspaceId}/reviews/pending-on-me`)
+      .get<ReviewQueue>(
+        `/workspaces/${workspaceId}/reviews/pending-on-me${toQueryString(filters)}`,
+      )
       .then((r) => r.data);
   },
-  staffQueue(workspaceId: string) {
+  staffQueue(workspaceId: string, filters?: ReviewQueueFilters) {
     return apiClient
-      .get<ReviewQueueItem[]>(`/workspaces/${workspaceId}/reviews/staff-queue`)
+      .get<ReviewQueueItem[]>(
+        `/workspaces/${workspaceId}/reviews/staff-queue${toQueryString(filters)}`,
+      )
       .then((r) => r.data);
   },
-  managerQueue(workspaceId: string) {
+  managerQueue(workspaceId: string, filters?: ReviewQueueFilters) {
     return apiClient
-      .get<ReviewQueueItem[]>(`/workspaces/${workspaceId}/reviews/manager-queue`)
+      .get<ReviewQueueItem[]>(
+        `/workspaces/${workspaceId}/reviews/manager-queue${toQueryString(filters)}`,
+      )
       .then((r) => r.data);
   },
-  publishQueue(workspaceId: string) {
+  publishQueue(workspaceId: string, filters?: ReviewQueueFilters) {
     return apiClient
-      .get<ReviewQueueItem[]>(`/workspaces/${workspaceId}/reviews/publish-queue`)
+      .get<ReviewQueueItem[]>(
+        `/workspaces/${workspaceId}/reviews/publish-queue${toQueryString(filters)}`,
+      )
       .then((r) => r.data);
   },
   /**

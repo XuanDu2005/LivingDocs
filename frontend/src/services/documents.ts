@@ -47,8 +47,14 @@ export interface DocumentVersion {
   changeSummary: string | null;
   actorRole: ActorRole;
   actorUserId: string | null;
+  /** The user who pushed this version into the review queue. */
+  submittedByUserId: string | null;
+  /** When the version was submitted for review. */
+  submittedAt: string | null;
   sourceCommitSha: string | null;
   sourcePrId: string | null;
+  /** The ticket the change belongs to, e.g. `PROJ-123`. */
+  sourceTicketRef: string | null;
   templateId: string | null;
   status: VersionStatus;
   confidenceScore: number | null;
@@ -75,6 +81,8 @@ export interface DocumentVersionSummary {
   sourceCommitSha: string | null;
   sourceCommitShort: string | null;
   sourcePrId: string | null;
+  /** The ticket the change belongs to, e.g. `PROJ-123`. */
+  sourceTicketRef: string | null;
   status: VersionStatus;
   confidenceScore: number | null;
   createdAt: string;

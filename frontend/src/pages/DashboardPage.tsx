@@ -218,7 +218,10 @@ export default function DashboardPage() {
                 reviewerRole: item.action,
                 decision: 'COMMENT' as const,
                 comment: item.changeSummary,
-                decidedAt: item.createdAt,
+                sectionId: null,
+                sectionHeading: null,
+                sectionAnchor: null,
+                decidedAt: item.submittedAt ?? item.createdAt,
               })),
           );
         }

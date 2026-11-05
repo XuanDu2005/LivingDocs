@@ -581,8 +581,45 @@
     "colConfidence": "Confidence",
     "colChange": "Change",
     "colActions": "Actions",
+    "colSeverity": "Drift",
+    "colTemplate": "Template",
+    "colSubmittedAt": "Submitted",
+    "templateOk": "OK",
+    "templateMissing": "Missing",
     "placeholder": {
       "comment": "Leave a comment (optional)"
+    },
+    "filters": {
+      "toggle": "Filters",
+      "active": "active",
+      "clear": "Clear filters",
+      "all": "All",
+      "docType": "Doc type",
+      "severity": "Drift severity",
+      "sort": "Sort by",
+      "direction": "Direction",
+      "submittedFrom": "Submitted from",
+      "submittedTo": "Submitted to",
+      "sortSubmittedAt": "Submitted at",
+      "sortConfidence": "Confidence",
+      "sortSeverity": "Drift severity",
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "drawer": {
+      "title": "Review version",
+      "subtitle": "Check the content before deciding.",
+      "changeLog": "Change log",
+      "commentOnSection": "Comment on a section",
+      "wholeDocument": "Whole document",
+      "targetSection": "Target section",
+      "edit": "Fix small errors",
+      "saveRevision": "Save revision",
+      "changeSummary": "Change summary",
+      "changeSummaryPlaceholder": "What did you fix?",
+      "missingSections": "Missing sections",
+      "templateOk": "Template ✓",
+      "templateMissing": "Template ✗"
     },
     "queue": {
       "staff": "Staff review",
@@ -616,6 +653,9 @@
     "action": {
       "approve": "Approve",
       "requestChanges": "Request changes",
+      "reject": "Reject",
+      "comment": "Comment only",
+      "open": "Open",
       "publish": "Publish"
     }
   },
