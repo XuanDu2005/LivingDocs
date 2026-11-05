@@ -530,19 +530,24 @@ function ActivitySection({ title, empty, items }: { title: string; empty: string
                 to={it.to}
                 className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/40"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{it.primary}</div>
                   <div className="truncate text-xs text-muted-foreground">{it.secondary}</div>
                 </div>
-                {it.badge && (
-                  <Badge
-                    variant={it.badge === 'AI' ? 'info' : it.badge === 'CRITICAL' ? 'destructive' : it.badge === 'HIGH' ? 'warning' : 'muted'}
-                    className="shrink-0 text-[10px]"
-                  >
-                    {it.badge}
-                  </Badge>
-                )}
-                <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                {/* The badge and the chevron travel together so the tag
+                    always hugs the right edge of the row instead of
+                    floating in the middle of it. */}
+                <div className="flex shrink-0 items-center gap-2">
+                  {it.badge && (
+                    <Badge
+                      variant={it.badge === 'AI' ? 'info' : it.badge === 'CRITICAL' ? 'destructive' : it.badge === 'HIGH' ? 'warning' : 'muted'}
+                      className="shrink-0 text-[10px]"
+                    >
+                      {it.badge}
+                    </Badge>
+                  )}
+                  <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                </div>
               </Link>
             </li>
           ))}
