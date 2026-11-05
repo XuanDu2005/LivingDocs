@@ -2,7 +2,11 @@ package com.livingdocs.modules.version.repository;
 
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
@@ -18,6 +22,32 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
     Optional<DocumentVersion> findFirstByDocumentIdOrderByVersionNumberDesc(UUID documentId);
 
     Optional<DocumentVersion> findByDocumentIdAndVersionNumber(UUID documentId, Integer versionNumber);
+
+    /**
+     * Load a version with a pessimistic write lock.
+     *
+     * <p>Two Staff reviewers hitting "approve" on the same version at
+     * the same time would otherwise both read the same state and both
+     * write a verdict — the database would accept both rows and the
+     * workflow state machine would then have two conflicting opinions
+     * about the same version. The partial unique index added in V40 is
+     * the last line of defence, but taking the lock here means the
+     * second caller waits and then sees the first caller's result.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from DocumentVersion v where v.id = :id")
+    Optional<DocumentVersion> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * Every version of the given documents that currently sits in one of
+     * the given statuses, newest submission first.
+     *
+     * <p>Replaces the previous "load every document, then load every
+     * version of every document and filter in memory" approach, which
+     * ran one query per document.
+     */
+    List<DocumentVersion> findAllByDocumentIdInAndStatusInOrderBySubmittedAtDesc(
+            Collection<UUID> documentIds, Collection<VersionStatus> statuses);
 
     long countByDocumentId(UUID documentId);
 
@@ -37,12 +67,4 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
      */
     List<DocumentVersion> findAllBySubmittedByUserIdAndDocumentIdInOrderBySubmittedAtDesc(
             UUID submittedByUserId, Collection<UUID> documentIds);
-
-    /**
-     * The same set, restricted to versions that are still somewhere in
-     * the review workflow. A version that was already published or
-     * superseded has left the queue for good.
-     */
-    List<DocumentVersion> findAllBySubmittedByUserIdAndDocumentIdInAndStatusInOrderBySubmittedAtDesc(
-            UUID submittedByUserId, Collection<UUID> documentIds, Collection<VersionStatus> statuses);
 }

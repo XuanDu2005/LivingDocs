@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +34,7 @@ class AuthorizationServiceTest {
     private AuthorizationService service;
     private UserRoleAssignmentRepository roleRepository;
     private WorkspaceMemberRepository memberRepository;
+    private PermissionService permissionService;
 
     private UUID userId;
     private UUID workspaceId;
@@ -41,7 +43,8 @@ class AuthorizationServiceTest {
     void setUp() {
         roleRepository = mock(UserRoleAssignmentRepository.class);
         memberRepository = mock(WorkspaceMemberRepository.class);
-        service = new AuthorizationService(roleRepository, memberRepository);
+        permissionService = mock(PermissionService.class);
+        service = new AuthorizationService(roleRepository, memberRepository, permissionService);
 
         userId = UUID.randomUUID();
         workspaceId = UUID.randomUUID();
@@ -49,6 +52,9 @@ class AuthorizationServiceTest {
         when(roleRepository.findActiveRoleCodesByUserId(any())).thenReturn(List.of());
         when(memberRepository.existsByWorkspaceIdAndUserId(any(), any())).thenReturn(false);
         when(memberRepository.findByWorkspaceIdAndUserId(any(), any())).thenReturn(Optional.empty());
+        // No permission by default — a user holds nothing until the
+        // matrix says otherwise.
+        when(permissionService.hasAnyPermission(any(), any(String[].class))).thenReturn(false);
     }
 
     // -----------------------------------------------------------------
@@ -168,6 +174,7 @@ class AuthorizationServiceTest {
     void capabilitiesReflectBothAxes() {
         givenPlatformRoles("STAFF");
         givenMembership(WorkspaceRole.MEMBER);
+        givenPermissions(PermissionCodes.DOCUMENT_VERSION_REVIEW);
 
         var caps = service.capabilities(userId, workspaceId);
 
@@ -182,6 +189,8 @@ class AuthorizationServiceTest {
     void technicalLeadCapabilitiesCoverBothTiers() {
         givenPlatformRoles("TECHNICAL_LEAD");
         givenMembership(WorkspaceRole.MEMBER);
+        givenPermissions(PermissionCodes.DOCUMENT_VERSION_REVIEW,
+                PermissionCodes.DOCUMENT_VERSION_APPROVE);
 
         var caps = service.capabilities(userId, workspaceId);
 
@@ -191,12 +200,78 @@ class AuthorizationServiceTest {
                 "technical leadership does not imply workspace administration");
     }
 
+    /**
+     * The review capability now comes from the permission matrix, not
+     * from the platform role list. A Staff member whose
+     * {@code DOCUMENT_VERSION_REVIEW} grant was revoked must not see a
+     * review queue — that was the whole point of moving the guard off
+     * the hard-coded role list.
+     */
+    @Test
+    void reviewCapabilityFollowsThePermissionMatrix() {
+        givenPlatformRoles("STAFF");
+        givenMembership(WorkspaceRole.MEMBER);
+        // No permission granted.
+
+        var caps = service.capabilities(userId, workspaceId);
+
+        assertFalse(caps.canStaffReview(),
+                "the platform role alone no longer grants the review capability");
+        assertFalse(caps.canManagerApprove());
+    }
+
+    /**
+     * ADMIN keeps its blanket bypass even if the matrix was edited by
+     * hand — an operator must never be able to lock the platform out of
+     * its own review surface.
+     */
+    @Test
+    void adminBypassesThePermissionMatrix() {
+        givenPlatformRoles("ADMIN");
+        givenMembership(WorkspaceRole.MEMBER);
+        // No permission granted.
+
+        var caps = service.capabilities(userId, workspaceId);
+
+        assertTrue(caps.canStaffReview());
+        assertTrue(caps.canManagerApprove());
+    }
+
     // -----------------------------------------------------------------
     // helpers
     // -----------------------------------------------------------------
 
     private void givenPlatformRoles(String... roles) {
         when(roleRepository.findActiveRoleCodesByUserId(userId)).thenReturn(List.of(roles));
+    }
+
+    /**
+     * Grant the given permission codes to the user.
+     *
+     * <p>The production call is a varargs method. Mockito expands the
+     * varargs into separate invocation arguments, so a two-code call
+     * arrives as {@code [userId, "CODE_A", "CODE_B"]} rather than as
+     * {@code [userId, String[]]}. The answer therefore flattens
+     * everything after the user id, whatever shape it arrives in.
+     */
+    private void givenPermissions(String... codes) {
+        when(permissionService.hasAnyPermission(eq(userId), any(String[].class)))
+                .thenAnswer(inv -> {
+                    for (int i = 1; i < inv.getArguments().length; i++) {
+                        Object arg = inv.getArguments()[i];
+                        String[] requested = arg instanceof String[] arr
+                                ? arr
+                                : new String[]{(String) arg};
+                        for (String code : requested) {
+                            for (String granted : codes) {
+                                if (code.equals(granted)) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                });
     }
 
     private void givenMembership(WorkspaceRole role) {

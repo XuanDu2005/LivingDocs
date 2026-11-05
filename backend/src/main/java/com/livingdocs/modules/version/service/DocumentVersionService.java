@@ -5,10 +5,13 @@ import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.PermissionCodes;
 import com.livingdocs.common.security.PermissionService;
+import com.livingdocs.common.text.TicketReferences;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.model.Commit;
+import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.repository.CommitRepository;
+import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.version.dto.CommitSummaryDto;
 import com.livingdocs.modules.version.dto.DocumentVersionDiffResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
@@ -51,6 +54,7 @@ public class DocumentVersionService {
     private final DocumentRepository documentRepository;
     private final WorkspaceService workspaceService;
     private final CommitRepository commitRepository;
+    private final PullRequestRepository pullRequestRepository;
     private final AuthorizationService authorizationService;
     private final PermissionService permissionService;
 
@@ -58,12 +62,14 @@ public class DocumentVersionService {
                                   DocumentRepository documentRepository,
                                   WorkspaceService workspaceService,
                                   CommitRepository commitRepository,
+                                  PullRequestRepository pullRequestRepository,
                                   AuthorizationService authorizationService,
                                   PermissionService permissionService) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
         this.commitRepository = commitRepository;
+        this.pullRequestRepository = pullRequestRepository;
         this.authorizationService = authorizationService;
         this.permissionService = permissionService;
     }
@@ -174,10 +180,43 @@ public class DocumentVersionService {
                 VersionStatus.DRAFT, confidenceScore
         );
         version.setGroundingJson(groundingJson);
+        // Requirement #2: the grounding panel shows the ticket the
+        // change belongs to. The reference lives in the commit message
+        // or the pull-request title of the triggering change, so it is
+        // extracted on the way in.
+        version.setSourceTicketRef(resolveTicketRef(sourceCommitSha, sourcePrId));
         DocumentVersion saved = versionRepository.save(version);
         log.info("AI version created: document={} version={} confidence={}",
                 documentId, next, confidenceScore);
         return saved;
+    }
+
+    /**
+     * The ticket reference of the change that triggered a version.
+     *
+     * <p>Looked up in the commit message first (the commit is the more
+     * precise description of the change), then in the pull-request
+     * title. Returns {@code null} when neither carries a ticket key —
+     * the field is best-effort and a version without a ticket is
+     * perfectly valid.
+     */
+    private String resolveTicketRef(String sourceCommitSha, UUID sourcePrId) {
+        if (sourceCommitSha != null && !sourceCommitSha.isBlank()) {
+            String fromCommit = commitRepository.findFirstBySha(sourceCommitSha)
+                    .map(Commit::getMessage)
+                    .map(TicketReferences::first)
+                    .orElse(null);
+            if (fromCommit != null) {
+                return fromCommit;
+            }
+        }
+        if (sourcePrId != null) {
+            return pullRequestRepository.findById(sourcePrId)
+                    .map(PullRequest::getTitle)
+                    .map(TicketReferences::first)
+                    .orElse(null);
+        }
+        return null;
     }
 
     /**
@@ -294,13 +333,15 @@ public class DocumentVersionService {
      * Promote a specific version to be the document's head version. Used by
      * the approval workflow after a Manager grants final approval.
      *
-     * <p>Requires Manager-tier capability: platform role {@code TECHNICAL_LEAD},
-     * {@code MANAGER} or {@code ADMIN} <em>and</em> workspace membership.
+     * <p>Requires the {@code DOCUMENT_VERSION_PUBLISH} permission — which
+     * is a separate capability from {@code DOCUMENT_VERSION_APPROVE} — and
+     * workspace membership. Publishing used to reuse the Manager-approval
+     * guard, so a role could publish without the matrix saying so.
      */
     @Transactional
     public void publishVersion(UUID actorId, UUID documentId, Integer versionNumber) {
         Document document = loadAndAuthorize(actorId, documentId);
-        authorizationService.requireManagerApprover(actorId, document.getWorkspaceId());
+        authorizationService.requireDocumentPublisher(actorId, document.getWorkspaceId());
         DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, versionNumber)
                 .orElseThrow(() -> new NotFoundException("Version not found"));
         if (target.getStatus() != VersionStatus.APPROVED) {
@@ -318,10 +359,12 @@ public class DocumentVersionService {
      * dismissed: a version that already went through review or became
      * the document head is part of the published history.
      *
-     * <p>The author of the draft may dismiss their own draft; a Manager
-     * may dismiss any draft in the workspace. This is deliberately
-     * <em>not</em> the publish tier — dismissing a draft is a routine
-     * editorial decision, not a publishing one.
+     * <p>Only the author of the draft may dismiss it. Dismissing is an
+     * editorial decision about one's own draft, so a Staff reviewer has
+     * no business discarding somebody else's work — that is what
+     * "request changes" is for. The earlier rule also let a Manager
+     * dismiss any draft in the workspace, which was inconsistent with
+     * the STAFF role being "DEVELOPER plus review".
      */
     @Transactional
     public DocumentVersion dismissVersion(UUID actorId, UUID documentId, Integer versionNumber) {
@@ -336,14 +379,9 @@ public class DocumentVersionService {
             throw new BadRequestException(
                     "Only draft versions can be dismissed (this one is " + target.getStatus() + ")");
         }
-        // Either the author of the draft, or somebody who can approve.
         boolean isAuthor = target.getActorUserId() != null
                 && target.getActorUserId().equals(actorId);
-        boolean canApprove = authorizationService.platformRoles(actorId).stream().anyMatch(
-                Set.of(AuthorizationService.ROLE_TECHNICAL_LEAD,
-                        AuthorizationService.ROLE_MANAGER,
-                        AuthorizationService.ROLE_ADMIN)::contains);
-        if (!isAuthor && !canApprove) {
+        if (!isAuthor) {
             throw new com.livingdocs.common.exception.ForbiddenException(
                     "You can only dismiss drafts you authored");
         }
@@ -365,6 +403,13 @@ public class DocumentVersionService {
      * document's own content, so it only requires the
      * {@code DOCUMENT_ROLLBACK} permission — not the Manager approval
      * tier that gates {@link #publishVersion}.
+     *
+     * <p>The rollback produces a {@link VersionStatus#DRAFT}, not an
+     * {@code APPROVED} version: rolling back to an old body is a
+     * correction, and a correction still has to go through the review
+     * workflow before it becomes the published head. The document's
+     * {@code headVersionId} and status are deliberately left alone — the
+     * published head is still the last version that went through review.
      */
     @Transactional
     public DocumentVersion rollback(UUID actorId, UUID documentId, Integer targetVersionNumber) {
@@ -381,7 +426,10 @@ public class DocumentVersionService {
                 documentId, next, target.getBodyMarkdown(),
                 "Rolled back to version " + targetVersionNumber,
                 role, actorId,
-                null, null, document.getTemplateId(),
+                // Carry the grounding of the version we rolled back to,
+                // so the reviewer can still see which commit the content
+                // came from.
+                target.getSourceCommitSha(), target.getSourcePrId(), document.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
         DocumentVersion saved = versionRepository.save(rollback);

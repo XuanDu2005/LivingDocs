@@ -581,8 +581,45 @@
     "colConfidence": "Độ tin cậy",
     "colChange": "Thay đổi",
     "colActions": "Thao tác",
+    "colSeverity": "Mức lệch",
+    "colTemplate": "Template",
+    "colSubmittedAt": "Ngày gửi",
+    "templateOk": "Đạt",
+    "templateMissing": "Thiếu",
     "placeholder": {
       "comment": "Ghi bình luận (không bắt buộc)"
+    },
+    "filters": {
+      "toggle": "Bộ lọc",
+      "active": "đang dùng",
+      "clear": "Xoá lọc",
+      "all": "Tất cả",
+      "docType": "Loại tài liệu",
+      "severity": "Mức lệch",
+      "sort": "Sắp xếp theo",
+      "direction": "Thứ tự",
+      "submittedFrom": "Gửi từ",
+      "submittedTo": "Gửi đến",
+      "sortSubmittedAt": "Ngày gửi",
+      "sortConfidence": "Độ tin cậy",
+      "sortSeverity": "Mức lệch",
+      "asc": "Tăng dần",
+      "desc": "Giảm dần"
+    },
+    "drawer": {
+      "title": "Duyệt phiên bản",
+      "subtitle": "Kiểm tra nội dung trước khi quyết định.",
+      "changeLog": "Nhật ký thay đổi",
+      "commentOnSection": "Bình luận theo mục",
+      "wholeDocument": "Toàn tài liệu",
+      "targetSection": "Mục được chọn",
+      "edit": "Sửa lỗi nhỏ",
+      "saveRevision": "Lưu bản sửa",
+      "changeSummary": "Tóm tắt thay đổi",
+      "changeSummaryPlaceholder": "Bạn đã sửa gì?",
+      "missingSections": "Các mục còn thiếu",
+      "templateOk": "Template ✓",
+      "templateMissing": "Template ✗"
     },
     "queue": {
       "staff": "Duyệt Staff",
@@ -616,6 +653,9 @@
     "action": {
       "approve": "Duyệt",
       "requestChanges": "Yêu cầu sửa",
+      "reject": "Từ chối",
+      "comment": "Chỉ bình luận",
+      "open": "Mở",
       "publish": "Phát hành"
     }
   },

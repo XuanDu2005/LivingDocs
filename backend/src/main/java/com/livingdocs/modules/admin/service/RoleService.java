@@ -12,6 +12,7 @@ import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.repository.UserRepository;
 import com.livingdocs.modules.user.service.AvatarStorageService;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -87,8 +89,19 @@ public class RoleService {
      * Replace the active role set for {@code userId} with {@code roleCodes}.
      * Roles not in the new set are revoked; roles in the new set that are
      * missing are granted. Records an audit entry summarising the diff.
+     *
+     * <p>The {@code user-permissions} cache is evicted afterwards. The
+     * effective permission set of a user is derived from their active
+     * roles and cached for {@code app.cache.user-permissions-ttl-seconds}
+     * (15 min by default), so without the eviction a user who was just
+     * promoted from DEVELOPER to STAFF keeps the developer's permission
+     * set for the rest of the TTL — the role change appears to have had no
+     * effect at all. The same stale entry is what the front-end reads
+     * through {@code GET /api/v1/users/me}, so both the UI and the API
+     * guards would keep serving the old capabilities.
      */
     @Transactional
+    @CacheEvict(cacheNames = "user-permissions", allEntries = true)
     public List<String> replaceRoles(UUID actorId, UUID userId, List<String> roleCodes) {
         if (roleCodes == null || roleCodes.isEmpty()) {
             throw new ConflictException("Cannot remove all roles; user would lose access. Disable the account instead.");
@@ -125,8 +138,24 @@ public class RoleService {
             }
         }
         // Grant roles that are new.
+        //
+        // A role that was revoked in the past is *re-activated* rather
+        // than granted again as a new row. The table is a soft-delete
+        // log, so a second row for the same (user, role) pair would
+        // duplicate the history; re-activating keeps one row per pair
+        // and makes the assignment's timestamp the moment it was
+        // actually granted.
         for (Role role : requested) {
-            if (!currentIds.contains(role.getId())) {
+            if (currentIds.contains(role.getId())) {
+                continue;
+            }
+            Optional<UserRoleAssignment> historical =
+                    assignmentRepository.findByUserIdAndRoleId(userId, role.getId());
+            if (historical.isPresent()) {
+                UserRoleAssignment assignment = historical.get();
+                assignment.reactivate(actorId);
+                assignmentRepository.save(assignment);
+            } else {
                 assignmentRepository.save(new UserRoleAssignment(userId, role.getId(), actorId));
             }
         }

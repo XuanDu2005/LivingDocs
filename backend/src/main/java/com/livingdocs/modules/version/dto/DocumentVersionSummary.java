@@ -13,6 +13,8 @@ public record DocumentVersionSummary(
         String sourceCommitSha,
         String sourceCommitShort,
         java.util.UUID sourcePrId,
+        /** The ticket the change belongs to, e.g. {@code PROJ-123}. */
+        String sourceTicketRef,
         com.livingdocs.modules.version.model.VersionStatus status,
         Float confidenceScore,
         java.time.OffsetDateTime createdAt
@@ -32,6 +34,7 @@ public record DocumentVersionSummary(
                 v.getSourceCommitSha(),
                 shortSha,
                 v.getSourcePrId(),
+                v.getSourceTicketRef(),
                 v.getStatus(),
                 v.getConfidenceScore(),
                 v.getCreatedAt()
