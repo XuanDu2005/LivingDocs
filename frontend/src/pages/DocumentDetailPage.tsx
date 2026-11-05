@@ -29,7 +29,7 @@ import ReviewDrawer from '../components/review/ReviewDrawer';
 import { driftApi, DriftAlert, reviewsApi, ReviewDecision } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
-import { aiApi } from '../services/ai';
+import { aiApi, GroundingSource } from '../services/ai';
 import { githubApi, Repository } from '../services/github';
 import { describeError, hasPermission } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
@@ -206,7 +206,7 @@ export default function DocumentDetailPage() {
   const [creatingVersion, setCreatingVersion] = useState<boolean>(false);
 
   // Grounding evidence state
-  const [groundingFor, setGroundingFor] = useState<{ versionId: string; sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[] } | null>(null);
+  const [groundingFor, setGroundingFor] = useState<{ versionId: string; sources: GroundingSource[] } | null>(null);
   const [groundingLoading, setGroundingLoading] = useState<boolean>(false);
 
   // Trigger commit dialog

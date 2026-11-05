@@ -619,7 +619,16 @@
       "changeSummaryPlaceholder": "Bạn đã sửa gì?",
       "missingSections": "Các mục còn thiếu",
       "templateOk": "Template ✓",
-      "templateMissing": "Template ✗"
+      "templateMissing": "Template ✗",
+      "reviewHistory": "Lịch sử đánh giá",
+      "noReviews": "Chưa có ai đánh giá phiên bản này.",
+      "staffFeedback": "Phản hồi của Staff",
+      "managerVerdict": "Quyết định của Manager",
+      "yourTier": "Quyết định trước đó của bạn",
+      "section": "Mục",
+      "grounding": "Bằng chứng grounding",
+      "groundingSummary": "AI đã tham chiếu {{count}} thực thể mã nguồn khi tạo phiên bản này.",
+      "noGrounding": "Phiên bản này không có bằng chứng grounding. Các bản viết tay và các bản tạo trước khi tính năng grounding ra đời đều không có."
     },
     "queue": {
       "staff": "Duyệt Staff",

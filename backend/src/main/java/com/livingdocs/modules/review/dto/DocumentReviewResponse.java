@@ -12,11 +12,18 @@ import java.util.UUID;
  * <p>The {@code section*} fields are the anchor of a section-targeted
  * comment — they are {@code null} when the reviewer commented on the
  * document as a whole.
+ *
+ * <p>{@code reviewerName} is the display name of the account that made
+ * the call. It is resolved by the service, because a Manager reading
+ * the Staff comments of a version has to know <em>who</em> wrote them;
+ * the raw user id alone is not readable. It is {@code null} when the
+ * reviewer account no longer exists.
  */
 public record DocumentReviewResponse(
         UUID id,
         UUID documentVersionId,
         UUID reviewerUserId,
+        String reviewerName,
         String reviewerRole,
         ReviewDecision decision,
         String comment,
@@ -26,10 +33,15 @@ public record DocumentReviewResponse(
         OffsetDateTime decidedAt
 ) {
     public static DocumentReviewResponse from(DocumentReview r) {
+        return from(r, null);
+    }
+
+    public static DocumentReviewResponse from(DocumentReview r, String reviewerName) {
         return new DocumentReviewResponse(
                 r.getId(),
                 r.getDocumentVersionId(),
                 r.getReviewerUserId(),
+                reviewerName,
                 r.getReviewerRole(),
                 r.getDecision(),
                 r.getComment(),

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, FileDiff, Loader2, MessageSquare, Send, XCircle } from 'lucide-react';
+import { TFunction } from 'i18next';
+import {
+  CheckCircle, FileDiff, Link2, Loader2, MessageSquare, Send, Sparkles, XCircle,
+} from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -11,8 +14,11 @@ import { ErrorState, LoadingState } from '../ui/states';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '../ui/dialog';
-import { reviewsApi, ReviewDecision, TemplateCompliance } from '../../services/drift';
+import {
+  DocumentReview, reviewsApi, ReviewDecision, TemplateCompliance,
+} from '../../services/drift';
 import { documentsApi, DocumentVersion, DocumentVersionSummary } from '../../services/documents';
+import { aiApi, GroundingSource } from '../../services/ai';
 import { describeError } from '../../services/auth';
 
 /**
@@ -104,6 +110,16 @@ export default function ReviewDrawer({
   const [version, setVersion] = useState<DocumentVersion | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
   const [compliance, setCompliance] = useState<TemplateCompliance | null>(null);
+  /**
+   * The review history of this version — most recent first.
+   *
+   * <p>This is the record of what the tiers already said about the
+   * content: the Staff comments a Manager needs to read before
+   * approving, and the previous verdicts of the tier that is acting.
+   */
+  const [reviews, setReviews] = useState<DocumentReview[]>([]);
+  /** The code entities the AI grounded this version in (requirement #2). */
+  const [grounding, setGrounding] = useState<GroundingSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
@@ -142,6 +158,21 @@ export default function ReviewDrawer({
         .templateCompliance(workspaceId, documentId, versionId)
         .catch(() => null as TemplateCompliance | null);
       setCompliance(complianceData);
+
+      // The review history: the Staff comments the Manager tier has to
+      // read, plus the previous verdicts of the tier that is acting.
+      const reviewsData = await reviewsApi
+        .forVersion(workspaceId, documentId, versionId)
+        .catch(() => [] as DocumentReview[]);
+      setReviews(reviewsData);
+
+      // The grounding evidence: which code entities the AI relied on.
+      // A version written by hand has none, which is not an error.
+      const groundingData = await aiApi
+        .fetchGrounding(workspaceId, documentId, versionId)
+        .then((r) => r.sources ?? [])
+        .catch(() => [] as GroundingSource[]);
+      setGrounding(groundingData);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -212,6 +243,29 @@ export default function ReviewDrawer({
 
   const missingSections = compliance?.missingHeadings ?? [];
 
+  /**
+   * The reviews that came from the other tier.
+   *
+   * <p>For the Manager this is the Staff feedback — the whole point of
+   * the two-tier workflow is that the Manager decides on the strength of
+   * what Staff wrote. For the Staff tier it is the Manager's verdict on
+   * an earlier pass, which the Staff member needs to see before
+   * commenting again.
+   */
+  const otherTierReviews = useMemo(
+    () => reviews.filter((r) => r.reviewerRole !== (kind === 'staff' ? 'STAFF' : 'MANAGER')),
+    [reviews, kind],
+  );
+
+  /**
+   * The reviews of the tier that is acting — what this reviewer already
+   * said about this version.
+   */
+  const ownTierReviews = useMemo(
+    () => reviews.filter((r) => r.reviewerRole === (kind === 'staff' ? 'STAFF' : 'MANAGER')),
+    [reviews, kind],
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -264,6 +318,108 @@ export default function ReviewDrawer({
                 </CardContent>
               </Card>
             )}
+
+            {/* Review history — the comments the other tier left, and
+                the verdicts this reviewer already recorded. For the
+                Manager tier this is the Staff feedback the two-tier
+                workflow depends on. */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center">
+                  <MessageSquare className="mr-1 h-4 w-4" />
+                  {t('reviews.drawer.reviewHistory', 'Review history')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {reviews.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('reviews.drawer.noReviews', 'No one has reviewed this version yet.')}
+                  </p>
+                ) : (
+                  <>
+                    {otherTierReviews.length > 0 && (
+                      <ReviewList
+                        reviews={otherTierReviews}
+                        label={kind === 'manager'
+                          ? t('reviews.drawer.staffFeedback', 'Staff feedback')
+                          : t('reviews.drawer.managerVerdict', 'Manager verdict')}
+                        emptyLabel=""
+                        t={t}
+                      />
+                    )}
+                    {ownTierReviews.length > 0 && (
+                      <ReviewList
+                        reviews={ownTierReviews}
+                        label={kind === 'manager'
+                          ? t('reviews.drawer.yourTier', 'Your previous decisions')
+                          : t('reviews.drawer.yourTier', 'Your previous decisions')}
+                        emptyLabel=""
+                        t={t}
+                      />
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Grounding evidence — which code entities the AI relied on. */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center">
+                  <Sparkles className="mr-1 h-4 w-4" />
+                  {t('reviews.drawer.grounding', 'Grounding evidence')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {grounding.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'reviews.drawer.noGrounding',
+                      'No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none.',
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      {t(
+                        'reviews.drawer.groundingSummary',
+                        'The AI referenced {{count}} code entity/entities when generating this version.',
+                        { count: grounding.length },
+                      )}
+                    </p>
+                    <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                      {grounding.map((s, i) => (
+                        <li
+                          key={`${s.qualifiedName}-${i}`}
+                          className="rounded border bg-muted/30 p-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Badge variant="info">{s.kind}</Badge>
+                            <code className="truncate font-mono text-xs">
+                              {s.qualifiedName}
+                            </code>
+                          </div>
+                          {s.file && (
+                            <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                              <Link2 className="mr-1 inline h-3 w-3" />
+                              {s.file}
+                              {s.lines && s.lines.length > 0
+                                ? `:${s.lines[0]}-${s.lines[s.lines.length - 1]}`
+                                : ''}
+                            </div>
+                          )}
+                          {s.signature && (
+                            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/80">
+                              {s.signature}
+                            </pre>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Change log */}
             <Card>
@@ -456,5 +612,67 @@ export default function ReviewDrawer({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The badge colour of a review verdict.
+ */
+const DECISION_VARIANT: Record<ReviewDecision, 'success' | 'destructive' | 'warning' | 'muted'> = {
+  APPROVED: 'success',
+  REJECTED: 'destructive',
+  REQUEST_CHANGES: 'warning',
+  COMMENT: 'muted',
+};
+
+interface ReviewListProps {
+  reviews: DocumentReview[];
+  label: string;
+  emptyLabel: string;
+  t: TFunction;
+}
+
+/**
+ * A list of review records.
+ *
+ * <p>Each entry shows who wrote the comment, in which tier, what they
+ * decided, the section the comment is anchored to and when they did it.
+ */
+function ReviewList({ reviews, label, emptyLabel, t }: ReviewListProps) {
+  if (reviews.length === 0) {
+    return emptyLabel ? (
+      <p className="text-xs text-muted-foreground">{emptyLabel}</p>
+    ) : null;
+  }
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <ul className="space-y-1.5">
+        {reviews.map((r) => (
+          <li key={r.id} className="rounded border bg-muted/30 p-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={DECISION_VARIANT[r.decision] ?? 'muted'}>
+                {t(`reviews.mine.decision.${r.decision}`, r.decision)}
+              </Badge>
+              <span className="text-xs font-medium">
+                {r.reviewerName ?? r.reviewerUserId}
+              </span>
+              <Badge variant="outline">{r.reviewerRole}</Badge>
+              {r.sectionHeading && (
+                <Badge variant="info">
+                  {t('reviews.drawer.section', 'Section')}: {r.sectionHeading}
+                </Badge>
+              )}
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {r.decidedAt ? new Date(r.decidedAt).toLocaleString() : ''}
+              </span>
+            </div>
+            {r.comment && (
+              <p className="mt-1 whitespace-pre-wrap text-xs">{r.comment}</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

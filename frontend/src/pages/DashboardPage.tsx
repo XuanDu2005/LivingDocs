@@ -214,7 +214,8 @@ export default function DashboardPage() {
               .map((item) => ({
                 id: item.versionId,
                 documentVersionId: `${item.documentTitle} v${item.versionNumber}`,
-                reviewerUserId: '',
+                reviewerUserId: item.submittedByUserId ?? '',
+                reviewerName: item.submittedByName ?? null,
                 reviewerRole: item.action,
                 decision: 'COMMENT' as const,
                 comment: item.changeSummary,

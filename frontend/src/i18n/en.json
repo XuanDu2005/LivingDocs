@@ -619,7 +619,16 @@
       "changeSummaryPlaceholder": "What did you fix?",
       "missingSections": "Missing sections",
       "templateOk": "Template ✓",
-      "templateMissing": "Template ✗"
+      "templateMissing": "Template ✗",
+      "reviewHistory": "Review history",
+      "noReviews": "No one has reviewed this version yet.",
+      "staffFeedback": "Staff feedback",
+      "managerVerdict": "Manager verdict",
+      "yourTier": "Your previous decisions",
+      "section": "Section",
+      "grounding": "Grounding evidence",
+      "groundingSummary": "The AI referenced {{count}} code entity/entities when generating this version.",
+      "noGrounding": "No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none."
     },
     "queue": {
       "staff": "Staff review",

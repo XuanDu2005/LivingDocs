@@ -1,8 +1,55 @@
+import apiClient, { LONG_TIMEOUT_MS } from './api';
+
+/**
+ * One piece of grounding evidence: the code entity the AI relied on
+ * when it wrote the version.
+ *
+ * <p>Mirrors the backend's `AiDtos.GroundingSource`.
+ */
+export interface GroundingSource {
+  qualifiedName: string;
+  kind: string;
+  file: string;
+  lines: number[];
+  signature: string;
+}
+
+/**
+ * The wire format the grounding endpoints answer with.
+ *
+ * <p>The AI service names the entity `qualified_name`, and the backend
+ * stores that JSON verbatim in `document_versions.grounding_json`, so
+ * the endpoints hand it back unchanged — in snake_case.
+ */
+interface GroundingSourceWire {
+  qualified_name?: string;
+  qualifiedName?: string;
+  kind?: string;
+  file?: string;
+  lines?: number[];
+  signature?: string;
+}
+
+/**
+ * Normalise a grounding source into the camelCase shape the UI uses.
+ *
+ * <p>Both spellings are accepted, because the preview endpoint answers
+ * with camelCase (the backend maps the record itself) while the stored
+ * grounding comes back in the snake_case the AI service produced.
+ */
+function toGroundingSource(raw: GroundingSourceWire): GroundingSource {
+  return {
+    qualifiedName: raw.qualified_name ?? raw.qualifiedName ?? '',
+    kind: raw.kind ?? '',
+    file: raw.file ?? '',
+    lines: Array.isArray(raw.lines) ? raw.lines : [],
+    signature: raw.signature ?? '',
+  };
+}
+
 /**
  * AI-assisted documentation flows (generate / drift detect).
  */
-import apiClient, { LONG_TIMEOUT_MS } from './api';
-
 export interface GenerationJobStatus {
   id: string;
   documentId: string;
@@ -129,10 +176,12 @@ export const aiApi = {
     versionId: string,
   ) {
     return apiClient
-      .get<{ sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[] }>(
+      .get<{ sources: GroundingSourceWire[] }>(
         `/workspaces/${workspaceId}/documents/${documentId}/versions/${versionId}/grounding`,
       )
-      .then((r) => r.data);
+      .then((r) => ({
+        sources: (r.data?.sources ?? []).map(toGroundingSource),
+      }));
   },
   /** Preview an AI generation without persisting a new version. */
   previewGenerate(
@@ -145,7 +194,7 @@ export const aiApi = {
       .post<{
         markdown: string;
         confidenceScore: number;
-        sources: { qualifiedName: string; kind: string; file: string; lines: number[]; signature: string }[];
+        sources: GroundingSourceWire[];
         template: string;
         generatedAt: string;
       }>(
@@ -153,7 +202,10 @@ export const aiApi = {
         files,
         { timeout: LONG_TIMEOUT_MS },
       )
-      .then((r) => r.data);
+      .then((r) => ({
+        ...r.data,
+        sources: (r.data?.sources ?? []).map(toGroundingSource),
+      }));
   },
 
   /**
