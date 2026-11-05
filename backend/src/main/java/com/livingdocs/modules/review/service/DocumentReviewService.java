@@ -345,19 +345,31 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
     return com.livingdocs.modules.version.model.ActorRole.STAFF;
 }
 
-@Transactional(readOnly = true)
+    @Transactional(readOnly = true)
     public List<DocumentReviewResponse> reviewsForVersion(UUID actorId, UUID documentId, UUID versionId) {
         Document document = loadAndAuthorize(actorId, documentId);
         workspaceService.requireMember(actorId, document.getWorkspaceId());
         DocumentVersion v = loadVersion(documentId, versionId);
-        return reviewRepository.findAllByDocumentVersionIdOrderByDecidedAtDesc(v.getId())
-                .stream().map(DocumentReviewResponse::from).toList();
+        List<DocumentReview> reviews = reviewRepository
+                .findAllByDocumentVersionIdOrderByDecidedAtDesc(v.getId());
+        // Resolve the reviewer names in one query: the Manager tier reads
+        // the Staff comments of a version and has to know who wrote them.
+        Map<UUID, String> names = reviewerNames(
+                reviews.stream().map(DocumentReview::getReviewerUserId).toList());
+        return reviews.stream()
+                .map(r -> DocumentReviewResponse.from(r, names.get(r.getReviewerUserId())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public List<DocumentReviewResponse> reviewsForReviewer(UUID actorId) {
-        return reviewRepository.findAllByReviewerUserIdOrderByDecidedAtDesc(actorId)
-                .stream().map(DocumentReviewResponse::from).toList();
+        List<DocumentReview> reviews = reviewRepository
+                .findAllByReviewerUserIdOrderByDecidedAtDesc(actorId);
+        Map<UUID, String> names = reviewerNames(
+                reviews.stream().map(DocumentReview::getReviewerUserId).toList());
+        return reviews.stream()
+                .map(r -> DocumentReviewResponse.from(r, names.get(r.getReviewerUserId())))
+                .toList();
     }
 
     // -----------------------------------------------------------------

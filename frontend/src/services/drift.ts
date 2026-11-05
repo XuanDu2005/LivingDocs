@@ -31,6 +31,8 @@ export interface DocumentReview {
   id: string;
   documentVersionId: string;
   reviewerUserId: string;
+  /** Display name of the reviewer — e.g. "Nguyễn An". Null when the account is gone. */
+  reviewerName: string | null;
   reviewerRole: string;
   decision: ReviewDecision;
   comment: string | null;
