@@ -25,6 +25,7 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { documentsApi, Document, DocumentVersion, DocumentVersionSummary, ActorRole, VersionStatus } from '../services/documents';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
+import DocumentAuditTrail from '../components/document/DocumentAuditTrail';
 import ReviewDrawer from '../components/review/ReviewDrawer';
 import { driftApi, DriftAlert, reviewsApi, ReviewDecision } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
@@ -103,6 +104,10 @@ export default function DocumentDetailPage() {
   // also require the reviewer to be a member of the workspace.
   const canReview = hasPermission(user, 'DOCUMENT_VERSION_REVIEW');
   const canApprove = hasPermission(user, 'DOCUMENT_VERSION_APPROVE');
+  // Reading the audit trail of a document is a separate capability from
+  // reviewing it: the trail shows who did what, which is exactly the
+  // oversight surface the MANAGER tier needs before granting approval.
+  const canViewAuditTrail = hasPermission(user, 'AUDIT_LOG_VIEW');
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -1113,6 +1118,9 @@ export default function DocumentDetailPage() {
           <TabsTrigger value="versions">Versions</TabsTrigger>
           <TabsTrigger value="links">Links</TabsTrigger>
           <TabsTrigger value="drift">Drift</TabsTrigger>
+          {canViewAuditTrail && (
+            <TabsTrigger value="audit">{t('documentDetail.tabAudit', 'Audit trail')}</TabsTrigger>
+          )}
         </TabsList>
 
         {/* ── CONTENT TAB ── */}
@@ -1851,6 +1859,22 @@ export default function DocumentDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── AUDIT TRAIL TAB ── */}
+        {/* The Manager tier has to be able to "view the complete audit
+            trail of a document (AI-generated, auto-updated,
+            staff-edited) before granting approval". The tab is only
+            rendered for a reader who holds AUDIT_LOG_VIEW — the backend
+            enforces the same rule, so the tab is a courtesy, not the
+            control. */}
+        {canViewAuditTrail && (
+          <TabsContent value="audit">
+            <DocumentAuditTrail
+              workspaceId={workspaceId ?? ''}
+              documentId={documentId ?? ''}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Commit-to-GitHub dialog — placed at root so it works regardless of active tab */}

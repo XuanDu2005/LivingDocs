@@ -98,6 +98,7 @@ control.
 | ----------------------------------- | ------------------------------ |
 | `GET /system-health`                | `HEALTH_DASHBOARD_VIEW`        |
 | `GET /workspaces/{id}/audit-logs`   | `AUDIT_LOG_VIEW`               |
+| `GET /workspaces/{id}/documents/{docId}/audit-trail` | `AUDIT_LOG_VIEW`   |
 | `GET /workspaces/{id}/analytics`    | `ANALYTICS_VIEW`               |
 | `GET/PUT /workspaces/{id}/ai-settings` | `AI_CONFIG_READ` / `AI_CONFIG_WRITE` |
 | `GET/PUT /workspaces/{id}/ai-settings/threshold` | `GOVERNANCE_VIEW` / `GOVERNANCE_MANAGE` |
@@ -201,17 +202,26 @@ shows and what the runtime enforces can never drift apart.
 
 ### Doc-type workflow
 
-A platform policy per `doc_type` decides the fate of generated content:
+A policy per `doc_type` decides the fate of generated content:
 
 | Workflow        | Effect                                                  |
 | --------------- | ------------------------------------------------------- |
 | `AUTO_APPLY`    | Published automatically (subject to the confidence gate) |
 | `MANAGER_REVIEW`| Queued in the review queue at the Staff tier            |
 
-**Precedence:** an explicit per-doc-type policy is the most specific
-rule and therefore wins over the workspace's `requireManagerApproval`
-flag. The workspace flag is only the fallback for doc types the platform
-has no policy for.
+**Precedence**, from the most specific rule to the least:
+
+1. the workspace's own row in `workspace_doc_type_policies`,
+2. the platform's row in `platform_doc_type_policies`,
+3. the workspace's `requireManagerApproval` flag,
+4. the platform's `default_require_manager_approval` flag.
+
+A workspace row only exists for the doc types the workspace actually
+overrode — everything else keeps inheriting the platform policy, so
+overriding one doc type cannot silently change the others. The overrides
+are managed under **Workspace settings → Doc types** and require the
+workspace `MANAGER` role plus the `GOVERNANCE_MANAGE` capability; each
+change is written to the audit trail.
 
 ### Confidence gate
 
@@ -246,6 +256,104 @@ daily or monthly allowance. The refusal surfaces as **HTTP 429**:
 ```bash
 GET /workspaces/{id}/governance/merge-gate?pullRequestId=…
 ```
+
+#### The gate is enforced, not merely available
+
+The verdict only matters if something asks for it. LivingDocs answers the
+question **"may this pull request merge?"** from one endpoint, and the
+generated GitHub Actions workflow is a thin client of it:
+
+```bash
+GET /api/v1/cicd/workspaces/{workspaceId}/repositories/{repositoryId}/merge-gate?pullRequestNumber=…
+```
+
+```
+PR opened
+   │
+   ▼
+GitHub Actions  ──▶  GET /api/v1/cicd/workspaces/{ws}/repositories/{repo}
+   │                       /merge-gate?pullRequestNumber=…
+   │                       X-LivingDocs-CI-Token: ldci_…
+   ▼
+MergeGateService
+   │
+   ├─ 1. scan   → read the PR's changed files from GitHub, run drift
+   │               detection on them, file the alerts
+   │
+   └─ 2. gate   → GovernancePolicyService.evaluateMergeGate(workspaceId, …)
+                   reads the workspace's own merge_policy_critical and
+                   drift_severity_threshold
+   │
+   ▼
+{ "blocked": true, "policy": "BLOCK", "reason": "…" }
+   │
+   ▼
+workflow exits 1 → the PR check fails → merge is blocked
+```
+
+The endpoint (`cicd/service/MergeGateService`) does two things, in order:
+
+1. **Scan** — read the pull request's changed files from the GitHub API
+   and run drift detection, so the alerts the gate reasons about are the
+   ones this pull request introduces. A failed scan is reported in the
+   verdict but does not by itself block the merge.
+2. **Gate** — evaluate the workspace's own policy through
+   `GovernancePolicyService.evaluateMergeGate`.
+
+The workflow then honours the answer — it exits non-zero when
+`blocked=true` and does nothing otherwise.
+
+**The workflow never decides on its own.** It used to take a
+`?blockOnCritical=true` query parameter and fail the build itself, which
+made the workspace setting decorative: a workflow generated while the
+policy was `WARN` kept failing builds, and one generated after the policy
+was switched to `BLOCK` kept passing them. Because the workflow now
+always asks, the workspace's current policy always applies and the file
+never has to be regenerated when the policy changes.
+
+For the same reason, PR drift detection is no longer skipped when
+`auto_update_on_pr` is off: under a `BLOCK` policy the scan is what
+produces the alerts the gate needs, so skipping it would silently open
+the gate.
+
+Three properties this arrangement guarantees:
+
+1. **The policy comes from the workspace, never from the caller.**
+   Changing the policy takes effect immediately, without regenerating or
+   recommitting the workflow.
+2. **The scan runs before the gate is evaluated.** A failed scan is
+   reported in `scanNote` and does not by itself block a merge.
+3. **The verdict is audited.** Every evaluation writes a
+   `merge.gate.evaluate` audit entry, so "why did this PR not merge?" is
+   answerable after the fact.
+
+#### The CI token
+
+A CI job cannot present a user JWT — it has no user, and the JWT would
+expire. LivingDocs therefore issues a **workspace CI token**:
+
+| Property | Value |
+| -------- | ----- |
+| Format   | `ldci_` + 32 random bytes, base64url |
+| Storage  | SHA-256 hash only — the plaintext is shown once and never again |
+| Scope    | one workspace; it cannot act on another workspace's repositories |
+| Header   | `X-LivingDocs-CI-Token: ldci_…` |
+| Lifecycle| issue / rotate / revoke, at `GET|POST /rotate|DELETE /workspaces/{id}/ci-token` |
+
+Issuing or revoking requires the `GOVERNANCE_MANAGE` capability **and**
+the workspace `MANAGER` role: handing out a credential that acts on the
+workspace is a workspace-administration decision, not a platform one.
+
+The token is bound to the workspace as a request attribute by
+`CiTokenAuthenticationFilter`, and `/api/v1/cicd/**` is `permitAll` at
+the Spring Security layer — the filter, not the JWT chain, is what
+authenticates those calls. The token is stored in the repository as the
+`LIVINGDOCS_CI_TOKEN` secret.
+
+Workspace managers manage all of this from the **Merge gate** tab of the
+workspace settings page (`components/MergeGatePanel.tsx`): the effective
+policy and current verdict, the CI token (issue / rotate / revoke), and
+the generated workflow YAML.
 
 ### End-to-end example
 
@@ -371,6 +479,7 @@ compose network. **Production deployments should always set it.**
 | `daily_token_limit`              | `workspace_settings` | per-day AI token allowance (`NULL` = unlimited) |
 | `monthly_token_limit`            | `workspace_settings` | per-month AI token allowance                  |
 | `platform_doc_type_policies`     | platform settings   | per-doc-type `AUTO_APPLY` / `MANAGER_REVIEW`   |
+| `workspace_doc_type_policies`    | workspace settings  | per-doc-type override of the platform policy    |
 
 ### Environment
 
@@ -414,6 +523,16 @@ docker run --rm -v "${PWD}:/app" -w /app --entrypoint python \
 | --------------------------- | -------------------------------------------------------- |
 | `AuthorizationServiceTest`  | the AND rule, per-tier capabilities, workspace management |
 | `GovernancePolicyServiceTest`| doc-type precedence, confidence gate, budget, merge gate |
+| `GitHubActionsWorkflowGeneratorTest` | the generated workflow asks for the verdict instead of deciding |
+| `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
+| `GitHubActionsWorkflowGeneratorTest` | the generated workflow asks for the verdict instead of deciding |
+| `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
+| `GitHubActionsWorkflowGeneratorTest` | the generated workflow asks for the verdict instead of deciding |
+| `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
+| `GitHubActionsWorkflowGeneratorTest` | the generated workflow asks for the verdict instead of deciding |
+| `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
+| `GitHubActionsWorkflowGeneratorTest` | the generated workflow asks for the verdict instead of deciding |
+| `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
 | `EncryptedStringConverterTest` | round-trip, IV freshness, legacy plaintext, key rotation |
 | `DocumentVersionServiceDiffTest` | unified diff format                                  |
 | `test_diffing_and_semantic_drift.py` | diff building, LLM finding parsing, confidence filtering |

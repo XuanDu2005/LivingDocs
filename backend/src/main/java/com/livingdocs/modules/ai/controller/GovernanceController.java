@@ -63,11 +63,22 @@ public class GovernanceController {
                                              @PathVariable String docType) {
         workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
 
+        var workflow = governancePolicyService.workflowFor(workspaceId, docType);
+        var workspaceOverride = governancePolicyService.explicitWorkspaceWorkflow(workspaceId, docType);
+        var platformPolicy = governancePolicyService.explicitWorkflow(docType);
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("workspaceId", workspaceId.toString());
         out.put("docType", docType);
-        out.put("workflow", governancePolicyService.workflowFor(workspaceId, docType).name());
+        out.put("workflow", workflow.name());
         out.put("autoApply", governancePolicyService.isAutoApply(workspaceId, docType));
+        // Where the decision comes from: the workspace override, the
+        // platform policy, or the workspace's requireManagerApproval
+        // flag.
+        out.put("scope", workspaceOverride != null ? "WORKSPACE"
+                : platformPolicy != null ? "PLATFORM" : "DEFAULT");
+        out.put("workspaceWorkflow", workspaceOverride == null ? null : workspaceOverride.name());
+        out.put("platformWorkflow", platformPolicy == null ? null : platformPolicy.name());
         return out;
     }
 

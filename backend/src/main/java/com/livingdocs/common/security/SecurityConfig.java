@@ -56,9 +56,25 @@ public class SecurityConfig {
         return new JwtAuthenticationFilter(jwtService, userRepository, roleAssignmentRepository);
     }
 
+    /**
+     * The filter that authenticates a CI job presenting a workspace CI
+     * token.
+     *
+     * <p>It runs before the JWT filter so a CI request — which carries
+     * no user session — is recognised as such. The filter binds the
+     * authenticated workspace to the request; it does not establish a
+     * {@code SecurityContext}, because a CI token is not a user.
+     */
+    @Bean
+    public CiTokenAuthenticationFilter ciTokenAuthenticationFilter(
+            com.livingdocs.modules.workspace.service.WorkspaceCiTokenService ciTokenService) {
+        return new CiTokenAuthenticationFilter(ciTokenService);
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtAuthenticationFilter jwtFilter,
+                                                   CiTokenAuthenticationFilter ciTokenFilter,
                                                    CorsFilter corsFilter) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -94,7 +110,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/github/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/github/oauth/complete").permitAll()
-                        
+                        // The merge-gate endpoint a CI job calls. It is authenticated
+                        // with the workspace CI token, which the controller verifies
+                        // against the workspace in the path — so the token can never
+                        // act outside the workspace it belongs to.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/cicd/**").permitAll()
+
                         // Integrations module: each provider verifies the request with its
                         // own mechanism (HMAC, shared token, signed timestamp), not JWT.
                         .requestMatchers(HttpMethod.POST,
@@ -107,7 +128,11 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(corsFilter, org.springframework.web.filter.CorsFilter.class)
                 .addFilterAfter(jwtFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class)
-                .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
+                .addFilterBefore(jwtFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class)
+                // The CI token filter runs ahead of the JWT filter: a CI request
+                // carries a token header, not a user session, and the two
+                // mechanisms never overlap.
+                .addFilterBefore(ciTokenFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

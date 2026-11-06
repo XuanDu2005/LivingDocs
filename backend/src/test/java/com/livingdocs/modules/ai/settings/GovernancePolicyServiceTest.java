@@ -9,7 +9,9 @@ import com.livingdocs.modules.drift.model.DriftAlert;
 import com.livingdocs.modules.drift.model.DriftResolution;
 import com.livingdocs.modules.drift.model.DriftSeverity;
 import com.livingdocs.modules.drift.repository.DriftAlertRepository;
+import com.livingdocs.modules.workspace.model.WorkspaceDocTypePolicy;
 import com.livingdocs.modules.workspace.model.WorkspaceSettings;
+import com.livingdocs.modules.workspace.repository.WorkspaceDocTypePolicyRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,6 +40,7 @@ class GovernancePolicyServiceTest {
     private PlatformDocTypePolicyRepository docTypePolicyRepository;
     private PlatformSettingsRepository platformSettingsRepository;
     private WorkspaceSettingsRepository workspaceSettingsRepository;
+    private WorkspaceDocTypePolicyRepository workspaceDocTypePolicyRepository;
     private DriftAlertRepository driftAlertRepository;
     private AiRateLimitService rateLimitService;
     private ConfidenceThresholdService confidenceThresholdService;
@@ -49,6 +53,7 @@ class GovernancePolicyServiceTest {
         docTypePolicyRepository = mock(PlatformDocTypePolicyRepository.class);
         platformSettingsRepository = mock(PlatformSettingsRepository.class);
         workspaceSettingsRepository = mock(WorkspaceSettingsRepository.class);
+        workspaceDocTypePolicyRepository = mock(WorkspaceDocTypePolicyRepository.class);
         driftAlertRepository = mock(DriftAlertRepository.class);
         rateLimitService = mock(AiRateLimitService.class);
         confidenceThresholdService = mock(ConfidenceThresholdService.class);
@@ -57,6 +62,7 @@ class GovernancePolicyServiceTest {
                 docTypePolicyRepository,
                 platformSettingsRepository,
                 workspaceSettingsRepository,
+                workspaceDocTypePolicyRepository,
                 driftAlertRepository,
                 rateLimitService,
                 confidenceThresholdService);
@@ -65,6 +71,8 @@ class GovernancePolicyServiceTest {
 
         // Defaults: platform requires manager approval, no doc-type rows.
         when(docTypePolicyRepository.findByDocType(any())).thenReturn(Optional.empty());
+        when(workspaceDocTypePolicyRepository.findByWorkspaceIdAndDocType(any(), any()))
+                .thenReturn(Optional.empty());
         when(workspaceSettingsRepository.findById(any())).thenReturn(Optional.empty());
         when(platformSettingsRepository.getSingleton())
                 .thenReturn(new PlatformSettings());
@@ -122,6 +130,77 @@ class GovernancePolicyServiceTest {
 
         assertEquals(PlatformDocTypePolicy.Workflow.AUTO_APPLY,
                 service.workflowFor(workspaceId, "CHANGELOG"));
+    }
+
+    // -----------------------------------------------------------------
+    // workspace-level doc-type overrides (V43)
+    // -----------------------------------------------------------------
+
+    @Test
+    void workspaceOverrideBeatsPlatformPolicy() {
+        // The platform auto-applies README, but this workspace decided
+        // its READMEs need a manager review. The more specific rule wins.
+        givenDocTypePolicy("README", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+        givenWorkspaceDocTypePolicy("README", PlatformDocTypePolicy.Workflow.MANAGER_REVIEW);
+
+        assertEquals(PlatformDocTypePolicy.Workflow.MANAGER_REVIEW,
+                service.workflowFor(workspaceId, "README"));
+        assertFalse(service.isAutoApply(workspaceId, "README"),
+                "the workspace override must not be auto-applied");
+    }
+
+    @Test
+    void workspaceOverrideCanWidenThePlatformPolicy() {
+        // The platform requires a review for API_REFERENCE, but this
+        // workspace opted into auto-applying it.
+        givenDocTypePolicy("API_REFERENCE", PlatformDocTypePolicy.Workflow.MANAGER_REVIEW);
+        givenWorkspaceDocTypePolicy("API_REFERENCE", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+
+        assertEquals(PlatformDocTypePolicy.Workflow.AUTO_APPLY,
+                service.workflowFor(workspaceId, "API_REFERENCE"));
+        assertTrue(service.isAutoApply(workspaceId, "API_REFERENCE"));
+    }
+
+    @Test
+    void workspaceOverrideBeatsTheWorkspaceApprovalFlag() {
+        // requireManagerApproval is on, and the platform has no row for
+        // RUNBOOK. The workspace override still wins.
+        givenWorkspaceRequiresManagerApproval(true);
+        givenWorkspaceDocTypePolicy("RUNBOOK", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+
+        assertTrue(service.isAutoApply(workspaceId, "RUNBOOK"));
+    }
+
+    @Test
+    void platformPolicyAppliesWhenTheWorkspaceHasNoOverride() {
+        givenDocTypePolicy("ARCHITECTURE", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+
+        assertEquals(PlatformDocTypePolicy.Workflow.AUTO_APPLY,
+                service.workflowFor(workspaceId, "ARCHITECTURE"));
+    }
+
+    @Test
+    void explicitWorkspaceWorkflowIsNullWithoutAnOverride() {
+        assertNull(service.explicitWorkspaceWorkflow(workspaceId, "README"));
+    }
+
+    @Test
+    void explicitWorkspaceWorkflowIsCaseInsensitive() {
+        givenWorkspaceDocTypePolicy("README", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+
+        assertEquals(PlatformDocTypePolicy.Workflow.AUTO_APPLY,
+                service.explicitWorkspaceWorkflow(workspaceId, "readme"));
+        assertEquals(PlatformDocTypePolicy.Workflow.AUTO_APPLY,
+                service.explicitWorkspaceWorkflow(workspaceId, "  ReadMe  "));
+    }
+
+    @Test
+    void blankDocTypeHasNoWorkspaceOverride() {
+        givenWorkspaceDocTypePolicy("README", PlatformDocTypePolicy.Workflow.AUTO_APPLY);
+
+        assertNull(service.explicitWorkspaceWorkflow(workspaceId, ""));
+        assertNull(service.explicitWorkspaceWorkflow(workspaceId, null));
+        assertNull(service.explicitWorkspaceWorkflow(null, "README"));
     }
 
     // -----------------------------------------------------------------
@@ -250,6 +329,12 @@ class GovernancePolicyServiceTest {
     private void givenDocTypePolicy(String docType, PlatformDocTypePolicy.Workflow workflow) {
         when(docTypePolicyRepository.findByDocType(docType))
                 .thenReturn(Optional.of(new PlatformDocTypePolicy(docType, workflow)));
+    }
+
+    private void givenWorkspaceDocTypePolicy(String docType, PlatformDocTypePolicy.Workflow workflow) {
+        when(workspaceDocTypePolicyRepository.findByWorkspaceIdAndDocType(workspaceId, docType))
+                .thenReturn(Optional.of(
+                        new WorkspaceDocTypePolicy(workspaceId, docType, workflow)));
     }
 
     private void givenConfidenceThreshold(float threshold) {

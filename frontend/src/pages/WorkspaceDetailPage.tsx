@@ -107,6 +107,12 @@ const toolLinks = (workspaceId: string) => [
     label: 'Integrations',
     permissions: ['INTEGRATION_VIEW'],
   },
+  {
+    to: `/workspaces/${workspaceId}/settings?tab=docTypes`,
+    icon: Shield,
+    label: 'Doc-type workflows',
+    permissions: ['GOVERNANCE_VIEW'],
+  },
 ];
 
 export default function WorkspaceDetailPage() {

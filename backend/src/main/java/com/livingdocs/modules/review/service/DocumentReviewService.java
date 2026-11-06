@@ -167,7 +167,7 @@ public class DocumentReviewService {
         applyStaffVerdict(document, version, req.decision());
         auditLogService.record(actorId, actorTierLabel(actorId, TIER_STAFF),
                 "document.review", "document_version", saved.getId().toString(),
-                document.getWorkspaceId(),
+                document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
                         "decision", req.decision().name()));
@@ -227,7 +227,7 @@ public class DocumentReviewService {
         applyManagerVerdict(document, version, req.decision());
         auditLogService.record(actorId, actorTierLabel(actorId, TIER_MANAGER),
                 "document.approval", "document_version", saved.getId().toString(),
-                document.getWorkspaceId(),
+                document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
                         "decision", req.decision().name()));
@@ -313,7 +313,7 @@ public DocumentVersion revise(UUID actorId, UUID documentId, UUID versionId,
     String newVersionId = saved.getId() != null ? saved.getId().toString() : "";
     auditLogService.record(actorId, actorTierLabel(actorId, TIER_STAFF),
             "document.review_revised", "document_version", version.getId().toString(),
-            document.getWorkspaceId(),
+            document.getWorkspaceId(), documentId,
             Map.of("documentId", documentId.toString(),
                     "supersededVersionId", version.getId().toString(),
                     "newVersionId", newVersionId,
@@ -1039,11 +1039,13 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         syncDocumentStatus(document, version, DocumentStatus.IN_REVIEW);
         documentRepository.save(document);
 
+        Integer submittedVersionNumber = version.getVersionNumber() != null
+                ? version.getVersionNumber() : 0;
         auditLogService.record(actorId, "USER", "document.submitted_for_review",
-                "document_version", versionId.toString(), document.getWorkspaceId(),
+                "document_version", versionId.toString(), document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
-                        "versionNumber", version.getVersionNumber()));
+                        "versionNumber", submittedVersionNumber));
 
         notifyReviewers(document, version, actorId);
 

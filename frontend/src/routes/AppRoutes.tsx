@@ -442,6 +442,14 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="/workspaces/:workspaceId/doc-type-policies"
+          element={
+            <ProtectedRoute requireAnyPermission={['GOVERNANCE_VIEW']}>
+              <LegacyWorkspaceSettingsRedirect />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/workspaces/:workspaceId/analytics"
           element={
             <ProtectedRoute requireAnyPermission={['ANALYTICS_VIEW']}>

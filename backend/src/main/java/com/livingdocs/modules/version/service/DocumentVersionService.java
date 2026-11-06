@@ -6,6 +6,7 @@ import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.PermissionCodes;
 import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.common.text.TicketReferences;
+import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.model.Commit;
@@ -21,6 +22,8 @@ import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -28,7 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,6 +55,14 @@ public class DocumentVersionService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentVersionService.class);
 
+    /**
+     * Parser used to count the grounding sources of a version.
+     *
+     * <p>Static because it is only used to read a small JSON array and
+     * {@code ObjectMapper} is thread-safe once configured.
+     */
+    private static final ObjectMapper GROUNDING_PARSER = new ObjectMapper();
+
     private final DocumentVersionRepository versionRepository;
     private final DocumentRepository documentRepository;
     private final WorkspaceService workspaceService;
@@ -57,6 +70,7 @@ public class DocumentVersionService {
     private final PullRequestRepository pullRequestRepository;
     private final AuthorizationService authorizationService;
     private final PermissionService permissionService;
+    private final AuditLogService auditLogService;
 
     public DocumentVersionService(DocumentVersionRepository versionRepository,
                                   DocumentRepository documentRepository,
@@ -64,7 +78,8 @@ public class DocumentVersionService {
                                   CommitRepository commitRepository,
                                   PullRequestRepository pullRequestRepository,
                                   AuthorizationService authorizationService,
-                                  PermissionService permissionService) {
+                                  PermissionService permissionService,
+                                  AuditLogService auditLogService) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
@@ -72,6 +87,7 @@ public class DocumentVersionService {
         this.pullRequestRepository = pullRequestRepository;
         this.authorizationService = authorizationService;
         this.permissionService = permissionService;
+        this.auditLogService = auditLogService;
     }
 
     /**
@@ -102,7 +118,25 @@ public class DocumentVersionService {
                 null, null, document.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
-        return versionRepository.save(version);
+        DocumentVersion saved = versionRepository.save(version);
+        // A human edit is one of the three things the audit trail of a
+        // document has to show ("AI-generated, auto-updated,
+        // staff-edited"). Without this entry the trail only covered the
+        // AI path and the review verdicts.
+        //
+        // The id of a freshly saved row is assigned by the persistence
+        // layer, so it is read defensively — a null id must not abort
+        // the edit that was just made.
+        String versionId = saved.getId() != null ? saved.getId().toString() : "";
+        auditLogService.record(actorId, effective.name(), "document.version.created",
+                "document_version", versionId,
+                document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionId,
+                        "versionNumber", next,
+                        "actorRole", effective.name(),
+                        "changeSummary", changeSummary == null ? "" : changeSummary));
+        return saved;
     }
 
     /**
@@ -188,7 +222,72 @@ public class DocumentVersionService {
         DocumentVersion saved = versionRepository.save(version);
         log.info("AI version created: document={} version={} confidence={}",
                 documentId, next, confidenceScore);
+        // The audit trail of a document has to show what the AI
+        // produced — the requirement names "AI-generated" and
+        // "auto-updated" explicitly. The listener used to record this
+        // entry, but only for the Kafka path; a version created
+        // directly (the entity-generation path) had no entry at all.
+        // Recording it here covers every way a version can come into
+        // existence, and the two entries are distinguished by the
+        // action name.
+        recordAiVersionAudit(document, saved, actorUserId, confidenceScore,
+                sourceCommitSha, sourcePrId, groundingJson);
         return saved;
+    }
+
+    /**
+     * Record the audit entry of an AI-authored version.
+     *
+     * <p>Best-effort by design: a failure to write the audit entry must
+     * not undo the version that was just persisted — losing the content
+     * would be worse than losing one line of the trail.
+     */
+    private void recordAiVersionAudit(Document document,
+                                      DocumentVersion version,
+                                      UUID actorUserId,
+                                      Float confidenceScore,
+                                      String sourceCommitSha,
+                                      UUID sourcePrId,
+                                      String groundingJson) {
+        try {
+            // The id is assigned by the persistence layer; a null id is
+            // read defensively so a missing id cannot abort the entry.
+            String versionId = version.getId() != null ? version.getId().toString() : "";
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("documentId", document.getId().toString());
+            payload.put("versionId", versionId);
+            payload.put("versionNumber", version.getVersionNumber());
+            payload.put("confidence", confidenceScore == null ? 0.0f : confidenceScore);
+            payload.put("sourceCommitSha", sourceCommitSha == null ? "" : sourceCommitSha);
+            payload.put("sourcePrId", sourcePrId == null ? "" : sourcePrId.toString());
+            payload.put("groundingCount", countGroundingSources(groundingJson));
+            auditLogService.record(actorUserId, ActorRole.AI.name(),
+                    "document.version.ai_created", "document_version",
+                    versionId, document.getWorkspaceId(),
+                    document.getId(), payload);
+        } catch (Exception e) {
+            log.warn("Failed to write the audit entry of AI version {}: {}",
+                    version.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * How many grounding sources a version carries.
+     *
+     * <p>The grounding is stored as a JSON array; only the count is
+     * needed for the trail, and counting it must not fail the whole
+     * entry when the JSON is unreadable.
+     */
+    private int countGroundingSources(String groundingJson) {
+        if (groundingJson == null || groundingJson.isBlank()) {
+            return 0;
+        }
+        try {
+            JsonNode node = GROUNDING_PARSER.readTree(groundingJson);
+            return node != null && node.isArray() ? node.size() : 0;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /**
@@ -247,6 +346,17 @@ public class DocumentVersionService {
             return;
         }
         promoteToHead(document, target);
+        // The auto-publish is a distinct step of the trail: it is the
+        // point where the AI's output became the published head without
+        // a human decision. A reader has to be able to tell it apart
+        // from a Manager's publication.
+        String versionIdRef = target.getId() != null ? target.getId().toString() : "";
+        auditLogService.record(actorUserId, ActorRole.SYSTEM.name(),
+                "document.version.auto_published", "document_version",
+                versionIdRef, document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionIdRef,
+                        "versionNumber", versionNumberOrZero(target)));
         log.info("AI version auto-published: document={} version={}",
                 documentId, target.getVersionNumber());
     }
@@ -348,6 +458,28 @@ public class DocumentVersionService {
             throw new BadRequestException("Only approved versions can be published");
         }
         promoteToHead(document, target);
+        // Publishing is the moment the content becomes canonical, so it
+        // is the single most important entry of the document's trail.
+        String versionId = target.getId() != null ? target.getId().toString() : "";
+        auditLogService.record(actorId, actorRoleFor(actorId, document.getWorkspaceId()).name(),
+                "document.version.published", "document_version",
+                versionId, document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionId,
+                        "versionNumber", versionNumberOrZero(target)));
+    }
+
+    /**
+     * The version number of a version, never null.
+     *
+     * <p>{@code Map.of} rejects a null value, so the number is
+     * defaulted. A version always carries one in practice — the column
+     * is NOT NULL — but a missing number must not abort the audit
+     * entry of a publication.
+     */
+    private int versionNumberOrZero(DocumentVersion version) {
+        Integer number = version.getVersionNumber();
+        return number == null ? 0 : number;
     }
 
     /**
@@ -387,6 +519,13 @@ public class DocumentVersionService {
         }
         target.setStatus(VersionStatus.REJECTED);
         DocumentVersion saved = versionRepository.save(target);
+        String versionId = saved.getId() != null ? saved.getId().toString() : "";
+        auditLogService.record(actorId, actorRoleFor(actorId, document.getWorkspaceId()).name(),
+                "document.version.dismissed", "document_version",
+                versionId, document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionId,
+                        "versionNumber", versionNumberOrZero(target)));
         log.info("Version dismissed: document={} version={} actor={}",
                 documentId, versionNumber, actorId);
         return saved;
@@ -433,6 +572,14 @@ public class DocumentVersionService {
                 VersionStatus.DRAFT, null
         );
         DocumentVersion saved = versionRepository.save(rollback);
+        String versionId = saved.getId() != null ? saved.getId().toString() : "";
+        auditLogService.record(actorId, role.name(), "document.version.rolled_back",
+                "document_version", versionId,
+                document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionId", versionId,
+                        "versionNumber", next,
+                        "restoredFromVersion", targetVersionNumber));
         log.info("Rollback version created: document={} new_version={} target_version={}",
                 documentId, next, targetVersionNumber);
         return saved;

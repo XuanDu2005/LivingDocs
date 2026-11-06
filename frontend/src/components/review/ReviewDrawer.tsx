@@ -19,7 +19,9 @@ import {
 } from '../../services/drift';
 import { documentsApi, DocumentVersion, DocumentVersionSummary } from '../../services/documents';
 import { aiApi, GroundingSource } from '../../services/ai';
-import { describeError } from '../../services/auth';
+import { describeError, hasPermission } from '../../services/auth';
+import { useAuth } from '../../contexts/AuthContext';
+import DocumentAuditTrail from '../document/DocumentAuditTrail';
 
 /**
  * A markdown heading of the version under review.
@@ -106,6 +108,12 @@ export default function ReviewDrawer({
   workspaceId, documentId, versionId, kind, open, onOpenChange, onDecided,
 }: ReviewDrawerProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // Reading the trail of a document is a separate capability from
+  // reviewing it. The Manager is required to see the trail before
+  // granting approval; a Staff reviewer without AUDIT_LOG_VIEW simply
+  // does not get the panel rather than a 403 on every drawer open.
+  const canViewAuditTrail = hasPermission(user, 'AUDIT_LOG_VIEW');
 
   const [version, setVersion] = useState<DocumentVersion | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -453,6 +461,23 @@ export default function ReviewDrawer({
                 </ul>
               </CardContent>
             </Card>
+
+            {/* The complete audit trail of the document.
+                The MANAGER role is required to "view the complete audit
+                trail of a document (AI-generated, auto-updated,
+                staff-edited) before granting approval" — so the trail
+                belongs right here, next to the content and the Staff
+                comments the decision is based on.
+
+                It is only rendered for a reader who holds
+                AUDIT_LOG_VIEW; the backend enforces the same rule. */}
+            {canViewAuditTrail && (
+              <DocumentAuditTrail
+                workspaceId={workspaceId}
+                documentId={documentId}
+                pageSize={20}
+              />
+            )}
 
             {/* Section picker + body */}
             <Card>

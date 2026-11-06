@@ -28,6 +28,7 @@ import {
   FileType,
   Database,
   Layers,
+  ScrollText,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -188,6 +189,17 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
           to: `/workspaces/${workspaceId}/health`,
           icon: Stethoscope,
           permissions: ['HEALTH_DASHBOARD_VIEW'],
+        },
+        {
+          // The audit trail of the workspace. It is the oversight
+          // surface of the MANAGER tier — the tier that has to see
+          // who did what before it approves. The link is hidden for
+          // everyone else, so a Staff reviewer never clicks into a
+          // page that would answer 403.
+          labelKey: 'nav.auditLog',
+          to: `/workspaces/${workspaceId}/audit-logs`,
+          icon: ScrollText,
+          permissions: ['AUDIT_LOG_VIEW'],
         },
       ],
     },
