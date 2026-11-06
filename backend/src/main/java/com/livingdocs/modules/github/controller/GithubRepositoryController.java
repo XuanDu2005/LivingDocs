@@ -208,7 +208,9 @@ public class GithubRepositoryController {
     }
 
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/commit")
-    @Operation(summary = "Publish a document to a repository as a pull request (creates a new branch, writes the file, and opens a PR)")
+    @Operation(summary = "Publish an approved document version to a repository as a pull request "
+            + "(creates a new branch, writes the file, and opens a PR). The version must carry a "
+            + "Manager approval.")
     public ResponseEntity<CommitDocumentResponse> commitDocument(
             @PathVariable UUID workspaceId,
             @PathVariable UUID repositoryId,
@@ -216,7 +218,8 @@ public class GithubRepositoryController {
         CommitDocumentResponse res = repositoryService.commitDocument(
                 workspaceId, repositoryId,
                 req.filePath(), req.content(),
-                req.commitMessage(), req.prTitle(), req.prBody(), req.headBranch());
+                req.commitMessage(), req.prTitle(), req.prBody(), req.headBranch(),
+                req.documentId(), req.versionNumber());
         return ResponseEntity.status(HttpStatus.CREATED).body(res);
     }
 

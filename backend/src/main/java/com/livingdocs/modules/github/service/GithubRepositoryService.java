@@ -7,6 +7,7 @@ import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.common.security.PermissionCodes;
 import com.livingdocs.common.security.PermissionService;
+import com.livingdocs.modules.document.service.DocumentApprovalGateService;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubRepositorySummary;
 import com.livingdocs.modules.github.config.GithubProperties;
@@ -50,6 +51,7 @@ public class GithubRepositoryService {
     private final GithubClient githubClient;
     private final GithubProperties githubProperties;
     private final PermissionService permissionService;
+    private final DocumentApprovalGateService approvalGateService;
     private final String appPublicUrl;
 
     public GithubRepositoryService(RepositoryRepository repositoryRepository,
@@ -59,6 +61,7 @@ public class GithubRepositoryService {
                                    GithubClient githubClient,
                                    GithubProperties githubProperties,
                                    PermissionService permissionService,
+                                   DocumentApprovalGateService approvalGateService,
                                    @Value("${app.public-url:http://localhost:8080}") String appPublicUrl) {
         this.repositoryRepository = repositoryRepository;
         this.workspaceRepository = workspaceRepository;
@@ -67,6 +70,7 @@ public class GithubRepositoryService {
         this.githubClient = githubClient;
         this.githubProperties = githubProperties;
         this.permissionService = permissionService;
+        this.approvalGateService = approvalGateService;
         this.appPublicUrl = appPublicUrl.endsWith("/")
                 ? appPublicUrl.substring(0, appPublicUrl.length() - 1)
                 : appPublicUrl;
@@ -299,9 +303,19 @@ public class GithubRepositoryService {
      * still required, so the permission does not become a backdoor
      * around per-workspace scoping.
      *
+     * <p>It is gated a second time, by
+     * {@link DocumentApprovalGateService}: the version being published
+     * must carry a Manager approval, and the committed content must be
+     * that approved version. Without this the Manager approval tier was
+     * decorative — anybody holding {@code SCM_COMMIT} could push
+     * unreviewed text to a repository, and no approval was needed at
+     * all.
+     *
      * @throws BadRequestException if the repository is not in a state that
      *         supports commit (DISCONNECTED, ARCHIVED, ERROR)
      * @throws NotFoundException if the repository is not part of the workspace
+     * @throws ConflictException if the version is not approved, or the
+     *         committed content does not match the approved version
      * @throws com.livingdocs.modules.github.client.GithubClientException
      *         if the GitHub API rejects the operation
      */
@@ -309,7 +323,8 @@ public class GithubRepositoryService {
     public CommitDocumentResponse commitDocument(UUID workspaceId, UUID repositoryId,
                                                   String filePath, String content,
                                                   String commitMessage, String prTitle,
-                                                  String prBody, String headBranch) {
+                                                  String prBody, String headBranch,
+                                                  UUID documentId, Integer versionNumber) {
         requireMembership(workspaceId);
         permissionService.requireAnyPermission(CurrentUser.requireId(), PermissionCodes.SCM_COMMIT);
         Repository repo = repositoryRepository.findById(repositoryId)
@@ -321,6 +336,12 @@ public class GithubRepositoryService {
             throw new BadRequestException(
                     "Repository must be CONNECTED to commit. Current status: " + repo.getStatus());
         }
+
+        // The approval gate. It runs before anything is sent to GitHub,
+        // so a refused commit never leaves a branch or a pull request
+        // behind on the external side.
+        approvalGateService.requireApprovedForCommit(
+                workspaceId, documentId, versionNumber, content);
 
         GithubConnection conn = oauthService.requireForCurrentUser();
 

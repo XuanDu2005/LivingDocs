@@ -479,6 +479,7 @@
     "attaching": "Attaching…",
     "commitToGithub": "Commit to GitHub",
     "commitNeedsRepo": "Attach a repository first to commit.",
+    "commitNeedsApproval": "A Manager has to approve a version before this document can be committed to a repository.",
     "commitNeedsBody": "Save a version before committing.",
     "commitDialogTitle": "Commit document to GitHub",
     "commitDialogDesc": "This opens a new branch and a pull request against the repository's default branch. The file path defaults to docs/<slug>.md but you can change it.",
@@ -615,6 +616,23 @@
       "asc": "Ascending",
       "desc": "Descending"
     },
+    "delegation": {
+      "title": "Review delegation",
+      "loading": "Loading delegations…",
+      "empty": "No delegation yet",
+      "emptyDesc": "Hand the review or approval work of this workspace to another member.",
+      "delegate": "Delegate",
+      "pickDelegate": "Pick a member",
+      "tier": "Tier",
+      "tierManager": "Manager (approval)",
+      "tierStaff": "Staff (review)",
+      "reason": "Reason",
+      "reasonHint": "On leave, second pair of eyes, …",
+      "create": "Delegate",
+      "revoke": "End",
+      "ended": "ended",
+      "history": "Ended delegations"
+    },
     "drawer": {
       "title": "Review version",
       "subtitle": "Check the content before deciding.",
@@ -637,7 +655,8 @@
       "section": "Section",
       "grounding": "Grounding evidence",
       "groundingSummary": "The AI referenced {{count}} code entity/entities when generating this version.",
-      "noGrounding": "No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none."
+      "noGrounding": "No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none.",
+      "ownSubmission": "You submitted this version yourself, so another reviewer has to decide on it."
     },
     "queue": {
       "staff": "Staff review",
@@ -646,6 +665,7 @@
       "mine": "My submissions"
     },
     "authorHint": "You do not have a reviewing role, so the review queues are empty. The versions you submitted for review are listed under \"My submissions\".",
+    "ownSubmissionNote": "Your own submission — another reviewer has to decide on it.",
     "mine": {
       "nothingSubmitted": "Nothing submitted yet",
       "nothingSubmittedDesc": "The versions you send for review will appear here with the verdict they received.",

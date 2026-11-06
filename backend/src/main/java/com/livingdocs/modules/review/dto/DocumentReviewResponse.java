@@ -18,6 +18,12 @@ import java.util.UUID;
  * the Staff comments of a version has to know <em>who</em> wrote them;
  * the raw user id alone is not readable. It is {@code null} when the
  * reviewer account no longer exists.
+ *
+ * <p>{@code supersededAt} is the stamp of a verdict that a later
+ * verdict in the same tier replaced. It is {@code null} for a verdict
+ * that is still the current opinion of its tier. The UI uses it to
+ * strike through a withdrawn verdict instead of presenting it as if it
+ * still counted.
  */
 public record DocumentReviewResponse(
         UUID id,
@@ -30,7 +36,8 @@ public record DocumentReviewResponse(
         String sectionId,
         String sectionHeading,
         String sectionAnchor,
-        OffsetDateTime decidedAt
+        OffsetDateTime decidedAt,
+        OffsetDateTime supersededAt
 ) {
     public static DocumentReviewResponse from(DocumentReview r) {
         return from(r, null);
@@ -48,7 +55,8 @@ public record DocumentReviewResponse(
                 r.getSectionId(),
                 r.getSectionHeading(),
                 r.getSectionAnchor(),
-                r.getDecidedAt()
+                r.getDecidedAt(),
+                r.getSupersededAt()
         );
     }
 }

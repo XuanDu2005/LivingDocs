@@ -479,6 +479,7 @@
     "attaching": "Đang gắn…",
     "commitToGithub": "Commit lên GitHub",
     "commitNeedsRepo": "Hãy gắn repository trước khi commit.",
+    "commitNeedsApproval": "Cần Manager duyệt một phiên bản trước khi tài liệu này được commit lên repository.",
     "commitNeedsBody": "Hãy lưu một phiên bản trước khi commit.",
     "commitDialogTitle": "Commit tài liệu lên GitHub",
     "commitDialogDesc": "Tạo một branch mới và mở pull request vào branch mặc định của repository. Đường dẫn mặc định là docs/<slug>.md nhưng bạn có thể đổi.",
@@ -615,6 +616,23 @@
       "asc": "Tăng dần",
       "desc": "Giảm dần"
     },
+    "delegation": {
+      "title": "Ủy quyền duyệt",
+      "loading": "Đang tải các ủy quyền…",
+      "empty": "Chưa có ủy quyền",
+      "emptyDesc": "Giao việc duyệt hoặc phê duyệt của workspace này cho thành viên khác.",
+      "delegate": "Người nhận",
+      "pickDelegate": "Chọn thành viên",
+      "tier": "Tầng",
+      "tierManager": "Manager (phê duyệt)",
+      "tierStaff": "Staff (duyệt)",
+      "reason": "Lý do",
+      "reasonHint": "Đi công tác, cần thêm người kiểm tra, …",
+      "create": "Ủy quyền",
+      "revoke": "Kết thúc",
+      "ended": "kết thúc",
+      "history": "Ủy quyền đã kết thúc"
+    },
     "drawer": {
       "title": "Duyệt phiên bản",
       "subtitle": "Kiểm tra nội dung trước khi quyết định.",
@@ -637,7 +655,8 @@
       "section": "Mục",
       "grounding": "Bằng chứng grounding",
       "groundingSummary": "AI đã tham chiếu {{count}} thực thể mã nguồn khi tạo phiên bản này.",
-      "noGrounding": "Phiên bản này không có bằng chứng grounding. Các bản viết tay và các bản tạo trước khi tính năng grounding ra đời đều không có."
+      "noGrounding": "Phiên bản này không có bằng chứng grounding. Các bản viết tay và các bản tạo trước khi tính năng grounding ra đời đều không có.",
+      "ownSubmission": "Bạn tự gửi phiên bản này, nên cần người khác đánh giá."
     },
     "queue": {
       "staff": "Duyệt Staff",
@@ -646,6 +665,7 @@
       "mine": "Bản tôi đã gửi"
     },
     "authorHint": "Bạn không có vai trò duyệt, nên các hàng đợi đánh giá đang trống. Những phiên bản bạn đã gửi đi được liệt kê ở tab \"Bản tôi đã gửi\".",
+    "ownSubmissionNote": "Bản bạn tự gửi — cần người khác đánh giá.",
     "mine": {
       "nothingSubmitted": "Chưa gửi phiên bản nào",
       "nothingSubmittedDesc": "Các phiên bản bạn gửi đi sẽ xuất hiện ở đây kèm kết quả đánh giá.",

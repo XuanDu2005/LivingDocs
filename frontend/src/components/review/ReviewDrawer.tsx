@@ -143,6 +143,18 @@ export default function ReviewDrawer({
     [version?.bodyMarkdown],
   );
 
+  /**
+   * Whether the viewer submitted this version themselves.
+   *
+   * <p>The backend refuses a verdict on a version you submitted yourself
+   * (the self-review guard). The drawer is the reviewer's working
+   * surface, so it must not offer the verdict buttons for such a
+   * version — and it must say why they are missing instead of leaving
+   * the reviewer to find out through an error.
+   */
+  const isOwnSubmission = !!version?.submittedByUserId
+    && version.submittedByUserId === user?.id;
+
   const load = useCallback(async () => {
     if (!versionId) return;
     setLoading(true);
@@ -593,7 +605,7 @@ export default function ReviewDrawer({
               {t('common.cancel', 'Cancel')}
             </Button>
           )}
-          {!editing && (
+          {!editing && !isOwnSubmission && (
             <>
               <Button
                 size="sm"
@@ -633,6 +645,14 @@ export default function ReviewDrawer({
                 {t('reviews.action.approve', 'Approve')}
               </Button>
             </>
+          )}
+          {/* The viewer submitted this version themselves: the backend
+              refuses the verdict (the self-review guard), so the buttons
+              are replaced by an explanation. */}
+          {!editing && isOwnSubmission && (
+            <p className="text-xs text-muted-foreground self-center mr-auto">
+              {t('reviews.drawer.ownSubmission')}
+            </p>
           )}
         </DialogFooter>
       </DialogContent>

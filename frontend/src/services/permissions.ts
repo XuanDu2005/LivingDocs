@@ -57,6 +57,10 @@ export const PermissionCodes = {
   GITHUB_SCOPE_VIEW: 'GITHUB_SCOPE_VIEW',
   /** Change the repository access scopes of the GitHub connection. */
   GITHUB_SCOPE_MANAGE: 'GITHUB_SCOPE_MANAGE',
+
+  // ---- review delegation ---------------------------------------------
+  /** Hand the review or approval work of a workspace to somebody else. */
+  REVIEW_DELEGATION_MANAGE: 'REVIEW_DELEGATION_MANAGE',
 } as const;
 
 export type PermissionCode = (typeof PermissionCodes)[keyof typeof PermissionCodes];

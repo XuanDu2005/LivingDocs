@@ -92,7 +92,10 @@ async function call(token, path, opts = {}) {
 // identities
 // ---------------------------------------------------------------------------
 
-const ADMIN = mint('9b35bb4d-844b-4fc8-af5d-aa20ce41858f', 'admin@livingdocs.com');
+const ADMIN = mint(
+  process.env.ADMIN_USER_ID || '9b35bb4d-844b-4fc8-af5d-aa20ce41858f',
+  'admin@livingdocs.com',
+);
 // A pure DEVELOPER: holds only the DEVELOPER platform role, so a refusal
 // proves the capability boundary rather than a data accident.
 const DEVELOPER_ID = '33333333-3333-3333-3333-333333333333';

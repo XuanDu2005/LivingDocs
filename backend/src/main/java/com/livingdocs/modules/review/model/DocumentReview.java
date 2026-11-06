@@ -74,6 +74,28 @@ public class DocumentReview {
     @Column(name = "decided_at", nullable = false, updatable = false)
     private OffsetDateTime decidedAt;
 
+    /**
+     * When this verdict was replaced by a later one in the same tier.
+     *
+     * <p>{@code null} means the verdict is still the current opinion of
+     * its tier. A non-null value means it was superseded — the row is
+     * kept for the trail, but it no longer counts as the authoritative
+     * verdict.
+     *
+     * <p>This exists because a verdict is not immutable in practice: a
+     * reviewer who mis-clicks "Reject" has to be able to correct the
+     * mistake, and the workflow has to reflect the corrected opinion.
+     * Before this column the only way to record a second opinion in the
+     * same tier was to insert a second row, which the partial unique
+     * index rejected with a constraint violation — the request failed
+     * with a 500 instead of recording the correction.
+     *
+     * <p>The trail stays append-only: the superseded row is never
+     * deleted, so a reader can still see what was said first.
+     */
+    @Column(name = "superseded_at")
+    private OffsetDateTime supersededAt;
+
     protected DocumentReview() {
         // JPA
     }
@@ -111,4 +133,23 @@ public class DocumentReview {
     public String getSectionHeading() { return sectionHeading; }
     public String getSectionAnchor() { return sectionAnchor; }
     public OffsetDateTime getDecidedAt() { return decidedAt; }
+    public OffsetDateTime getSupersededAt() { return supersededAt; }
+
+    /**
+     * Whether this verdict is still the current opinion of its tier.
+     */
+    public boolean isCurrent() { return supersededAt == null; }
+
+    /**
+     * Mark this verdict as replaced by a later one.
+     *
+     * <p>Idempotent: a verdict that is already superseded keeps its
+     * original stamp, so the trail shows when the opinion was actually
+     * replaced rather than when it was last touched.
+     */
+    public void supersede() {
+        if (this.supersededAt == null) {
+            this.supersededAt = OffsetDateTime.now();
+        }
+    }
 }
