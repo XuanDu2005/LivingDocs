@@ -1,1 +1,0 @@
-# Static asset stub. Drop favicons, logos, etc. here as the project grows.
