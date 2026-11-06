@@ -18,12 +18,14 @@ import {
 } from '../components/ui/select';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import ReviewDrawer from '../components/review/ReviewDrawer';
+import DelegationPanel from '../components/review/DelegationPanel';
 import {
   reviewsApi, ReviewDecision, ReviewQueue, ReviewQueueFilters, ReviewQueueItem,
   SubmittedVersion,
 } from '../services/drift';
 import { documentsApi } from '../services/documents';
-import { describeError } from '../services/auth';
+import { describeError, hasPermission } from '../services/auth';
+import { useAuth } from '../contexts/AuthContext';
 
 /** Which tier a queue row belongs to. */
 type QueueKind = 'staff' | 'manager' | 'publish';
@@ -64,6 +66,12 @@ const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 export default function ReviewQueuePage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // Delegating the review/approval work of the workspace is a Manager
+  // act with its own permission. The panel is hidden for anybody
+  // without it, so a reviewer never sees a button the API would
+  // refuse.
+  const canDelegate = hasPermission(user, 'REVIEW_DELEGATION_MANAGE');
 
   const [queue, setQueue] = useState<ReviewQueue | null>(null);
   const [loading, setLoading] = useState(true);
@@ -448,6 +456,13 @@ export default function ReviewQueuePage() {
               />
             </TabsContent>
           </Tabs>
+
+          {/* Delegation — requirement #12 of the MANAGER role. Only
+              rendered for a Manager with the delegation permission, so
+              the API is never called by somebody who would get a 403. */}
+          {canDelegate && (
+            <DelegationPanel workspaceId={workspaceId} canDelegate={canDelegate} t={t} />
+          )}
         </>
       )}
 

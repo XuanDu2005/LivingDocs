@@ -35,6 +35,16 @@ import java.util.UUID;
 @Service
 public class PermissionService {
 
+    /**
+     * The name of the cache that holds the resolved permission sets.
+     *
+     * <p>It is a constant because a migration that changes the matrix
+     * has to be able to evict the whole cache — a stale entry would
+     * keep denying a capability that was just granted (see
+     * {@code PermissionCacheEvictionRunner}).
+     */
+    public static final String PERMISSIONS_CACHE = "user-permissions";
+
     private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final RolePermissionRepository rolePermissionRepository;
 
@@ -61,7 +71,7 @@ public class PermissionService {
      * a permission.
      */
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = "user-permissions", key = "'effective:' + #userId")
+    @Cacheable(cacheNames = PermissionService.PERMISSIONS_CACHE, key = "'effective:' + #userId")
     public Set<String> effectivePermissions(UUID userId) {
         if (userId == null) {
             // A mutable HashSet (not Set.of()) so the value survives the

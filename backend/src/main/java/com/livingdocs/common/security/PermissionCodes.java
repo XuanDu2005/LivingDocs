@@ -93,6 +93,17 @@ public final class PermissionCodes {
     /** Change the repository access scopes of the GitHub connection. */
     public static final String GITHUB_SCOPE_MANAGE = "GITHUB_SCOPE_MANAGE";
 
+    // ---- review delegation --------------------------------------------
+    /**
+     * Hand the review or approval work of a workspace to somebody else.
+     *
+     * <p>Distinct from {@link #DOCUMENT_VERSION_APPROVE}: approving a
+     * document and <em>redistributing</em> the approval work are two
+     * different decisions, and an administrator may reasonably want to
+     * allow one without the other.
+     */
+    public static final String REVIEW_DELEGATION_MANAGE = "REVIEW_DELEGATION_MANAGE";
+
     private PermissionCodes() {
         // constants only
     }

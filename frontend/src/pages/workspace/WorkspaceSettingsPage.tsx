@@ -1,6 +1,6 @@
 import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BellRing, Code2, Sparkles } from 'lucide-react';
+import { BellRing, Code2, GitMerge, ShieldCheck, Sparkles } from 'lucide-react';
 import { PageTitle } from '../../components/PageTitle';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { ErrorState } from '../../components/ui/states';
@@ -8,10 +8,12 @@ import { usePermission } from '../../hooks/usePermission';
 import WorkspaceAiSettingsPage from '../WorkspaceAiSettingsPage';
 import WorkspaceLanguagesPage from '../WorkspaceLanguagesPage';
 import WorkspaceNotificationPoliciesPage from '../WorkspaceNotificationPoliciesPage';
+import WorkspaceDocTypePolicyPanel from '../../components/WorkspaceDocTypePolicyPanel';
+import MergeGatePanel from '../../components/MergeGatePanel';
 
-type TabKey = 'ai' | 'languages' | 'notifications';
+type TabKey = 'ai' | 'languages' | 'notifications' | 'docTypes' | 'mergeGate';
 
-const TAB_KEYS: TabKey[] = ['ai', 'languages', 'notifications'];
+const TAB_KEYS: TabKey[] = ['ai', 'languages', 'notifications', 'docTypes', 'mergeGate'];
 
 /**
  * Which permission unlocks which tab.
@@ -19,21 +21,26 @@ const TAB_KEYS: TabKey[] = ['ai', 'languages', 'notifications'];
  * <p>The AI tab exposes the provider, the base URL and the API-key
  * mask, so it needs `AI_CONFIG_READ`. The notification tab shows the
  * resolved policies and delivery channels, so it needs
- * `NOTIFICATION_POLICY_VIEW`. The languages tab has no
- * capability-scoped data, so it stays open to every workspace member.
+ * `NOTIFICATION_POLICY_VIEW`. The doc-type tab shows the workflow the
+ * runtime enforces per documentation type, and the merge-gate tab
+ * shows the policy the CI gate enforces, so both need
+ * `GOVERNANCE_VIEW`. The languages tab has no capability-scoped data,
+ * so it stays open to every workspace member.
  */
 const TAB_PERMISSIONS: Record<TabKey, string[]> = {
   ai: ['AI_CONFIG_READ'],
   languages: [],
   notifications: ['NOTIFICATION_POLICY_VIEW'],
+  docTypes: ['GOVERNANCE_VIEW'],
+  mergeGate: ['GOVERNANCE_VIEW'],
 };
 
 /**
- * Consolidated workspace settings page. Hosts 3 tabs (AI, Languages,
- * Notification policies) so users no longer have to dig through the
- * sidebar to find each one. The 4 old URLs (including
- * /workspaces/:id/ai-settings etc.) are redirected to this page with
- * the right ?tab=… so existing bookmarks keep working.
+ * Consolidated workspace settings page. Hosts 5 tabs (AI, Languages,
+ * Notification policies, Doc-type policies, Merge gate) so users no
+ * longer have to dig through the sidebar to find each one. The old URLs
+ * (including /workspaces/:id/ai-settings etc.) are redirected to this
+ * page with the right ?tab=… so existing bookmarks keep working.
  */
 export default function WorkspaceSettingsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -42,6 +49,8 @@ export default function WorkspaceSettingsPage() {
 
   const canViewAi = usePermission('AI_CONFIG_READ');
   const canViewNotifications = usePermission('NOTIFICATION_POLICY_VIEW');
+  const canViewGovernance = usePermission('GOVERNANCE_VIEW');
+  const canManageGovernance = usePermission('GOVERNANCE_MANAGE');
 
   if (!workspaceId) {
     return <ErrorState message={t('common.missingIds', 'Missing identifiers')} />;
@@ -52,6 +61,8 @@ export default function WorkspaceSettingsPage() {
     if (required.length === 0) return true;
     if (key === 'ai') return canViewAi;
     if (key === 'notifications') return canViewNotifications;
+    if (key === 'docTypes') return canViewGovernance;
+    if (key === 'mergeGate') return canViewGovernance;
     return true;
   });
 
@@ -89,6 +100,16 @@ export default function WorkspaceSettingsPage() {
               <BellRing className="mr-1 h-4 w-4" /> {t('workspaceSettings.tabNotifications', 'Notifications')}
             </TabsTrigger>
           )}
+          {availableTabs.includes('docTypes') && (
+            <TabsTrigger value="docTypes">
+              <ShieldCheck className="mr-1 h-4 w-4" /> {t('workspaceSettings.tabDocTypes', 'Doc types')}
+            </TabsTrigger>
+          )}
+          {availableTabs.includes('mergeGate') && (
+            <TabsTrigger value="mergeGate">
+              <GitMerge className="mr-1 h-4 w-4" /> {t('workspaceSettings.tabMergeGate', 'Merge gate')}
+            </TabsTrigger>
+          )}
         </TabsList>
         {availableTabs.includes('ai') && (
           <TabsContent value="ai">
@@ -103,6 +124,23 @@ export default function WorkspaceSettingsPage() {
         {availableTabs.includes('notifications') && (
           <TabsContent value="notifications">
             <WorkspaceNotificationPoliciesPage />
+          </TabsContent>
+        )}
+        {availableTabs.includes('docTypes') && (
+          <TabsContent value="docTypes">
+            <WorkspaceDocTypePolicyPanel
+              workspaceId={workspaceId}
+              hasGovernanceManage={canManageGovernance}
+            />
+          </TabsContent>
+        )}
+        {availableTabs.includes('mergeGate') && (
+          <TabsContent value="mergeGate">
+            <MergeGatePanel
+              workspaceId={workspaceId}
+              canManage={canManageGovernance}
+              canView={canViewGovernance}
+            />
           </TabsContent>
         )}
       </Tabs>
@@ -129,5 +167,6 @@ export function LegacyWorkspaceSettingsRedirect() {
   let tab: TabKey = 'ai';
   if (location.pathname.includes('languages')) tab = 'languages';
   else if (location.pathname.includes('notification-policies')) tab = 'notifications';
+  else if (location.pathname.includes('doc-type-policies')) tab = 'docTypes';
   return <Navigate to={`/workspaces/${workspaceId}/settings?tab=${tab}`} replace />;
 }

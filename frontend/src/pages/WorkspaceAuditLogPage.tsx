@@ -29,10 +29,19 @@ function safeParse(json: string): Record<string, unknown> | null {
 }
 
 /**
- * Manager-only view of the audit log for a single workspace. The page
- * shows the latest events first and lets the user filter by actor,
- * action or resource type. JSON payloads can be expanded inline so
- * reviewers can see exactly what changed without leaving the app.
+ * The audit log of a single workspace.
+ *
+ * <p>The MANAGER tier is required to "view the complete audit trail of a
+ * document ... before granting approval", and the workspace-wide trail
+ * is the same surface seen from the workspace instead of from one
+ * document. It shows the latest events first and lets the user filter
+ * by actor, action or resource type. JSON payloads can be expanded
+ * inline so reviewers can see exactly what changed without leaving the
+ * app.
+ *
+ * <p>The page is gated by the {@code AUDIT_LOG_VIEW} capability (both
+ * in the route guard and in the backend), so a reader without it never
+ * reaches this screen.
  */
 export default function WorkspaceAuditLogPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -73,7 +82,7 @@ export default function WorkspaceAuditLogPage() {
     const q = filter.trim().toLowerCase();
     if (!q) return logs;
     return logs.filter((l) =>
-      [l.action, l.resourceType, l.resourceId, l.actorRole, l.payload]
+      [l.action, l.resourceType, l.resourceId, l.actorRole, l.actorName, l.payload]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
     );
@@ -174,8 +183,10 @@ export default function WorkspaceAuditLogPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-xs">
-                          <div className="font-mono">
-                            {log.actorUserId ? log.actorUserId.slice(0, 8) : '—'}
+                          <div>
+                            {log.actorName ?? (log.actorUserId
+                              ? log.actorUserId.slice(0, 8)
+                              : '—')}
                           </div>
                           {log.actorRole && (
                             <Badge variant="muted" className="text-[10px] mt-1">

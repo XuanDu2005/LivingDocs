@@ -278,28 +278,15 @@ public class DocGenerationEventListener {
             log.info("AI version persisted: document={} version={}",
                     event.getDocumentId(), version.getVersionNumber());
 
-            // The audit trail must cover the AI path too, otherwise the
-            // change log shows what Staff and Manager did but not what the
-            // AI produced — the requirement is a complete trail per change.
-            try {
-                auditLogService.record(
-                        event.getRequestedByUserId(),
-                        "AI",
-                        "document.ai_generated",
-                        "document_version",
-                        version.getId().toString(),
-                        event.getWorkspaceId(),
-                        Map.of(
-                                "documentId", event.getDocumentId().toString(),
-                                "versionNumber", version.getVersionNumber(),
-                                "confidence", confidence == null ? 0.0f : confidence,
-                                "sourceCommitSha", event.getSourceCommitSha() == null
-                                        ? "" : event.getSourceCommitSha(),
-                                "groundingCount", grounding == null ? 0 : grounding.size()));
-            } catch (Exception e) {
-                log.warn("Failed to write audit log for AI generation on document {}: {}",
-                        event.getDocumentId(), e.getMessage());
-            }
+            // The version service already recorded the creation of the
+            // version (it is the single place where a version comes into
+            // existence, so the entry is written for every path that
+            // creates one). Recording it again here would put two
+            // entries in the trail for the same event. What the listener
+            // adds is the *auto-update* context: this version was
+            // produced by the webhook-driven pipeline rather than by a
+            // person asking for it.
+            recordAutoUpdateAudit(event, version, confidence, grounding);
 
             linkGroundingEntities(event.getDocumentId(), grounding);
             return version.getId();
@@ -484,6 +471,61 @@ public class DocGenerationEventListener {
         } catch (Exception e) {
             log.warn("Failed to serialise grounding evidence: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Record the auto-update entry of the document's audit trail.
+     *
+     * <p>The requirement names "auto-updated" explicitly as one of the
+     * three things the trail of a document has to show. The creation of
+     * the version itself is already recorded by the version service as
+     * {@code document.version.ai_created}; this entry adds what makes an
+     * auto-update distinguishable from a generation a person asked
+     * for: it was triggered by a code change, not by a user.
+     *
+     * <p>Only the automatic case is recorded here — a generation a
+     * person asked for is already covered by the version service, and
+     * writing a second entry for it would put two lines in the trail
+     * for one event.
+     *
+     * <p>Best-effort — a failure here must not abort the pipeline.
+     */
+    private void recordAutoUpdateAudit(DocGenerationRequestedEvent event,
+                                       DocumentVersion version,
+                                       Float confidence,
+                                       List<DocGenerationCompletedEvent.Grounding> grounding) {
+        // A generation with no requesting user was started by the
+        // webhook pipeline; one with a user was asked for by a person.
+        // Only the former is an auto-update.
+        if (event.getRequestedByUserId() != null) {
+            return;
+        }
+        try {
+            String versionId = version.getId() != null ? version.getId().toString() : "";
+            int versionNumber = version.getVersionNumber() != null
+                    ? version.getVersionNumber() : 0;
+            auditLogService.record(
+                    null,
+                    "SYSTEM",
+                    "document.auto_updated",
+                    "document_version",
+                    versionId,
+                    event.getWorkspaceId(),
+                    event.getDocumentId(),
+                    Map.of(
+                            "documentId", event.getDocumentId().toString(),
+                            "versionId", versionId,
+                            "versionNumber", versionNumber,
+                            "confidence", confidence == null ? 0.0f : confidence,
+                            "sourceCommitSha", event.getSourceCommitSha() == null
+                                    ? "" : event.getSourceCommitSha(),
+                            "sourcePrId", event.getSourcePrId() == null
+                                    ? "" : event.getSourcePrId().toString(),
+                            "groundingCount", grounding == null ? 0 : grounding.size()));
+        } catch (Exception e) {
+            log.warn("Failed to write audit log for AI generation on document {}: {}",
+                    event.getDocumentId(), e.getMessage());
         }
     }
 }

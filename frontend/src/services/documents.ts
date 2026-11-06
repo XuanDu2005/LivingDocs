@@ -78,6 +78,13 @@ export interface DocumentVersionSummary {
   changeSummary: string | null;
   actorRole: ActorRole;
   actorUserId: string | null;
+  /**
+   * The user who pushed this version into the review queue.
+   *
+   * <p>Used to hide the review controls on a version the viewer
+   * submitted themselves — the backend refuses that verdict.
+   */
+  submittedByUserId: string | null;
   sourceCommitSha: string | null;
   sourceCommitShort: string | null;
   sourcePrId: string | null;

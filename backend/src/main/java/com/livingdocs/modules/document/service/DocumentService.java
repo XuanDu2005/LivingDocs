@@ -27,9 +27,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -105,7 +107,25 @@ public class DocumentService {
                 null, null, saved.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
-        versionRepository.save(initial);
+        DocumentVersion savedInitial = versionRepository.save(initial);
+
+        // The creation of the document is the first entry of its trail.
+        // Without it the trail would start at the first edit, and a
+        // reader could not tell whether the document was created by a
+        // person or appeared from nowhere.
+        String initialVersionId = savedInitial.getId() != null
+                ? savedInitial.getId().toString() : "";
+        Integer initialVersionNumber = savedInitial.getVersionNumber() != null
+                ? savedInitial.getVersionNumber() : 0;
+        auditLogService.record(actorId, actorRoleFor(actorId).name(),
+                "document.created", "document", saved.getId().toString(),
+                workspaceId, saved.getId(),
+                Map.of("documentId", saved.getId().toString(),
+                        "slug", normalizedSlug,
+                        "title", req.title(),
+                        "docType", req.docType(),
+                        "versionId", initialVersionId,
+                        "versionNumber", initialVersionNumber));
 
         log.info("Document created: workspace={} slug={} docType={}",
                 workspaceId, normalizedSlug, req.docType());
@@ -179,6 +199,15 @@ public class DocumentService {
         if (!d.getOwnerId().equals(actorId)) {
             workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
         }
+        // The previous values are captured before the mutation, so the
+        // audit entry can say what actually changed instead of restating
+        // the whole document.
+        String previousTitle = d.getTitle();
+        String previousSummary = d.getSummary();
+        UUID previousRepositoryId = d.getRepositoryId();
+        UUID previousTemplateId = d.getTemplateId();
+        boolean previousAutoUpdate = d.isAutoUpdateEnabled();
+
         d.setTitle(req.title());
         d.setSummary(req.summary());
         if (req.repositoryId() != null) {
@@ -188,6 +217,32 @@ public class DocumentService {
             d.setTemplateId(req.templateId());
         }
         d.setAutoUpdateEnabled(req.autoUpdateEnabled());
+
+        // The metadata of a document is part of what the Manager reviews,
+        // so a change to it belongs in the trail. Only the fields that
+        // actually changed are named, so the entry says what happened
+        // instead of restating the whole document.
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("documentId", documentId.toString());
+        if (!Objects.equals(previousTitle, req.title())) {
+            changes.put("titleChanged", true);
+        }
+        if (!Objects.equals(previousSummary, req.summary())) {
+            changes.put("summaryChanged", true);
+        }
+        if (req.repositoryId() != null && !req.repositoryId().equals(previousRepositoryId)) {
+            changes.put("repositoryId", req.repositoryId().toString());
+        }
+        if (req.templateId() != null && !req.templateId().equals(previousTemplateId)) {
+            changes.put("templateId", req.templateId().toString());
+        }
+        if (previousAutoUpdate != req.autoUpdateEnabled()) {
+            changes.put("autoUpdateEnabled", req.autoUpdateEnabled());
+        }
+        auditLogService.record(actorId, actorRoleFor(actorId).name(),
+                "document.updated", "document", documentId.toString(),
+                workspaceId, documentId, changes);
+
         return DocumentResponse.from(d);
     }
 
@@ -195,6 +250,16 @@ public class DocumentService {
     public void delete(UUID actorId, UUID workspaceId, UUID documentId) {
         Document d = loadAndAuthorize(actorId, workspaceId, documentId);
         workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        // The deletion is recorded before the row disappears. The audit
+        // log is append-only and carries no foreign key to the document,
+        // so the entry survives the deletion and the trail of the
+        // document stays readable afterwards.
+        auditLogService.record(actorId, actorRoleFor(actorId).name(),
+                "document.deleted", "document", documentId.toString(),
+                workspaceId, documentId,
+                Map.of("documentId", documentId.toString(),
+                        "slug", d.getSlug() == null ? "" : d.getSlug(),
+                        "title", d.getTitle() == null ? "" : d.getTitle()));
         documentRepository.delete(d);
     }
 
@@ -266,8 +331,10 @@ public class DocumentService {
             documentRepository.save(doc);
             
             auditLogService.record(actorId, "MEMBER", "document.auto_update.toggle",
-                    "document", documentId.toString(), workspaceId,
-                    Map.of("enabled", enabled, "previous", previous, "title", doc.getTitle()));
+                    "document", documentId.toString(), workspaceId, documentId,
+                    Map.of("documentId", documentId.toString(),
+                            "enabled", enabled, "previous", previous,
+                            "title", doc.getTitle() == null ? "" : doc.getTitle()));
         }
         return doc;
     }

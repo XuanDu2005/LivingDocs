@@ -9,7 +9,9 @@ import com.livingdocs.modules.drift.model.DriftAlert;
 import com.livingdocs.modules.drift.model.DriftResolution;
 import com.livingdocs.modules.drift.model.DriftSeverity;
 import com.livingdocs.modules.drift.repository.DriftAlertRepository;
+import com.livingdocs.modules.workspace.model.WorkspaceDocTypePolicy;
 import com.livingdocs.modules.workspace.model.WorkspaceSettings;
+import com.livingdocs.modules.workspace.repository.WorkspaceDocTypePolicyRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,10 +34,11 @@ import java.util.UUID;
  *
  * <h2>The rules</h2>
  * <ul>
- *   <li><b>Doc-type workflow</b> — a platform policy per
- *       {@code doc_type} decides whether generated content is published
- *       automatically ({@code AUTO_APPLY}) or queued for review
- *       ({@code MANAGER_REVIEW}).</li>
+ *   <li><b>Doc-type workflow</b> — a policy per {@code doc_type} decides
+ *       whether generated content is published automatically
+ *       ({@code AUTO_APPLY}) or queued for review
+ *       ({@code MANAGER_REVIEW}). The workspace's own override wins
+ *       over the platform's policy for the same doc type.</li>
  *   <li><b>Manager approval</b> — when the workspace requires it, a
  *       generated version stops at the Staff tier; it cannot be
  *       published without a Manager decision.</li>
@@ -63,6 +66,7 @@ public class GovernancePolicyService {
     private final PlatformDocTypePolicyRepository docTypePolicyRepository;
     private final PlatformSettingsRepository platformSettingsRepository;
     private final WorkspaceSettingsRepository workspaceSettingsRepository;
+    private final WorkspaceDocTypePolicyRepository workspaceDocTypePolicyRepository;
     private final DriftAlertRepository driftAlertRepository;
     private final AiRateLimitService rateLimitService;
     private final ConfidenceThresholdService confidenceThresholdService;
@@ -70,12 +74,14 @@ public class GovernancePolicyService {
     public GovernancePolicyService(PlatformDocTypePolicyRepository docTypePolicyRepository,
                                    PlatformSettingsRepository platformSettingsRepository,
                                    WorkspaceSettingsRepository workspaceSettingsRepository,
+                                   WorkspaceDocTypePolicyRepository workspaceDocTypePolicyRepository,
                                    DriftAlertRepository driftAlertRepository,
                                    AiRateLimitService rateLimitService,
                                    ConfidenceThresholdService confidenceThresholdService) {
         this.docTypePolicyRepository = docTypePolicyRepository;
         this.platformSettingsRepository = platformSettingsRepository;
         this.workspaceSettingsRepository = workspaceSettingsRepository;
+        this.workspaceDocTypePolicyRepository = workspaceDocTypePolicyRepository;
         this.driftAlertRepository = driftAlertRepository;
         this.rateLimitService = rateLimitService;
         this.confidenceThresholdService = confidenceThresholdService;
@@ -88,26 +94,51 @@ public class GovernancePolicyService {
     /**
      * Resolve the workflow that applies to a documentation type.
      *
-     * <p>Looks up the platform's {@code platform_doc_type_policies} row for
-     * the type. When the workspace has no explicit policy of its own the
-     * platform default applies; when neither exists the safe default is
-     * {@link PlatformDocTypePolicy.Workflow#MANAGER_REVIEW}.
+     * <p>The chain is, from the most specific rule to the least:
+     * <ol>
+     *   <li>the workspace's own row in {@code workspace_doc_type_policies}
+     *       — the override a workspace manager configured;</li>
+     *   <li>the platform's row in {@code platform_doc_type_policies};</li>
+     *   <li>the workspace's {@code requireManagerApproval} flag;</li>
+     *   <li>the platform's {@code default_require_manager_approval} flag.</li>
+     * </ol>
+     *
+     * <p>Before V43 the first step did not exist and the {@code workspaceId}
+     * argument was decorative — only the platform tier was configurable.
      */
     @Transactional(readOnly = true)
     public PlatformDocTypePolicy.Workflow workflowFor(UUID workspaceId, String docType) {
+        var workspaceExplicit = explicitWorkspaceWorkflow(workspaceId, docType);
+        if (workspaceExplicit != null) {
+            return workspaceExplicit;
+        }
         var explicit = explicitWorkflow(docType);
         if (explicit != null) {
             return explicit;
         }
-        // Fall back to the platform-wide "require manager approval" default.
-        var platform = platformSettingsRepository.getSingleton();
-        return platform.isDefaultRequireManagerApproval()
+        // Fall back to the workspace flag, then the platform-wide default.
+        return requiresManagerApproval(workspaceId)
                 ? PlatformDocTypePolicy.Workflow.MANAGER_REVIEW
                 : PlatformDocTypePolicy.Workflow.AUTO_APPLY;
     }
 
     /**
-     * The explicit policy for a doc type, or {@code null} when the
+     * The workspace's own policy for a doc type, or {@code null} when the
+     * workspace has not overridden it.
+     */
+    @Transactional(readOnly = true)
+    public PlatformDocTypePolicy.Workflow explicitWorkspaceWorkflow(UUID workspaceId, String docType) {
+        if (workspaceId == null || docType == null || docType.isBlank()) {
+            return null;
+        }
+        return workspaceDocTypePolicyRepository
+                .findByWorkspaceIdAndDocType(workspaceId, normalizeDocType(docType))
+                .map(WorkspaceDocTypePolicy::getWorkflow)
+                .orElse(null);
+    }
+
+    /**
+     * The explicit platform policy for a doc type, or {@code null} when the
      * platform has no row for it.
      */
     @Transactional(readOnly = true)
@@ -124,13 +155,17 @@ public class GovernancePolicyService {
      * Whether a generated version of this doc type may be published
      * without a human decision.
      *
-     * <p>Precedence: an explicit per-doc-type policy is the most specific
-     * rule and therefore wins. The workspace's
-     * {@code requireManagerApproval} flag is the fallback used only for
-     * doc types the platform has no policy for.
+     * <p>Precedence: the workspace's own override is the most specific
+     * rule and therefore wins; the platform's per-doc-type policy comes
+     * next. The workspace's {@code requireManagerApproval} flag is the
+     * fallback used only for doc types neither tier has a policy for.
      */
     @Transactional(readOnly = true)
     public boolean isAutoApply(UUID workspaceId, String docType) {
+        var workspaceExplicit = explicitWorkspaceWorkflow(workspaceId, docType);
+        if (workspaceExplicit != null) {
+            return workspaceExplicit == PlatformDocTypePolicy.Workflow.AUTO_APPLY;
+        }
         var explicit = explicitWorkflow(docType);
         if (explicit != null) {
             return explicit == PlatformDocTypePolicy.Workflow.AUTO_APPLY;

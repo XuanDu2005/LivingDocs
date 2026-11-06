@@ -28,5 +28,24 @@ public interface DocumentReviewRepository extends JpaRepository<DocumentReview, 
     List<DocumentReview> findAllByDocumentVersionIdAndReviewerRoleOrderByDecidedAtDesc(
             UUID documentVersionId, String reviewerRole);
 
+    /**
+     * The verdicts of one tier that are still current.
+     *
+     * <p>"Current" means not superseded: a verdict that a later verdict
+     * in the same tier replaced is kept for the trail but no longer
+     * counts as the authoritative opinion. The workflow reasons about
+     * the current rows only — that is what makes "the latest verdict
+     * wins" mean what it says even after a reviewer corrected
+     * themselves.
+     */
+    List<DocumentReview> findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+            UUID documentVersionId, String reviewerRole);
+
+    /**
+     * Every review of the given versions that is still current.
+     */
+    List<DocumentReview> findAllByDocumentVersionIdInAndSupersededAtIsNullOrderByDecidedAtDesc(
+            java.util.Collection<UUID> documentVersionIds);
+
     long countByDocumentVersionIdAndDecision(UUID documentVersionId, ReviewDecision decision);
 }

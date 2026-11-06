@@ -19,7 +19,9 @@ import {
 } from '../../services/drift';
 import { documentsApi, DocumentVersion, DocumentVersionSummary } from '../../services/documents';
 import { aiApi, GroundingSource } from '../../services/ai';
-import { describeError } from '../../services/auth';
+import { describeError, hasPermission } from '../../services/auth';
+import { useAuth } from '../../contexts/AuthContext';
+import DocumentAuditTrail from '../document/DocumentAuditTrail';
 
 /**
  * A markdown heading of the version under review.
@@ -106,6 +108,12 @@ export default function ReviewDrawer({
   workspaceId, documentId, versionId, kind, open, onOpenChange, onDecided,
 }: ReviewDrawerProps) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // Reading the trail of a document is a separate capability from
+  // reviewing it. The Manager is required to see the trail before
+  // granting approval; a Staff reviewer without AUDIT_LOG_VIEW simply
+  // does not get the panel rather than a 403 on every drawer open.
+  const canViewAuditTrail = hasPermission(user, 'AUDIT_LOG_VIEW');
 
   const [version, setVersion] = useState<DocumentVersion | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -134,6 +142,18 @@ export default function ReviewDrawer({
     () => parseHeadings(version?.bodyMarkdown ?? ''),
     [version?.bodyMarkdown],
   );
+
+  /**
+   * Whether the viewer submitted this version themselves.
+   *
+   * <p>The backend refuses a verdict on a version you submitted yourself
+   * (the self-review guard). The drawer is the reviewer's working
+   * surface, so it must not offer the verdict buttons for such a
+   * version — and it must say why they are missing instead of leaving
+   * the reviewer to find out through an error.
+   */
+  const isOwnSubmission = !!version?.submittedByUserId
+    && version.submittedByUserId === user?.id;
 
   const load = useCallback(async () => {
     if (!versionId) return;
@@ -454,6 +474,23 @@ export default function ReviewDrawer({
               </CardContent>
             </Card>
 
+            {/* The complete audit trail of the document.
+                The MANAGER role is required to "view the complete audit
+                trail of a document (AI-generated, auto-updated,
+                staff-edited) before granting approval" — so the trail
+                belongs right here, next to the content and the Staff
+                comments the decision is based on.
+
+                It is only rendered for a reader who holds
+                AUDIT_LOG_VIEW; the backend enforces the same rule. */}
+            {canViewAuditTrail && (
+              <DocumentAuditTrail
+                workspaceId={workspaceId}
+                documentId={documentId}
+                pageSize={20}
+              />
+            )}
+
             {/* Section picker + body */}
             <Card>
               <CardHeader className="pb-2">
@@ -568,7 +605,7 @@ export default function ReviewDrawer({
               {t('common.cancel', 'Cancel')}
             </Button>
           )}
-          {!editing && (
+          {!editing && !isOwnSubmission && (
             <>
               <Button
                 size="sm"
@@ -608,6 +645,14 @@ export default function ReviewDrawer({
                 {t('reviews.action.approve', 'Approve')}
               </Button>
             </>
+          )}
+          {/* The viewer submitted this version themselves: the backend
+              refuses the verdict (the self-review guard), so the buttons
+              are replaced by an explanation. */}
+          {!editing && isOwnSubmission && (
+            <p className="text-xs text-muted-foreground self-center mr-auto">
+              {t('reviews.drawer.ownSubmission')}
+            </p>
           )}
         </DialogFooter>
       </DialogContent>

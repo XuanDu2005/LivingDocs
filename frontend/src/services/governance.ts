@@ -26,6 +26,10 @@ export interface DocTypePolicy {
   docType: string;
   workflow: DocTypeWorkflow;
   autoApply: boolean;
+  /** WORKSPACE = overridden here, PLATFORM = inherited, DEFAULT = no row anywhere. */
+  scope?: 'WORKSPACE' | 'PLATFORM' | 'DEFAULT';
+  workspaceWorkflow?: DocTypeWorkflow | null;
+  platformWorkflow?: DocTypeWorkflow | null;
 }
 
 export interface MergeGateVerdict {

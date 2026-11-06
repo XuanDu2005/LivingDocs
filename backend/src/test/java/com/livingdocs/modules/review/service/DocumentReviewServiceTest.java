@@ -10,6 +10,7 @@ import com.livingdocs.modules.drift.repository.DriftAlertRepository;
 import com.livingdocs.modules.notification.service.NotificationService;
 import com.livingdocs.modules.review.dto.ReviseVersionRequest;
 import com.livingdocs.modules.review.dto.SubmitReviewRequest;
+import com.livingdocs.modules.review.model.DocumentReview;
 import com.livingdocs.modules.review.model.ReviewDecision;
 import com.livingdocs.modules.review.repository.DocumentReviewRepository;
 import com.livingdocs.modules.template.repository.DocTemplateRepository;
@@ -19,6 +20,7 @@ import com.livingdocs.modules.version.model.ActorRole;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
+import com.livingdocs.modules.workspace.model.WorkspaceMember;
 import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +50,9 @@ class DocumentReviewServiceTest {
     private DocumentVersionRepository versionRepository;
     private DocumentRepository documentRepository;
     private AuthorizationService authorizationService;
+    private PermissionService permissionService;
+    private WorkspaceMemberRepository memberRepository;
+    private ReviewDelegationService delegationService;
     private DocumentReviewService service;
 
     private UUID actorId;
@@ -62,6 +67,9 @@ class DocumentReviewServiceTest {
         versionRepository = mock(DocumentVersionRepository.class);
         documentRepository = mock(DocumentRepository.class);
         authorizationService = mock(AuthorizationService.class);
+        permissionService = mock(PermissionService.class);
+        memberRepository = mock(WorkspaceMemberRepository.class);
+        delegationService = mock(ReviewDelegationService.class);
 
         service = new DocumentReviewService(
                 reviewRepository,
@@ -70,14 +78,15 @@ class DocumentReviewServiceTest {
                 mock(WorkspaceService.class),
                 mock(AuditLogService.class),
                 authorizationService,
-                mock(PermissionService.class),
+                permissionService,
                 mock(NotificationService.class),
-                mock(WorkspaceMemberRepository.class),
+                memberRepository,
                 mock(UserRepository.class),
                 mock(DriftAlertRepository.class),
                 mock(DocTemplateRepository.class),
                 mock(DocTemplateService.class),
-                mock(TemplateComplianceService.class));
+                mock(TemplateComplianceService.class),
+                delegationService);
 
         actorId = UUID.randomUUID();
         otherId = UUID.randomUUID();
@@ -91,6 +100,38 @@ class DocumentReviewServiceTest {
         when(versionRepository.save(any(DocumentVersion.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
         when(reviewRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // No delegation by default: the reassignment guard must not fire
+        // unless a delegation actually exists.
+        when(delegationService.delegatorsFor(any(), anyString())).thenReturn(java.util.List.of());
+        when(delegationService.delegatesFor(any(), anyString())).thenReturn(java.util.List.of());
+        // By default the workspace has another reviewer who holds the
+        // tier permissions. That is the interesting case for the
+        // self-review guard: somebody else could have done the work, so
+        // the author must not do it themselves.
+        givenAnotherReviewer();
+    }
+
+    /**
+     * Put somebody else in the workspace who may review and approve.
+     */
+    private void givenAnotherReviewer() {
+        WorkspaceMember member = mock(WorkspaceMember.class);
+        when(member.getUserId()).thenReturn(otherId);
+        when(memberRepository.findAllByWorkspaceId(workspaceId))
+                .thenReturn(java.util.List.of(member));
+        when(permissionService.hasAnyPermission(any(), anyString())).thenReturn(true);
+    }
+
+    /**
+     * Leave the workspace with nobody but the actor who may review —
+     * the single-reviewer case, where the self-review guard yields.
+     */
+    private void givenSoleReviewer() {
+        WorkspaceMember member = mock(WorkspaceMember.class);
+        when(member.getUserId()).thenReturn(actorId);
+        when(memberRepository.findAllByWorkspaceId(workspaceId))
+                .thenReturn(java.util.List.of(member));
+        when(permissionService.hasAnyPermission(any(), anyString())).thenReturn(true);
     }
 
     private Document givenDocument() {
@@ -246,5 +287,223 @@ class DocumentReviewServiceTest {
                 new ReviseVersionRequest("# Fixed\n\ntext", null));
 
         verify(version).setStatus(VersionStatus.SUPERSEDED);
+    }
+
+    // -----------------------------------------------------------------
+    // delegation (requirement #12 of the MANAGER role)
+    // -----------------------------------------------------------------
+
+    /**
+     * A Manager who delegated the Staff tier does not review it any
+     * more. Handing work over has to mean something: if the delegator
+     * could still act, the delegation would only redirect the
+     * notification while the work stayed exactly where it was.
+     */
+    @Test
+    void aDelegatingManagerMayNotReviewTheDelegatedTier() {
+        givenDocument();
+        givenVersion(VersionStatus.PENDING, otherId);
+        when(delegationService.delegatorsFor(workspaceId, "STAFF"))
+                .thenReturn(java.util.List.of(actorId));
+
+        assertThrows(ForbiddenException.class, () -> service.submitStaffReview(
+                actorId, documentId, versionId,
+                new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null)));
+
+        verify(reviewRepository, never()).save(any());
+    }
+
+    /**
+     * The same rule on the approval tier.
+     */
+    @Test
+    void aDelegatingManagerMayNotApproveTheDelegatedTier() {
+        givenDocument();
+        givenVersion(VersionStatus.IN_REVIEW, otherId);
+        when(delegationService.delegatorsFor(workspaceId, "MANAGER"))
+                .thenReturn(java.util.List.of(actorId));
+
+        assertThrows(ForbiddenException.class, () -> service.submitManagerDecision(
+                actorId, documentId, versionId,
+                new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null)));
+
+        verify(reviewRepository, never()).save(any());
+    }
+
+    /**
+     * The delegation of one tier does not lock the other tier: a
+     * Manager who delegated the approval work may still review a
+     * version. The delegation routes one act, it does not strip the
+     * person of their role.
+     */
+    @Test
+    void aDelegationOfOneTierDoesNotBlockTheOther() {
+        givenDocument();
+        givenVersion(VersionStatus.PENDING, otherId);
+        when(delegationService.delegatorsFor(workspaceId, "MANAGER"))
+                .thenReturn(java.util.List.of(actorId));
+
+        try {
+            service.submitStaffReview(
+                    actorId, documentId, versionId,
+                    new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null));
+        } catch (ForbiddenException e) {
+            throw new AssertionError(
+                    "a MANAGER-tier delegation must not block a STAFF-tier review", e);
+        } catch (RuntimeException ignored) {
+            // Any other failure is out of scope for this test.
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // correcting a verdict
+    // -----------------------------------------------------------------
+
+    /**
+     * A reviewer who mis-clicked "Reject" has to be able to correct it.
+     *
+     * <p>The rejection moved the version out of the reviewable state,
+     * so without a dedicated rule the correction would be refused —
+     * and the version would be stuck on a verdict nobody meant.
+     */
+    @Test
+    void aReviewerMayCorrectTheirOwnRejection() {
+        givenDocument();
+        // The version is REJECTED — that is what the mis-click did.
+        givenVersion(VersionStatus.REJECTED, otherId);
+        // The current Staff verdict is this reviewer's own rejection.
+        DocumentReview own = mock(DocumentReview.class);
+        when(own.getDecision()).thenReturn(ReviewDecision.REJECTED);
+        when(own.getReviewerUserId()).thenReturn(actorId);
+        when(reviewRepository
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        versionId, "STAFF"))
+                .thenReturn(java.util.List.of(own));
+
+        try {
+            service.submitStaffReview(
+                    actorId, documentId, versionId,
+                    new SubmitReviewRequest(ReviewDecision.APPROVED, "correction", null, null, null));
+        } catch (ForbiddenException e) {
+            throw new AssertionError("a reviewer must be able to correct their own verdict", e);
+        } catch (com.livingdocs.common.exception.BadRequestException e) {
+            throw new AssertionError(
+                    "a REJECTED version carrying the reviewer's own verdict must stay correctable", e);
+        } catch (RuntimeException ignored) {
+            // Any other failure is out of scope for this test.
+        }
+    }
+
+    /**
+     * The correction is not a free-for-all: another reviewer's
+     * rejection is not this reviewer's to overwrite.
+     */
+    @Test
+    void aReviewerMayNotCorrectSomebodyElsesRejection() {
+        givenDocument();
+        givenVersion(VersionStatus.REJECTED, otherId);
+        DocumentReview theirs = mock(DocumentReview.class);
+        when(theirs.getDecision()).thenReturn(ReviewDecision.REJECTED);
+        when(theirs.getReviewerUserId()).thenReturn(otherId);
+        when(reviewRepository
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        versionId, "STAFF"))
+                .thenReturn(java.util.List.of(theirs));
+
+        assertThrows(com.livingdocs.common.exception.BadRequestException.class,
+                () -> service.submitStaffReview(
+                        actorId, documentId, versionId,
+                        new SubmitReviewRequest(ReviewDecision.APPROVED, "correction", null, null, null)));
+    }
+
+    // -----------------------------------------------------------------
+    // the self-review guard and its single-reviewer escape hatch
+    // -----------------------------------------------------------------
+
+    /**
+     * The approval tier needs the same guard as the review tier.
+     *
+     * <p>Without it a Manager who submitted a document could approve it
+     * themselves as soon as the Staff tier had approved it — so the
+     * final sign-off, the one the two-tier workflow exists for, could be
+     * given by the author.
+     */
+    @Test
+    void aManagerMayNotApproveTheirOwnSubmission() {
+        givenDocument();
+        givenVersion(VersionStatus.IN_REVIEW, actorId);
+        // The Staff tier approved it, so the only thing standing in the
+        // way is the self-review guard.
+        DocumentReview staffApproval = mock(DocumentReview.class);
+        when(staffApproval.getDecision()).thenReturn(ReviewDecision.APPROVED);
+        when(reviewRepository
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        versionId, "STAFF"))
+                .thenReturn(java.util.List.of(staffApproval));
+
+        assertThrows(ForbiddenException.class, () -> service.submitManagerDecision(
+                actorId, documentId, versionId,
+                new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null)));
+
+        verify(reviewRepository, never()).save(any());
+    }
+
+    /**
+     * A workspace with only one person who may review would deadlock
+     * without an escape hatch: the submission would sit in the queue
+     * forever, and the author would have to publish it to get it out —
+     * exactly what the review workflow exists to prevent.
+     */
+    @Test
+    void theSoleReviewerMayReviewTheirOwnSubmission() {
+        givenDocument();
+        givenSoleReviewer();
+        givenVersion(VersionStatus.PENDING, actorId);
+
+        try {
+            service.submitStaffReview(
+                    actorId, documentId, versionId,
+                    new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null));
+        } catch (ForbiddenException e) {
+            throw new AssertionError(
+                    "the sole eligible reviewer must not be blocked by the self-review guard", e);
+        } catch (RuntimeException ignored) {
+            // Any other failure is out of scope for this test.
+        }
+    }
+
+    /**
+     * The escape hatch is narrow: somebody else who could review has to
+     * be enough for the guard to bite again.
+     */
+    @Test
+    void theSoleReviewerExceptionNeedsNoOtherCandidate() {
+        givenDocument();
+        // The default setup: another reviewer exists.
+        givenVersion(VersionStatus.PENDING, actorId);
+
+        assertThrows(ForbiddenException.class, () -> service.submitStaffReview(
+                actorId, documentId, versionId,
+                new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null)));
+    }
+
+    /**
+     * A delegate counts as an eligible reviewer: the tier is not
+     * single-reviewer any more, so the guard bites again. Otherwise
+     * delegating the work away would silently unlock self-review.
+     */
+    @Test
+    void aDelegateCountsAsAnotherCandidateReviewer() {
+        givenDocument();
+        givenSoleReviewer();
+        // The actor delegated the tier to somebody else, so that person
+        // is the one who can act on it now.
+        when(delegationService.delegatesFor(workspaceId, "STAFF"))
+                .thenReturn(java.util.List.of(otherId));
+        givenVersion(VersionStatus.PENDING, actorId);
+
+        assertThrows(ForbiddenException.class, () -> service.submitStaffReview(
+                actorId, documentId, versionId,
+                new SubmitReviewRequest(ReviewDecision.APPROVED, "ok", null, null, null)));
     }
 }

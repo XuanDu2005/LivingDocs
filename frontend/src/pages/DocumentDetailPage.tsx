@@ -1,6 +1,6 @@
 import { tagsApi, DocumentTag } from '../services/tags';
 import { DocumentTags } from '../components/DocumentTags';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, MessageSquare, Plus, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
@@ -25,6 +25,7 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { documentsApi, Document, DocumentVersion, DocumentVersionSummary, ActorRole, VersionStatus } from '../services/documents';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
+import DocumentAuditTrail from '../components/document/DocumentAuditTrail';
 import ReviewDrawer from '../components/review/ReviewDrawer';
 import { driftApi, DriftAlert, reviewsApi, ReviewDecision } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
@@ -103,10 +104,47 @@ export default function DocumentDetailPage() {
   // also require the reviewer to be a member of the workspace.
   const canReview = hasPermission(user, 'DOCUMENT_VERSION_REVIEW');
   const canApprove = hasPermission(user, 'DOCUMENT_VERSION_APPROVE');
+  // Reading the audit trail of a document is a separate capability from
+  // reviewing it: the trail shows who did what, which is exactly the
+  // oversight surface the MANAGER tier needs before granting approval.
+  const canViewAuditTrail = hasPermission(user, 'AUDIT_LOG_VIEW');
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
+  // The version that may be committed to a repository.
+  //
+  // A commit is only allowed for a version that carries a Manager
+  // approval — the backend refuses anything else with a 409, so the UI
+  // has to pick the same version the backend would accept. The newest
+  // APPROVED version wins; a PUBLISHED version is also committable
+  // (it was approved once and is still canonical).
+  const committableVersion = useMemo(() => {
+    const candidates = timeline.filter(
+      (v) => v.status === 'APPROVED' || v.status === 'PUBLISHED',
+    );
+    if (candidates.length === 0) return null;
+    return candidates.reduce((best, v) =>
+      v.versionNumber > best.versionNumber ? v : best,
+    );
+  }, [timeline]);
   const [selectedVersion, setSelectedVersion] = useState<DocumentVersion | null>(null);
+  /**
+   * Whether the viewer submitted a version themselves.
+   *
+   * <p>The backend refuses a verdict on a version you submitted yourself
+   * — the self-review guard, which keeps the two-tier workflow from
+   * collapsing into one person checking their own work. The UI must
+   * not offer a button the API would reject: the review controls are
+   * hidden for such a version, and an explanatory note takes their
+   * place.
+   */
+  const isOwnSubmission = useCallback(
+    (versionId: string) => {
+      const version = timeline.find((v) => v.id === versionId);
+      return !!version?.submittedByUserId && version.submittedByUserId === user?.id;
+    },
+    [timeline, user?.id],
+  );
   const [editBody, setEditBody] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -527,14 +565,32 @@ export default function DocumentDetailPage() {
    * ({@code PENDING}); the Manager tier acts on one that Staff already
    * approved ({@code IN_REVIEW}). A comment on its own leaves the
    * version where it is.
+   *
+   * <p>The tier is chosen by the <em>status of the version</em>, not by
+   * the permissions of the caller. Picking it from the permissions was
+   * wrong in a way that only a Manager could hit: such a person holds
+   * both the review and the approve permission, so the condition
+   * "can approve but cannot review" was never true, and every verdict
+   * they recorded from this page — including the ones meant for the
+   * approval tier — was written as a Staff verdict. The audit trail
+   * then said a Staff reviewer had decided a version that had already
+   * passed the Staff tier.
    */
   async function handleReviewDecision(
     versionId: string,
     decision: ReviewDecision,
   ) {
     if (!workspaceId || !documentId) return;
+    const version = timeline.find((v) => v.id === versionId);
+    // A version the caller submitted themselves cannot be reviewed by
+    // them — the backend refuses the verdict. The controls are hidden
+    // for it, so this is only a safety net.
+    if (version?.submittedByUserId && version.submittedByUserId === user?.id) {
+      setError(t('reviews.ownSubmissionNote'));
+      return;
+    }
     try {
-      if (canApprove && !canReview) {
+      if (version?.status === 'IN_REVIEW') {
         await reviewsApi.managerDecision(
           workspaceId, documentId, versionId, decision, reviewComment || undefined,
         );
@@ -795,6 +851,13 @@ export default function DocumentDetailPage() {
       setCommitError('Please fill in file path, commit message, and PR title.');
       return;
     }
+    if (!committableVersion) {
+      setCommitError(
+        'This document has no approved version yet. A Manager has to approve a '
+        + 'version before it can be committed to a repository.',
+      );
+      return;
+    }
     setCommitting(true);
     setCommitError(null);
     try {
@@ -804,7 +867,15 @@ export default function DocumentDetailPage() {
         setCommitError('Document not loaded.');
         return;
       }
-      const content = buildCommitContent(doc);
+      // The body is the *approved* version, not whatever is currently in
+      // the editor. The backend checks the committed content against the
+      // approved version, and committing an edited-but-unapproved body
+      // would be refused — the approval has to bind to the bytes that
+      // are published.
+      const approved = await documentsApi.version(
+        documentId, committableVersion.versionNumber,
+      );
+      const content = buildCommitContent(doc, approved.bodyMarkdown);
       const result = await githubApi.commitDocument(workspaceId, commitRepositoryId, {
         filePath: commitFilePath.trim(),
         content,
@@ -812,6 +883,8 @@ export default function DocumentDetailPage() {
         prTitle: prTitle.trim(),
         prBody: prBody.trim() || undefined,
         headBranch: commitBranch.trim() || undefined,
+        documentId,
+        versionNumber: committableVersion.versionNumber,
       });
       setCommitSuccess({ url: result.pullRequestUrl, branch: result.headBranch });
     } catch (err) {
@@ -821,10 +894,8 @@ export default function DocumentDetailPage() {
     }
   }
 
-  function buildCommitContent(d: Document): string {
-    const body = editBody && editBody.trim().length > 0
-      ? editBody
-      : (selectedVersion?.bodyMarkdown ?? '');
+  function buildCommitContent(d: Document, bodyMarkdown: string): string {
+    const body = bodyMarkdown;
     const fm = [
       '---',
       `title: ${d.title}`,
@@ -991,11 +1062,16 @@ export default function DocumentDetailPage() {
               size="sm"
               variant="outline"
               onClick={openCommitDialog}
-              disabled={!doc?.repositoryId}
+              disabled={!doc?.repositoryId || !committableVersion}
               title={
                 !doc?.repositoryId
                   ? t('documentDetail.commitNeedsRepo', 'Attach a repository first to commit.')
-                  : undefined
+                  : !committableVersion
+                    ? t(
+                      'documentDetail.commitNeedsApproval',
+                      'A Manager has to approve a version before this document can be committed to a repository.',
+                    )
+                    : undefined
               }
             >
               <Upload className="mr-1 h-4 w-4" /> {t('documentDetail.commitToGithub', 'Commit to GitHub')}
@@ -1113,6 +1189,9 @@ export default function DocumentDetailPage() {
           <TabsTrigger value="versions">Versions</TabsTrigger>
           <TabsTrigger value="links">Links</TabsTrigger>
           <TabsTrigger value="drift">Drift</TabsTrigger>
+          {canViewAuditTrail && (
+            <TabsTrigger value="audit">{t('documentDetail.tabAudit', 'Audit trail')}</TabsTrigger>
+          )}
         </TabsList>
 
         {/* ── CONTENT TAB ── */}
@@ -1351,7 +1430,7 @@ export default function DocumentDetailPage() {
                                 <Send className="h-3 w-3 mr-1" /> Submit for review
                               </Button>
                             )}
-                            {canReview && v.status === 'PENDING' && (
+                            {canReview && v.status === 'PENDING' && !isOwnSubmission(v.id) && (
                               <>
                                 <Button
                                   size="sm"
@@ -1384,7 +1463,7 @@ export default function DocumentDetailPage() {
                                 </Button>
                               </>
                             )}
-                            {canApprove && v.status === 'IN_REVIEW' && (
+                            {canApprove && v.status === 'IN_REVIEW' && !isOwnSubmission(v.id) && (
                               <>
                                 <Button
                                   size="sm"
@@ -1416,6 +1495,17 @@ export default function DocumentDetailPage() {
                                   <MessageSquare className="h-3 w-3" />
                                 </Button>
                               </>
+                            )}
+                            {/* A version the viewer submitted themselves: the
+                                review controls are hidden because the
+                                backend refuses that verdict. The note says
+                                so, instead of leaving the viewer to
+                                discover it as an error. */}
+                            {isOwnSubmission(v.id) && (v.status === 'PENDING'
+                              || v.status === 'IN_REVIEW' || v.status === 'REJECTED') && (
+                              <span className="text-xs text-muted-foreground self-center">
+                                {t('reviews.ownSubmissionNote')}
+                              </span>
                             )}
                             {canPublish && v.status === 'APPROVED' && (
                               <Button
@@ -1851,6 +1941,22 @@ export default function DocumentDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── AUDIT TRAIL TAB ── */}
+        {/* The Manager tier has to be able to "view the complete audit
+            trail of a document (AI-generated, auto-updated,
+            staff-edited) before granting approval". The tab is only
+            rendered for a reader who holds AUDIT_LOG_VIEW — the backend
+            enforces the same rule, so the tab is a courtesy, not the
+            control. */}
+        {canViewAuditTrail && (
+          <TabsContent value="audit">
+            <DocumentAuditTrail
+              workspaceId={workspaceId ?? ''}
+              documentId={documentId ?? ''}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Commit-to-GitHub dialog — placed at root so it works regardless of active tab */}

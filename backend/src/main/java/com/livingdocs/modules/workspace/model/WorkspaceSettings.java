@@ -8,6 +8,8 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -67,6 +69,17 @@ public class WorkspaceSettings {
     @Column(name = "default_generation_trigger", length = 24)
     private GenerationTrigger defaultGenerationTrigger;
 
+    /**
+     * The free-form JSONB column.
+     *
+     * <p>Mapped explicitly with {@code SqlTypes.JSON} — without it
+     * Hibernate binds the value as {@code varchar} and Postgres rejects
+     * every write with {@code column "extra" is of type jsonb but
+     * expression is of type character varying}. That broke the settings
+     * update endpoint entirely, so the merge policy could never be
+     * switched to {@code BLOCK} from the UI.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "extra", nullable = false, columnDefinition = "jsonb")
     private String extra = "{}";
 

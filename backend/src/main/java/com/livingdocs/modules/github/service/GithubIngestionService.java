@@ -2,6 +2,7 @@ package com.livingdocs.modules.github.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.livingdocs.modules.ai.settings.GovernancePolicyService;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubCommit;
 import com.livingdocs.modules.github.client.GithubPullRequest;
@@ -51,6 +52,7 @@ public class GithubIngestionService {
     private final GithubOAuthService githubOAuthService;
     private final DocumentAutoUpdateService autoUpdateService;
     private final DriftDetectionOnPullRequestService driftDetectionService;
+    private final GovernancePolicyService governancePolicyService;
 
     public GithubIngestionService(RepositoryRepository repositoryRepository,
                                   PullRequestRepository pullRequestRepository,
@@ -62,7 +64,8 @@ public class GithubIngestionService {
                                   NotificationService notificationService,
                                   GithubOAuthService githubOAuthService,
                                   DocumentAutoUpdateService autoUpdateService,
-                                  DriftDetectionOnPullRequestService driftDetectionService) {
+                                  DriftDetectionOnPullRequestService driftDetectionService,
+                                  GovernancePolicyService governancePolicyService) {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
@@ -74,6 +77,7 @@ public class GithubIngestionService {
         this.githubOAuthService = githubOAuthService;
         this.autoUpdateService = autoUpdateService;
         this.driftDetectionService = driftDetectionService;
+        this.governancePolicyService = governancePolicyService;
     }
 
     /**
@@ -185,14 +189,29 @@ public class GithubIngestionService {
      * <p>Mirrors the auto-update path: a failure never fails the
      * webhook, because a missed drift alert is far better than a
      * rejected webhook delivery.
+     *
+     * <p>The {@code autoUpdateOnPr} switch governs the <em>automatic
+     * regeneration</em> of documentation. It does not switch off the
+     * drift scan when the workspace's merge policy is {@code BLOCK}:
+     * the merge gate reasons about the open drift alerts, so a
+     * workspace that blocks merges on critical drift must still get
+     * its alerts. Turning the scan off there would leave the gate
+     * looking at stale alerts — or at none.
      */
     private void triggerDriftDetectionForPullRequest(Repository repo, JsonNode payload,
                                                      UUID pullRequestId) {
         Optional<com.livingdocs.modules.workspace.model.WorkspaceSettings> settingsOpt =
                 workspaceSettingsRepository.findByWorkspaceId(repo.getWorkspaceId());
-        if (settingsOpt.isPresent() && !settingsOpt.get().isAutoUpdateOnPr()) {
-            // The workspace turned off PR-driven automation entirely —
-            // the drift scan is part of that automation.
+        boolean autoUpdateOnPr = settingsOpt.map(
+                com.livingdocs.modules.workspace.model.WorkspaceSettings::isAutoUpdateOnPr)
+                .orElse(true);
+        boolean mergeGateBlocks = governancePolicyService.blocksOnCriticalDrift(
+                repo.getWorkspaceId());
+
+        if (!autoUpdateOnPr && !mergeGateBlocks) {
+            // The workspace turned off PR-driven automation entirely and
+            // does not block merges on drift — the drift scan is part of
+            // that automation.
             log.debug("Workspace autoUpdateOnPr disabled, skipping drift detection for PR");
             return;
         }

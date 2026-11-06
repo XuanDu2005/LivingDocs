@@ -103,6 +103,43 @@ public class DriftDetectionOnPullRequestService {
             headBranch = baseBranch;
         }
 
+        return detect(repo, changedFiles, baseBranch, headBranch, prId, accessToken);
+    }
+
+    /**
+     * Run a drift detection pass for an explicit set of changed files.
+     *
+     * <p>This is the entry point the CI path uses. The webhook path
+     * derives the changed files from the payload it was handed; a CI
+     * job has no payload, it knows the pull request and asks GitHub for
+     * the file list.
+     *
+     * <p>The merge policy is honoured here, not in the caller: a
+     * workspace whose policy is {@code BLOCK} always gets its drift
+     * scanned on a pull request, even when the workspace turned the
+     * automatic PR-driven update off. The merge gate can only block a
+     * merge if the alerts it reasons about actually exist.
+     *
+     * @param repo        the repository the pull request belongs to
+     * @param changedFiles the paths the pull request touches
+     * @param baseBranch  the branch the pull request merges into
+     * @param headBranch  the branch the pull request proposes
+     * @param prId        the local id of the stored pull request, if any
+     * @param accessToken the GitHub token used to fetch the contents
+     * @return the number of drift alerts that were filed
+     */
+    @Transactional
+    public int detect(Repository repo,
+                      Set<String> changedFiles,
+                      String baseBranch,
+                      String headBranch,
+                      UUID prId,
+                      String accessToken) {
+        if (changedFiles == null || changedFiles.isEmpty()) {
+            log.debug("No changed files given — no drift detection");
+            return 0;
+        }
+
         // Which documents document the changed files?
         List<CodeEntity> entities = codeEntityRepository.findByFilePathIn(changedFiles);
         if (entities.isEmpty()) {

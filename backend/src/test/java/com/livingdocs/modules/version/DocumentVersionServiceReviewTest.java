@@ -4,6 +4,7 @@ import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.PermissionService;
+import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.repository.CommitRepository;
@@ -38,6 +39,7 @@ class DocumentVersionServiceReviewTest {
     private DocumentRepository documentRepository;
     private AuthorizationService authorizationService;
     private PermissionService permissionService;
+    private AuditLogService auditLogService;
     private DocumentVersionService service;
 
     private UUID actorId;
@@ -51,6 +53,7 @@ class DocumentVersionServiceReviewTest {
         documentRepository = mock(DocumentRepository.class);
         authorizationService = mock(AuthorizationService.class);
         permissionService = mock(PermissionService.class);
+        auditLogService = mock(AuditLogService.class);
 
         service = new DocumentVersionService(
                 versionRepository,
@@ -59,7 +62,8 @@ class DocumentVersionServiceReviewTest {
                 mock(CommitRepository.class),
                 mock(PullRequestRepository.class),
                 authorizationService,
-                permissionService);
+                permissionService,
+                auditLogService);
 
         // The repository hands back whatever it was given.
         when(versionRepository.save(any(DocumentVersion.class)))
@@ -219,5 +223,55 @@ class DocumentVersionServiceReviewTest {
         DocumentVersion rollback = service.rollback(actorId, documentId, 4);
 
         assertEquals(ActorRole.MANAGER, rollback.getActorRole());
+    }
+
+    /**
+     * Every change that touches a document has to leave a trace in its
+     * audit trail.
+     *
+     * <p>The requirement is the "complete audit trail of a document
+     * (AI-generated, auto-updated, staff-edited)". A publish that
+     * leaves no entry makes the trail incomplete — and a publish is
+     * precisely the moment a reader of the trail cares about most.
+     */
+    @Test
+    void publishingIsRecordedInTheAuditTrail() {
+        givenVersion(VersionStatus.APPROVED, otherId, 3);
+
+        service.publishVersion(actorId, documentId, 3);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("document.version.published"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    /**
+     * A human edit is one of the three things the trail has to show
+     * ("staff-edited"), so it must leave an entry too.
+     */
+    @Test
+    void aHumanEditIsRecordedInTheAuditTrail() {
+        when(versionRepository.findFirstByDocumentIdOrderByVersionNumberDesc(documentId))
+                .thenReturn(Optional.empty());
+        when(authorizationService.platformRoles(actorId))
+                .thenReturn(java.util.Set.of(AuthorizationService.ROLE_DEVELOPER));
+
+        service.createHumanVersion(actorId, documentId, "# Body\n", "fixed a typo", null);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.eq("DEVELOPER"),
+                org.mockito.ArgumentMatchers.eq("document.version.created"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
     }
 }

@@ -10,6 +10,15 @@ public record DocumentVersionSummary(
         String changeSummary,
         com.livingdocs.modules.version.model.ActorRole actorRole,
         java.util.UUID actorUserId,
+        /**
+         * The user who pushed this version into the review queue.
+         *
+         * <p>The UI needs it to hide the review controls on a version
+         * the viewer submitted themselves: the self-review guard refuses
+         * that verdict, so a button that always fails must not be
+         * rendered.
+         */
+        java.util.UUID submittedByUserId,
         String sourceCommitSha,
         String sourceCommitShort,
         java.util.UUID sourcePrId,
@@ -31,6 +40,7 @@ public record DocumentVersionSummary(
                 v.getChangeSummary(),
                 v.getActorRole(),
                 v.getActorUserId(),
+                v.getSubmittedByUserId(),
                 v.getSourceCommitSha(),
                 shortSha,
                 v.getSourcePrId(),

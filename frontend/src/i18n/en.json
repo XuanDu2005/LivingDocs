@@ -10,6 +10,8 @@
     "delete": "Delete",
     "edit": "Edit",
     "back": "Back",
+    "previous": "Previous",
+    "next": "Next",
     "search": "Search",
     "language": "Language",
     "english": "English",
@@ -65,6 +67,7 @@
     "roles": "Roles",
     "auditRetention": "Retention policies",
     "auditLogs": "Audit logs",
+    "auditLog": "Audit log",
     "indexingJobs": "Indexing jobs",
     "adminWorkspaces": "All workspaces",
     "adminRepositories": "Repositories",
@@ -476,6 +479,7 @@
     "attaching": "Attaching…",
     "commitToGithub": "Commit to GitHub",
     "commitNeedsRepo": "Attach a repository first to commit.",
+    "commitNeedsApproval": "A Manager has to approve a version before this document can be committed to a repository.",
     "commitNeedsBody": "Save a version before committing.",
     "commitDialogTitle": "Commit document to GitHub",
     "commitDialogDesc": "This opens a new branch and a pull request against the repository's default branch. The file path defaults to docs/<slug>.md but you can change it.",
@@ -504,6 +508,12 @@
     "noLinksDesc": "Link code entities to track references between this document and source code. Linked entities will be used as AI grounding.",
     "noOpenDrift": "No open drift",
     "noOpenDriftDesc": "No drift alerts for this document.",
+    "tabAudit": "Audit trail",
+    "auditTrail": "Audit trail",
+    "auditTrailLoading": "Loading the audit trail…",
+    "auditTrailEmpty": "No entries yet",
+    "auditTrailEmptyDesc": "Every change to this document will be recorded here — the AI generations, the auto-updates, the edits and the review decisions.",
+    "auditTrailPage": "Page {{page}} of {{pages}}",
     "statusPending": "Pending",
     "statusInReview": "In review",
     "statusApproved": "Approved",
@@ -606,6 +616,23 @@
       "asc": "Ascending",
       "desc": "Descending"
     },
+    "delegation": {
+      "title": "Review delegation",
+      "loading": "Loading delegations…",
+      "empty": "No delegation yet",
+      "emptyDesc": "Hand the review or approval work of this workspace to another member.",
+      "delegate": "Delegate",
+      "pickDelegate": "Pick a member",
+      "tier": "Tier",
+      "tierManager": "Manager (approval)",
+      "tierStaff": "Staff (review)",
+      "reason": "Reason",
+      "reasonHint": "On leave, second pair of eyes, …",
+      "create": "Delegate",
+      "revoke": "End",
+      "ended": "ended",
+      "history": "Ended delegations"
+    },
     "drawer": {
       "title": "Review version",
       "subtitle": "Check the content before deciding.",
@@ -628,7 +655,8 @@
       "section": "Section",
       "grounding": "Grounding evidence",
       "groundingSummary": "The AI referenced {{count}} code entity/entities when generating this version.",
-      "noGrounding": "No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none."
+      "noGrounding": "No grounding evidence is stored for this version. Versions written by hand, and versions created before the grounding feature shipped, have none.",
+      "ownSubmission": "You submitted this version yourself, so another reviewer has to decide on it."
     },
     "queue": {
       "staff": "Staff review",
@@ -637,6 +665,7 @@
       "mine": "My submissions"
     },
     "authorHint": "You do not have a reviewing role, so the review queues are empty. The versions you submitted for review are listed under \"My submissions\".",
+    "ownSubmissionNote": "Your own submission — another reviewer has to decide on it.",
     "mine": {
       "nothingSubmitted": "Nothing submitted yet",
       "nothingSubmittedDesc": "The versions you send for review will appear here with the verdict they received.",
@@ -1572,10 +1601,50 @@
   },
   "workspaceSettings": {
     "title": "Workspace settings",
-    "subtitle": "AI provider, languages, and notification policy for this workspace.",
+    "subtitle": "AI provider, languages, notification policy and doc-type workflows for this workspace.",
     "tabAi": "AI",
     "tabLanguages": "Languages",
-    "tabNotifications": "Notifications"
+    "tabNotifications": "Notifications",
+    "tabDocTypes": "Doc types",
+    "tabMergeGate": "Merge gate"
+  },
+  "mergeGate": {
+    "title": "Merge gate",
+    "subtitle": "Control whether CI is allowed to merge a pull request. The generated workflow asks LivingDocs for the verdict instead of deciding on its own.",
+    "loading": "Loading merge gate…",
+    "effectivePolicy": "Effective merge policy",
+    "severityThreshold": "Drift severity threshold",
+    "ciToken": "CI token",
+    "ciTokenHint": "The workflow presents this token when it asks for the verdict. It is stored hashed, so it is shown only once.",
+    "issueToken": "Issue token",
+    "rotateToken": "Rotate",
+    "revokeToken": "Revoke token",
+    "noToken": "No CI token has been issued yet.",
+    "tokenIssued": "CI token issued. Copy it now — it will not be shown again.",
+    "tokenRevoked": "CI token revoked.",
+    "tokenShownOnce": "Copy this token now — it will not be shown again.",
+    "copyToken": "Copy token",
+    "workflowTitle": "GitHub Actions workflow",
+    "workflowHint": "Add this file as .github/workflows/livingdocs-merge-gate.yml and store the token as the LIVINGDOCS_CI_TOKEN secret.",
+    "showWorkflow": "Show workflow"
+  },
+  "workspaceDocTypePolicies": {
+    "title": "Doc-type workflows",
+    "subtitle": "Decide, per documentation type, whether generated content is published automatically or waits for a manager review. Anything left on \"Inherit\" follows the platform policy.",
+    "loading": "Loading doc-type policies…",
+    "saved": "Policy for {{docType}} saved.",
+    "reset": "Policy for {{docType}} reset — it follows the platform policy again.",
+    "resetHint": "Reset to the platform policy",
+    "inheritOption": "Inherit from platform",
+    "scope": {
+      "WORKSPACE": "Set in this workspace",
+      "PLATFORM": "From platform",
+      "DEFAULT": "From workspace default"
+    },
+    "workflow": {
+      "AUTO_APPLY": "Publish automatically",
+      "MANAGER_REVIEW": "Manager review"
+    }
   },
   "repository": {
     "title": "Repositories",

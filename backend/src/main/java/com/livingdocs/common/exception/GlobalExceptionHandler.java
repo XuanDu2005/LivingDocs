@@ -13,7 +13,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import com.livingdocs.common.exception.OAuthExchangeException;
 
@@ -140,6 +142,70 @@ public class GlobalExceptionHandler {
                                                     HttpServletRequest req) {
         log.debug("No handler for {} on {}", ex.getResourcePath(), req.getRequestURI());
         return build(HttpStatus.NOT_FOUND, "Not found", req);
+    }
+
+    /**
+     * A database constraint was violated.
+     *
+     * <p>This used to fall through to the catch-all and answer 500,
+     * which is the wrong answer for the common case: the caller tried
+     * to record something that already exists (a second verdict in the
+     * same tier, a duplicate delegation) and the request collided with
+     * a uniqueness rule. That is a conflict with the current state of
+     * the resource, not a server fault — 409 says so, and the client
+     * can retry with a different action.
+     *
+     * <p>The message names the constraint when the driver exposes it,
+     * because "duplicate key" is far more useful to the caller than a
+     * generic message. It is deliberately kept short and free of SQL
+     * internals beyond the constraint name.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrity(DataIntegrityViolationException ex,
+                                                         HttpServletRequest req) {
+        String message = ex.getMostSpecificCause().getMessage();
+        String constraint = null;
+        if (message != null) {
+            // Postgres reports the constraint name as
+            // `duplicate key value violates unique constraint "name"`.
+            int marker = message.indexOf("\"");
+            if (marker >= 0) {
+                int end = message.indexOf('"', marker + 1);
+                if (end > marker) {
+                    constraint = message.substring(marker + 1, end);
+                }
+            }
+        }
+        log.warn("Data integrity violation on {}: {}", req.getRequestURI(),
+                constraint != null ? constraint : ex.getClass().getSimpleName());
+        ApiError body = ApiError.builder()
+                .status(HttpStatus.CONFLICT.value())
+                .error("CONFLICT")
+                .message(constraint != null
+                        ? "The request conflicts with the current state (constraint: "
+                                + constraint + ")"
+                        : "The request conflicts with the current state")
+                .path(req.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    /**
+     * A path variable or request parameter could not be converted to
+     * the declared type — a malformed UUID, a number that is not a
+     * number.
+     *
+     * <p>This is a client mistake, so it maps to 400. Without this
+     * handler it fell through to the catch-all and answered 500, which
+     * told the caller the server broke when in fact it sent nonsense.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                       HttpServletRequest req) {
+        log.warn("Malformed '{}' on {}: {}", ex.getName(), req.getRequestURI(),
+                ex.getValue());
+        return build(HttpStatus.BAD_REQUEST,
+                "'" + ex.getName() + "' has an invalid value", req);
     }
 
     @ExceptionHandler(Exception.class)

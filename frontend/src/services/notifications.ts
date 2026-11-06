@@ -86,6 +86,8 @@ export const adminNotificationsApi = {
 export interface AuditLog {
   id: string;
   actorUserId: string | null;
+  /** The resolved display name of the actor, when the backend could resolve it. */
+  actorName?: string | null;
   actorRole: string | null;
   action: string;
   resourceType: string;

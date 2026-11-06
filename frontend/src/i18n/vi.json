@@ -10,6 +10,8 @@
     "delete": "Xoá",
     "edit": "Sửa",
     "back": "Quay lại",
+    "previous": "Trước",
+    "next": "Sau",
     "search": "Tìm kiếm",
     "language": "Ngôn ngữ",
     "english": "English",
@@ -65,6 +67,7 @@
     "roles": "Vai trò",
     "auditRetention": "Chính sách lưu giữ",
     "auditLogs": "Nhật ký kiểm toán",
+    "auditLog": "Nhật ký kiểm toán",
     "indexingJobs": "Công việc lập chỉ mục",
     "adminWorkspaces": "Tất cả không gian làm việc",
     "adminRepositories": "Kho mã nguồn",
@@ -476,6 +479,7 @@
     "attaching": "Đang gắn…",
     "commitToGithub": "Commit lên GitHub",
     "commitNeedsRepo": "Hãy gắn repository trước khi commit.",
+    "commitNeedsApproval": "Cần Manager duyệt một phiên bản trước khi tài liệu này được commit lên repository.",
     "commitNeedsBody": "Hãy lưu một phiên bản trước khi commit.",
     "commitDialogTitle": "Commit tài liệu lên GitHub",
     "commitDialogDesc": "Tạo một branch mới và mở pull request vào branch mặc định của repository. Đường dẫn mặc định là docs/<slug>.md nhưng bạn có thể đổi.",
@@ -504,6 +508,12 @@
     "noLinksDesc": "Liên kết code entity để theo dõi tham chiếu giữa tài liệu và mã nguồn. Entity được liên kết sẽ được AI dùng làm nguồn tham chiếu.",
     "noOpenDrift": "Không có trôi dạt mở",
     "noOpenDriftDesc": "Không có cảnh báo trôi dạt nào cho tài liệu này.",
+    "tabAudit": "Nhật ký kiểm tra",
+    "auditTrail": "Nhật ký kiểm tra",
+    "auditTrailLoading": "Đang tải nhật ký kiểm tra…",
+    "auditTrailEmpty": "Chưa có mục nào",
+    "auditTrailEmptyDesc": "Mọi thay đổi với tài liệu này sẽ được ghi lại ở đây — do AI tạo, tự động cập nhật, chỉnh sửa thủ công và các quyết định đánh giá.",
+    "auditTrailPage": "Trang {{page}} / {{pages}}",
     "statusPending": "Đang chờ",
     "statusInReview": "Đang đánh giá",
     "statusApproved": "Đã duyệt",
@@ -606,6 +616,23 @@
       "asc": "Tăng dần",
       "desc": "Giảm dần"
     },
+    "delegation": {
+      "title": "Ủy quyền duyệt",
+      "loading": "Đang tải các ủy quyền…",
+      "empty": "Chưa có ủy quyền",
+      "emptyDesc": "Giao việc duyệt hoặc phê duyệt của workspace này cho thành viên khác.",
+      "delegate": "Người nhận",
+      "pickDelegate": "Chọn thành viên",
+      "tier": "Tầng",
+      "tierManager": "Manager (phê duyệt)",
+      "tierStaff": "Staff (duyệt)",
+      "reason": "Lý do",
+      "reasonHint": "Đi công tác, cần thêm người kiểm tra, …",
+      "create": "Ủy quyền",
+      "revoke": "Kết thúc",
+      "ended": "kết thúc",
+      "history": "Ủy quyền đã kết thúc"
+    },
     "drawer": {
       "title": "Duyệt phiên bản",
       "subtitle": "Kiểm tra nội dung trước khi quyết định.",
@@ -628,7 +655,8 @@
       "section": "Mục",
       "grounding": "Bằng chứng grounding",
       "groundingSummary": "AI đã tham chiếu {{count}} thực thể mã nguồn khi tạo phiên bản này.",
-      "noGrounding": "Phiên bản này không có bằng chứng grounding. Các bản viết tay và các bản tạo trước khi tính năng grounding ra đời đều không có."
+      "noGrounding": "Phiên bản này không có bằng chứng grounding. Các bản viết tay và các bản tạo trước khi tính năng grounding ra đời đều không có.",
+      "ownSubmission": "Bạn tự gửi phiên bản này, nên cần người khác đánh giá."
     },
     "queue": {
       "staff": "Duyệt Staff",
@@ -637,6 +665,7 @@
       "mine": "Bản tôi đã gửi"
     },
     "authorHint": "Bạn không có vai trò duyệt, nên các hàng đợi đánh giá đang trống. Những phiên bản bạn đã gửi đi được liệt kê ở tab \"Bản tôi đã gửi\".",
+    "ownSubmissionNote": "Bản bạn tự gửi — cần người khác đánh giá.",
     "mine": {
       "nothingSubmitted": "Chưa gửi phiên bản nào",
       "nothingSubmittedDesc": "Các phiên bản bạn gửi đi sẽ xuất hiện ở đây kèm kết quả đánh giá.",
@@ -1531,10 +1560,50 @@
   },
   "workspaceSettings": {
     "title": "Cài đặt workspace",
-    "subtitle": "AI, ngôn ngữ và chính sách thông báo của workspace này.",
+    "subtitle": "AI, ngôn ngữ, chính sách thông báo và quy trình theo loại tài liệu của workspace này.",
     "tabAi": "AI",
     "tabLanguages": "Ngôn ngữ",
-    "tabNotifications": "Thông báo"
+    "tabNotifications": "Thông báo",
+    "tabDocTypes": "Loại tài liệu",
+    "tabMergeGate": "Cổng merge"
+  },
+  "mergeGate": {
+    "title": "Cổng merge",
+    "subtitle": "Quy định CI có được phép merge pull request hay không. Workflow sinh ra sẽ hỏi LivingDocs để lấy phán quyết thay vì tự quyết định.",
+    "loading": "Đang tải cổng merge…",
+    "effectivePolicy": "Chính sách merge đang áp dụng",
+    "severityThreshold": "Ngưỡng mức độ drift",
+    "ciToken": "CI token",
+    "ciTokenHint": "Workflow gửi token này khi hỏi phán quyết. Token được lưu dạng băm nên chỉ hiển thị một lần.",
+    "issueToken": "Cấp token",
+    "rotateToken": "Xoay vòng",
+    "revokeToken": "Thu hồi token",
+    "noToken": "Chưa có CI token nào được cấp.",
+    "tokenIssued": "Đã cấp CI token. Hãy sao chép ngay — token sẽ không hiển thị lại.",
+    "tokenRevoked": "Đã thu hồi CI token.",
+    "tokenShownOnce": "Sao chép token này ngay — nó sẽ không hiển thị lại.",
+    "copyToken": "Sao chép token",
+    "workflowTitle": "Workflow GitHub Actions",
+    "workflowHint": "Thêm file này dưới .github/workflows/livingdocs-merge-gate.yml và lưu token làm secret LIVINGDOCS_CI_TOKEN.",
+    "showWorkflow": "Xem workflow"
+  },
+  "workspaceDocTypePolicies": {
+    "title": "Quy trình theo loại tài liệu",
+    "subtitle": "Quyết định, theo từng loại tài liệu, nội dung sinh ra sẽ được xuất bản tự động hay phải chờ Manager duyệt. Loại để \"Thừa hưởng\" sẽ theo chính sách của nền tảng.",
+    "loading": "Đang tải chính sách theo loại tài liệu…",
+    "saved": "Đã lưu chính sách cho {{docType}}.",
+    "reset": "Đã đặt lại chính sách cho {{docType}} — loại tài liệu này trở lại theo chính sách của nền tảng.",
+    "resetHint": "Đặt lại theo chính sách của nền tảng",
+    "inheritOption": "Thừa hưởng từ nền tảng",
+    "scope": {
+      "WORKSPACE": "Đặt trong workspace này",
+      "PLATFORM": "Từ nền tảng",
+      "DEFAULT": "Theo mặc định của workspace"
+    },
+    "workflow": {
+      "AUTO_APPLY": "Tự động xuất bản",
+      "MANAGER_REVIEW": "Manager duyệt"
+    }
   },
   "adminAiUsage": {
     "title": "Quản trị · Sử dụng AI",

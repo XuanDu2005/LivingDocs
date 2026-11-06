@@ -268,10 +268,18 @@ export const githubApi = {
   },
 
   /**
-   * Publish a document to a repository as a new-branch pull request.
+   * Publish an approved document version to a repository as a new-branch
+   * pull request.
+   *
    * The backend creates a feature branch, writes the file via the
    * Contents API, and opens a PR against the repository's default
    * branch.
+   *
+   * The commit is gated on the review workflow: `documentId` and
+   * `versionNumber` must name a version that carries a Manager
+   * approval, and `content` must contain that version's body. The
+   * backend answers 409 when the version is not approved or when the
+   * content does not match it.
    */
   async commitDocument(
     workspaceId: string,
@@ -283,6 +291,8 @@ export const githubApi = {
       prTitle: string;
       prBody?: string;
       headBranch?: string;
+      documentId: string;
+      versionNumber: number;
     },
   ): Promise<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }> {
     const res = await apiClient.post<{ pullRequestUrl: string; headBranch: string; filePath: string; commitMessage: string }>(

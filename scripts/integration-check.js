@@ -104,6 +104,17 @@ const DEVELOPER = mint(DEVELOPER_ID, 'puredev@livingdocs.test', ['DEVELOPER']);
 const STAFF = mint('22222222-2222-2222-2222-222222222222', 'purestaff@livingdocs.test', [
   'STAFF',
 ]);
+// The workspace MANAGER of the test workspace. The doc-type policy
+// overrides require the *workspace* MANAGER role on top of the
+// GOVERNANCE_MANAGE capability: the capability says "may administer the
+// governance policy", the workspace role says "of this workspace". A
+// TECHNICAL_LEAD holds the capability but is only a MEMBER here, so it
+// can read the policies but not change them.
+const WS_MANAGER = mint(
+  'b2ddb3c7-d48a-44dc-961a-f58a5d39c0de',
+  'dxuan8461@gmail.com',
+  ['MANAGER'],
+);
 
 const WS = WORKSPACE_ID;
 const AUTO_APPLY_DOC = '33333333-3333-3333-3333-333333333333';
@@ -228,6 +239,89 @@ async function checkGovernance() {
   check('merge gate is readable', mergeGate.status === 200, `got ${mergeGate.status}`);
   check('merge gate reports blocked as a boolean', typeof mergeGate.body?.blocked === 'boolean');
   check('merge gate explains itself', typeof mergeGate.body?.reason === 'string');
+
+  // The doc-type policy the runtime enforces must say where it came
+  // from, so a reader can tell a workspace override from an inherited
+  // platform rule.
+  check(
+    'the doc-type policy reports its scope',
+    ['WORKSPACE', 'PLATFORM', 'DEFAULT'].includes(docType.body?.scope),
+    JSON.stringify(docType.body),
+  );
+}
+
+/**
+ * The per-workspace doc-type policy overrides.
+ *
+ * <p>A workspace manager must be able to decide, for their own
+ * workspace, which documentation types need an approval — without the
+ * platform administrator having to change a rule that applies to every
+ * other workspace. The override has to win over the platform policy,
+ * and dropping it has to restore the inherited behaviour.
+ */
+async function checkWorkspaceDocTypePolicies() {
+  console.log('\n== workspace doc-type policies ==');
+
+  const list = await call(LEAD, `/workspaces/${WS}/doc-type-policies`);
+  check('the policy list is readable', list.status === 200, `got ${list.status}`);
+  check('the policy list is an array', Array.isArray(list.body));
+  check(
+    'every row carries a scope',
+    Array.isArray(list.body) &&
+      list.body.every((r) => ['WORKSPACE', 'PLATFORM', 'DEFAULT'].includes(r.scope)),
+  );
+
+  // A plain DEVELOPER holds neither the capability nor the workspace
+  // role, so both surfaces have to refuse.
+  const devList = await call(DEVELOPER, `/workspaces/${WS}/doc-type-policies`);
+  check('a DEVELOPER is refused the policy list', devList.status === 403, `got ${devList.status}`);
+
+  const devPut = await call(DEVELOPER, `/workspaces/${WS}/doc-type-policies/README`, {
+    method: 'PUT',
+    body: { workflow: 'MANAGER_REVIEW' },
+  });
+  check('a DEVELOPER cannot change a policy', devPut.status === 403, `got ${devPut.status}`);
+
+  // A TECHNICAL_LEAD holds GOVERNANCE_MANAGE but is only a workspace
+  // MEMBER: it may read the policy, but the workspace role is what
+  // proves the person owns this workspace's rules.
+  const leadPut = await call(LEAD, `/workspaces/${WS}/doc-type-policies/README`, {
+    method: 'PUT',
+    body: { workflow: 'MANAGER_REVIEW' },
+  });
+  check(
+    'a non-manager workspace member cannot change a policy',
+    leadPut.status === 403,
+    `got ${leadPut.status}`,
+  );
+
+  // The workspace must actually be able to change its own policy, and
+  // the runtime must honour the change immediately.
+  const before = await call(WS_MANAGER, `/workspaces/${WS}/governance/doc-types/README`);
+  const flipped = before.body?.workflow === 'AUTO_APPLY' ? 'MANAGER_REVIEW' : 'AUTO_APPLY';
+
+  const put = await call(WS_MANAGER, `/workspaces/${WS}/doc-type-policies/README`, {
+    method: 'PUT',
+    body: { workflow: flipped },
+  });
+  check('a workspace manager can override a doc type', put.status === 200, `got ${put.status} ${JSON.stringify(put.body)}`);
+  check('the override is workspace-scoped', put.body?.scope === 'WORKSPACE', JSON.stringify(put.body));
+
+  const after = await call(WS_MANAGER, `/workspaces/${WS}/governance/doc-types/README`);
+  check('the runtime honours the override', after.body?.workflow === flipped, JSON.stringify(after.body));
+  check('the runtime reports the workspace scope', after.body?.scope === 'WORKSPACE', JSON.stringify(after.body));
+
+  // Dropping the override has to restore the inherited behaviour.
+  const del = await call(WS_MANAGER, `/workspaces/${WS}/doc-type-policies/README`, { method: 'DELETE' });
+  check('the override can be dropped', del.status === 204, `got ${del.status}`);
+
+  const restored = await call(WS_MANAGER, `/workspaces/${WS}/governance/doc-types/README`);
+  check('the doc type inherits again', restored.body?.scope !== 'WORKSPACE', JSON.stringify(restored.body));
+  check(
+    'the inherited workflow is the one it had before',
+    restored.body?.workflow === before.body?.workflow,
+    `${before.body?.workflow} -> ${restored.body?.workflow}`,
+  );
 }
 
 /**
@@ -254,6 +348,11 @@ async function checkCapabilitySurfaces() {
     },
     { path: `/workspaces/${WS}/integrations`, permitted: ['INTEGRATION_VIEW'], label: 'integrations' },
     { path: `/workspaces/${WS}/ai-usage`, permitted: ['AI_USAGE_VIEW'], label: 'AI usage' },
+    {
+      path: `/workspaces/${WS}/doc-type-policies`,
+      permitted: ['GOVERNANCE_VIEW'],
+      label: 'doc-type policies',
+    },
   ];
 
   for (const surface of surfaces) {
@@ -284,6 +383,34 @@ async function checkCapabilitySurfaces() {
   // ADMIN is granted everything by the matrix.
   const adminHealth = await call(ADMIN, '/system-health');
   check('ADMIN may read the system health', adminHealth.status === 200, `got ${adminHealth.status}`);
+
+  // The MANAGER tier is the oversight tier of the audit trail. It has
+  // to read the trail of a workspace — and the trail of a document —
+  // before it grants an approval, so both surfaces must answer 200 for
+  // it. They used to answer 403: the capability matrix granted
+  // AUDIT_LOG_VIEW to ADMIN and TECHNICAL_LEAD only, while the role
+  // model says the Manager owns the workspace with full oversight.
+  const managerAudit = await call(WS_MANAGER, `/workspaces/${WS}/audit-logs`);
+  check(
+    'MANAGER may read the workspace audit log',
+    managerAudit.status === 200,
+    `got ${managerAudit.status} ${JSON.stringify(managerAudit.body)}`,
+  );
+
+  const managerTrail = await call(
+    WS_MANAGER,
+    `/workspaces/${WS}/documents/${REVIEW_DOC}/audit-trail`,
+  );
+  check(
+    'MANAGER may read the audit trail of a document',
+    managerTrail.status === 200,
+    `got ${managerTrail.status} ${JSON.stringify(managerTrail.body)}`,
+  );
+  check(
+    'the document trail carries its paging envelope',
+    Array.isArray(managerTrail.body?.items),
+    JSON.stringify(managerTrail.body),
+  );
 }
 
 /**
@@ -324,6 +451,31 @@ async function checkPermissionExposure() {
     'TECHNICAL_LEAD holds the oversight permissions',
     (lead.body?.permissions ?? []).includes('HEALTH_DASHBOARD_VIEW'),
     JSON.stringify(lead.body?.permissions),
+  );
+
+  // The MANAGER tier is the oversight tier of the audit trail. The
+  // grant was missing from the matrix, so the Manager got a 403 on the
+  // very surface it has to read before granting an approval.
+  const manager = await call(WS_MANAGER, '/users/me');
+  check(
+    'MANAGER holds AUDIT_LOG_VIEW',
+    (manager.body?.permissions ?? []).includes('AUDIT_LOG_VIEW'),
+    JSON.stringify(manager.body?.permissions),
+  );
+
+  // STAFF reviews content against the governance policy — it reads the
+  // policy (GOVERNANCE_VIEW), not the governance trail of the
+  // workspace.
+  const staff = await call(STAFF, '/users/me');
+  check(
+    'STAFF does not hold AUDIT_LOG_VIEW',
+    !(staff.body?.permissions ?? []).includes('AUDIT_LOG_VIEW'),
+    JSON.stringify(staff.body?.permissions),
+  );
+  check(
+    'STAFF holds GOVERNANCE_VIEW',
+    (staff.body?.permissions ?? []).includes('GOVERNANCE_VIEW'),
+    JSON.stringify(staff.body?.permissions),
   );
 }
 
@@ -408,6 +560,7 @@ async function checkBudget() {
     await checkCapabilities();
     await checkReviewQueues();
     await checkGovernance();
+    await checkWorkspaceDocTypePolicies();
     await checkCapabilitySurfaces();
     await checkPermissionExposure();
     await checkGeneration();

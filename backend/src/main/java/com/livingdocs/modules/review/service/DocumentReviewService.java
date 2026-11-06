@@ -92,6 +92,7 @@ public class DocumentReviewService {
     private final DocTemplateRepository templateRepository;
     private final DocTemplateService templateService;
     private final TemplateComplianceService complianceService;
+    private final ReviewDelegationService delegationService;
 
     public DocumentReviewService(DocumentReviewRepository reviewRepository,
                                  DocumentVersionRepository versionRepository,
@@ -106,7 +107,8 @@ public class DocumentReviewService {
                                  DriftAlertRepository driftRepository,
                                  DocTemplateRepository templateRepository,
                                  DocTemplateService templateService,
-                                 TemplateComplianceService complianceService) {
+                                 TemplateComplianceService complianceService,
+                                 ReviewDelegationService delegationService) {
         this.reviewRepository = reviewRepository;
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
@@ -121,6 +123,7 @@ public class DocumentReviewService {
         this.templateRepository = templateRepository;
         this.templateService = templateService;
         this.complianceService = complianceService;
+        this.delegationService = delegationService;
     }
 
     /**
@@ -140,21 +143,26 @@ public class DocumentReviewService {
                                                      UUID versionId, SubmitReviewRequest req) {
         Document document = loadAndAuthorize(actorId, documentId);
         authorizationService.requireDocumentReviewer(actorId, document.getWorkspaceId());
+        // Reassignment guard. When a Manager delegated the Staff tier
+        // of this workspace, the work is no longer theirs: they are not
+        // notified about it either, so acting on it anyway would make
+        // the delegation a no-op — the delegating Manager would simply
+        // do the work they handed over.
+        requireNotDelegatedAway(actorId, document.getWorkspaceId(), TIER_STAFF);
         // Take a write lock on the version: two Staff reviewers acting
         // on the same version at the same time must not both write a
         // verdict (S7).
         DocumentVersion version = loadVersionForUpdate(documentId, versionId);
-        if (version.getStatus() != VersionStatus.PENDING && version.getStatus() != VersionStatus.IN_REVIEW) {
+        if (!isReviewable(version, TIER_STAFF, actorId, req.decision())) {
             throw new BadRequestException("Only pending or in-review versions can be reviewed");
         }
         // Self-review guard. Without it a Staff member could submit their
         // own draft and approve it, forwarding it to the Manager tier
         // under their own name — the two-tier workflow would collapse into
-        // one person checking their own work.
-        UUID submitter = version.getSubmittedByUserId();
-        if (submitter != null && submitter.equals(actorId)) {
-            throw new ForbiddenException("You cannot review a version you submitted yourself");
-        }
+        // one person checking their own work. The guard yields only when
+        // the workspace has nobody else who could review (see
+        // {@link #requireNotSelfReview}).
+        boolean selfReview = requireNotSelfReview(document, version, actorId, TIER_STAFF);
         var section = resolveSection(version, req);
         DocumentReview review = new DocumentReview(
                 version.getId(), actorId, TIER_STAFF, req.decision(), req.comment(),
@@ -162,15 +170,26 @@ public class DocumentReviewService {
                 section != null ? section.heading() : null,
                 section != null ? section.anchor() : null
         );
+        // A verdict replaces the previous verdict of the same tier
+        // instead of colliding with it. Before the superseded_at
+        // column existed, recording a second verdict in the same tier
+        // hit the partial unique index and crashed the request with a
+        // 500 — so a reviewer who mis-clicked "Reject" had no way to
+        // correct it. The old row stays in the trail, stamped as
+        // superseded; only the current verdict counts from now on.
+        DocumentReview superseded = supersedeCurrentVerdict(version.getId(), TIER_STAFF,
+                req.decision());
         DocumentReview saved = reviewRepository.save(review);
 
         applyStaffVerdict(document, version, req.decision());
         auditLogService.record(actorId, actorTierLabel(actorId, TIER_STAFF),
                 "document.review", "document_version", saved.getId().toString(),
-                document.getWorkspaceId(),
+                document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
-                        "decision", req.decision().name()));
+                        "decision", req.decision().name(),
+                        "selfReview", Boolean.toString(selfReview),
+                        "supersededReviewId", superseded == null ? "" : superseded.getId().toString()));
         log.info("Staff review submitted: document={} version={} decision={}",
                 documentId, version.getVersionNumber(), req.decision());
         notifySubmitter(document, version, req, saved.getReviewerRole());
@@ -194,13 +213,31 @@ public class DocumentReviewService {
                                                        UUID versionId, SubmitReviewRequest req) {
         Document document = loadAndAuthorize(actorId, documentId);
         authorizationService.requireDocumentApprover(actorId, document.getWorkspaceId());
+        // Reassignment guard: a Manager who delegated the Manager tier
+        // of this workspace does not approve it themselves any more.
+        requireNotDelegatedAway(actorId, document.getWorkspaceId(), TIER_MANAGER);
         DocumentVersion version = loadVersionForUpdate(documentId, versionId);
 
-        if (version.getStatus() != VersionStatus.IN_REVIEW && version.getStatus() != VersionStatus.APPROVED) {
+        // The Manager tier owns a version that Staff already approved.
+        // The exception is the same as on the Staff tier: a Manager who
+        // mis-clicked "Reject" must be able to correct it, so a
+        // REJECTED version carrying their own current verdict is still
+        // correctable.
+        if (!isReviewable(version, TIER_MANAGER, actorId, req.decision())) {
             throw new BadRequestException(
                     "Only versions that Staff already approved can be decided (current: "
                             + version.getStatus() + ")");
         }
+
+        // Self-review guard on the approval tier. This one was missing
+        // entirely, and it was the more dangerous half of the problem:
+        // a Manager who submitted a document could approve it themselves
+        // as soon as the Staff tier had approved it, so the final
+        // sign-off — the one the whole two-tier workflow exists for —
+        // could be given by the author. The guard yields only when the
+        // workspace has nobody else who could approve (see
+        // {@link #requireNotSelfReview}).
+        boolean selfReview = requireNotSelfReview(document, version, actorId, TIER_MANAGER);
 
         if (req.decision() == ReviewDecision.APPROVED) {
             // The *latest* Staff verdict must be an approval. Checking
@@ -222,19 +259,265 @@ public class DocumentReviewService {
                 section != null ? section.heading() : null,
                 section != null ? section.anchor() : null
         );
+        // Same rule as the Staff tier: a new verdict replaces the
+        // current one of the tier instead of colliding with it.
+        DocumentReview superseded = supersedeCurrentVerdict(version.getId(), TIER_MANAGER,
+                req.decision());
         DocumentReview saved = reviewRepository.save(review);
 
         applyManagerVerdict(document, version, req.decision());
         auditLogService.record(actorId, actorTierLabel(actorId, TIER_MANAGER),
                 "document.approval", "document_version", saved.getId().toString(),
-                document.getWorkspaceId(),
+                document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
-                        "decision", req.decision().name()));
+                        "decision", req.decision().name(),
+                        "selfReview", Boolean.toString(selfReview),
+                        "supersededReviewId", superseded == null ? "" : superseded.getId().toString()));
         log.info("Manager decision submitted: document={} version={} decision={}",
                 documentId, version.getVersionNumber(), req.decision());
         notifySubmitter(document, version, req, saved.getReviewerRole());
         return DocumentReviewResponse.from(saved);
+    }
+
+    /**
+     * The tiers the caller delegated away in this workspace.
+     *
+     * <p>A delegation that only redirected the notification would be
+     * hollow: the delegating Manager would still be able to approve the
+     * version, and would still have it in their queue. Handing work over
+     * means the delegator steps aside.
+     *
+     * <p>Only the <em>delegating</em> Manager is affected. The delegate
+     * may act (they hold the tier permission), and every other member
+     * of the tier may act as before — the delegation routes the work,
+     * it does not lock the tier down.
+     */
+    private List<String> delegatedTiersOf(UUID actorId, UUID workspaceId) {
+        List<String> out = new ArrayList<>(2);
+        if (delegationService.delegatorsFor(workspaceId, TIER_STAFF).contains(actorId)) {
+            out.add(TIER_STAFF);
+        }
+        if (delegationService.delegatorsFor(workspaceId, TIER_MANAGER).contains(actorId)) {
+            out.add(TIER_MANAGER);
+        }
+        return out;
+    }
+
+    /**
+     * Refuse an action by somebody whose work of this tier was
+     * delegated to somebody else.
+     *
+     * @see #delegatedTiersOf(UUID, UUID)
+     */
+    private void requireNotDelegatedAway(UUID actorId, UUID workspaceId, String tier) {
+        if (delegatedTiersOf(actorId, workspaceId).contains(tier)) {
+            throw new ForbiddenException(
+                    "You delegated the " + tier + " tier of this workspace — "
+                            + "the work belongs to your delegate");
+        }
+    }
+
+    /**
+     * Whether the actor may still record a verdict on this version.
+     *
+     * <p>Normally only a version that is {@code PENDING} or
+     * {@code IN_REVIEW} can be reviewed — a version that was already
+     * rejected or approved is history.
+     *
+     * <p>There is one exception, and it is the whole point of the
+     * supersede mechanism: a reviewer who mis-clicked "Reject" has to
+     * be able to correct it. A {@code REJECTED} version that carries a
+     * <em>current verdict of this very reviewer</em> is still
+     * correctable — otherwise the first mis-click would close the
+     * version for good, and the correction would be impossible exactly
+     * when it is needed.
+     *
+     * <p>The exception is deliberately narrow:
+     * <ul>
+     *   <li>it applies to a {@code REJECTED} version only — never to an
+     *       approved or published one. An approval is not the
+     *       reviewer's call to take back: it opened the publish step,
+     *       and undoing that is a different act (a rollback);</li>
+     *   <li>it applies to the reviewer's <em>own</em> current verdict
+     *       only — another reviewer's rejection is not theirs to
+     *       overwrite;</li>
+     *   <li>a {@code COMMENT} is always allowed. A comment is a note,
+     *       not an opinion about the content: it changes no workflow
+     *       state, so blocking it would stop a reviewer from leaving
+     *       a remark on a version somebody else already looked at.</li>
+     * </ul>
+     *
+     * <p>The rule is the same on both tiers: a Staff reviewer who
+     * mis-clicked "Reject" and a Manager who mis-clicked "Reject" are
+     * in the same position.
+     */
+    private boolean isReviewable(DocumentVersion version, String tier, UUID actorId,
+                                  ReviewDecision decision) {
+        if (version.getStatus() == VersionStatus.PENDING
+                || version.getStatus() == VersionStatus.IN_REVIEW) {
+            return true;
+        }
+        if (version.getStatus() != VersionStatus.REJECTED) {
+            return false;
+        }
+        // A COMMENT is a note, not an opinion about the content: it
+        // changes no workflow state, so it must not be blocked just
+        // because somebody else's verdict is the current one. A
+        // reviewer may always add a note to a version that is still
+        // open for review.
+        if (decision == ReviewDecision.COMMENT) {
+            return true;
+        }
+        // The reviewer may correct their own rejection, but only while
+        // their verdict is still the current one — once somebody else
+        // recorded a new opinion, the old verdict is history.
+        List<DocumentReview> current = reviewRepository
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        version.getId(), tier);
+        for (DocumentReview review : current) {
+            if (review.getDecision() == ReviewDecision.COMMENT) {
+                continue;
+            }
+            return actorId.equals(review.getReviewerUserId());
+        }
+        return false;
+    }
+
+    /**
+     * The self-review guard.
+     *
+     * <p>A reviewer may not act on a version they submitted themselves.
+     * Without this rule the two-tier workflow collapses into one person
+     * checking their own work: the submitter forwards their own draft
+     * to the next tier under their own name, and the second tier sees a
+     * document that already carries a verdict from the author.
+     *
+     * <h2>The single-reviewer escape hatch</h2>
+     *
+     * <p>A hard block has one failure mode that is worse than the
+     * problem it solves: a workspace with exactly one person who may
+     * review can never move a document forward. The submission sits in
+     * the queue forever, and the only way out is for the author to
+     * publish it — which is precisely what the guard was meant to
+     * prevent.
+     *
+     * <p>So the guard yields when nobody else can act:
+     * <ul>
+     *   <li>the tier has exactly one eligible reviewer in the
+     *       workspace, and that reviewer is the submitter;</li>
+     *   <li>the act is recorded in the audit trail with the fact that
+     *       it was a self-review, so the exception is visible to the
+     *       people who audit the workspace rather than silent.</li>
+     * </ul>
+     *
+     * <p>The escape hatch is deliberately narrow: it needs a workspace
+     * with one eligible reviewer, not merely a workspace where the
+     * author happens to be the first in line.
+     */
+    private boolean requireNotSelfReview(Document document, DocumentVersion version,
+                                         UUID actorId, String tier) {
+        UUID submitter = version.getSubmittedByUserId();
+        if (submitter == null || !submitter.equals(actorId)) {
+            return false;
+        }
+        if (!isSoleReviewer(document.getWorkspaceId(), tier, actorId)) {
+            throw new ForbiddenException(
+                    "You cannot review a version you submitted yourself");
+        }
+        // The exception is granted, but it is never silent: the audit
+        // trail has to show that this verdict was a self-review.
+        log.warn("Self-review allowed as the sole eligible reviewer: workspace={} tier={} "
+                        + "actor={} document={} version={}",
+                document.getWorkspaceId(), tier, actorId, document.getId(),
+                version.getId());
+        return true;
+    }
+
+    /**
+     * Whether the actor is the only person in the workspace who could
+     * act on the given tier.
+     *
+     * <p>The eligible reviewers are the workspace members that hold the
+     * permission of the tier, minus the ones that delegated the tier
+     * away — a Manager who handed the work over cannot act on it, so
+     * they do not count as an eligible reviewer.
+     *
+     * <p>A delegation to somebody else counts: the delegate becomes the
+     * eligible reviewer, so the tier is not sole-reviewer any more.
+     */
+    private boolean isSoleReviewer(UUID workspaceId, String tier, UUID actorId) {
+        List<UUID> eligible = reviewersFor(workspaceId, permissionCodeFor(tier));
+        List<UUID> delegates = delegationService.delegatesFor(workspaceId, tier);
+        List<UUID> delegators = delegationService.delegatorsFor(workspaceId, tier);
+        java.util.LinkedHashSet<UUID> pool = new java.util.LinkedHashSet<>(eligible);
+        pool.addAll(delegates);
+        pool.removeAll(delegators);
+        pool.remove(actorId);
+        return pool.isEmpty();
+    }
+
+    /**
+     * The permission code that governs a tier.
+     */
+    private String permissionCodeFor(String tier) {
+        return TIER_MANAGER.equals(tier)
+                ? PermissionCodes.DOCUMENT_VERSION_APPROVE
+                : PermissionCodes.DOCUMENT_VERSION_REVIEW;
+    }
+
+    /**
+     * Supersede the current verdict of a tier, so a new verdict in that
+     * tier does not collide with it.
+     *
+     * <p>Only a verdict that <em>carries an opinion</em> is superseded:
+     * {@code APPROVED}, {@code REJECTED} and {@code REQUEST_CHANGES}.
+     * A {@code COMMENT} is not an opinion about the content — it is a
+     * note — so a comment never replaces a verdict and is never
+     * replaced by one. Two comments from the same tier coexist, which
+     * is what a reviewer expects when they leave several notes.
+     *
+     * <p>A verdict that is already superseded is left alone: the trail
+     * should show when the opinion was actually replaced, not when it
+     * was last touched.
+     *
+     * @return the verdict that was superseded, or {@code null} when
+     *     there was nothing to supersede
+     */
+    private DocumentReview supersedeCurrentVerdict(UUID versionId, String tier,
+                                                   ReviewDecision newDecision) {
+        if (newDecision == ReviewDecision.COMMENT) {
+            return null;
+        }
+        List<DocumentReview> current = reviewRepository
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        versionId, tier);
+        DocumentReview previous = null;
+        for (DocumentReview review : current) {
+            if (review.getDecision() == ReviewDecision.COMMENT) {
+                // A comment is not an opinion — leave it in place.
+                continue;
+            }
+            previous = review;
+            break;
+        }
+        if (previous == null) {
+            return null;
+        }
+        previous.supersede();
+        reviewRepository.save(previous);
+        // The UPDATE has to reach the database before the new verdict is
+        // inserted.
+        //
+        // Hibernate flushes inserts *before* updates, so without this
+        // flush the INSERT of the new verdict would be sent first and
+        // would hit the partial unique index — the very collision this
+        // mechanism exists to avoid. The request would fail with a 409
+        // instead of recording the correction.
+        reviewRepository.flush();
+        log.info("Superseded previous {} verdict on version {} (review {})",
+                tier, versionId, previous.getId());
+        return previous;
     }
 
     /**
@@ -313,7 +596,7 @@ public DocumentVersion revise(UUID actorId, UUID documentId, UUID versionId,
     String newVersionId = saved.getId() != null ? saved.getId().toString() : "";
     auditLogService.record(actorId, actorTierLabel(actorId, TIER_STAFF),
             "document.review_revised", "document_version", version.getId().toString(),
-            document.getWorkspaceId(),
+            document.getWorkspaceId(), documentId,
             Map.of("documentId", documentId.toString(),
                     "supersededVersionId", version.getId().toString(),
                     "newVersionId", newVersionId,
@@ -411,12 +694,21 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         List<ReviewQueueItemResponse> managerQueue = new ArrayList<>();
         List<ReviewQueueItemResponse> publishQueue = new ArrayList<>();
 
-        if (caps.canStaffReview()) {
-            staffQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.PENDING, "STAFF_REVIEW", filter));
+        // A Manager who delegated a tier steps aside for it: the API
+        // refuses their verdict on that tier (see
+        // {@link #requireNotDelegatedAway}), so keeping the work in
+        // their queue would offer an action that always fails.
+        List<String> delegatedTiers = delegatedTiersOf(actorId, workspaceId);
+
+        if (caps.canStaffReview() && !delegatedTiers.contains(TIER_STAFF)) {
+            staffQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.PENDING,
+                    "STAFF_REVIEW", filter, actorId));
         }
-        if (caps.canManagerApprove()) {
-            managerQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.IN_REVIEW, "MANAGER_APPROVAL", filter));
-            publishQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.APPROVED, "PUBLISH", filter));
+        if (caps.canManagerApprove() && !delegatedTiers.contains(TIER_MANAGER)) {
+            managerQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.IN_REVIEW,
+                    "MANAGER_APPROVAL", filter, actorId));
+            publishQueue.addAll(itemsForWorkspaceStatus(workspaceId, VersionStatus.APPROVED,
+                    "PUBLISH", filter, actorId));
         }
 
         return new ReviewQueueResponse(
@@ -465,10 +757,12 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         }
 
         // One query for every review of every submitted version, instead
-        // of one query per version.
+        // of one query per version. Only the current verdicts count —
+        // a superseded verdict is history, not the latest opinion.
         List<UUID> versionIds = versions.stream().map(DocumentVersion::getId).toList();
         Map<UUID, DocumentReview> latestReview = new HashMap<>();
-        for (DocumentReview review : reviewRepository.findAllByDocumentVersionIdInOrderByDecidedAtDesc(versionIds)) {
+        for (DocumentReview review : reviewRepository
+                .findAllByDocumentVersionIdInAndSupersededAtIsNullOrderByDecidedAtDesc(versionIds)) {
             // The repository returns newest first, so the first hit wins.
             latestReview.putIfAbsent(review.getDocumentVersionId(), review);
         }
@@ -572,7 +866,8 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
     public List<ReviewQueueItemResponse> staffQueue(UUID actorId, UUID workspaceId,
                                                  ReviewQueueFilter filter) {
         authorizationService.requireDocumentReviewer(actorId, workspaceId);
-        return itemsForWorkspaceStatus(workspaceId, VersionStatus.PENDING, "STAFF_REVIEW", filter);
+        return itemsForWorkspaceStatus(workspaceId, VersionStatus.PENDING, "STAFF_REVIEW",
+                filter, actorId);
     }
 
     /**
@@ -583,7 +878,8 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
     public List<ReviewQueueItemResponse> managerQueue(UUID actorId, UUID workspaceId,
                                                    ReviewQueueFilter filter) {
         authorizationService.requireDocumentApprover(actorId, workspaceId);
-        return itemsForWorkspaceStatus(workspaceId, VersionStatus.IN_REVIEW, "MANAGER_APPROVAL", filter);
+        return itemsForWorkspaceStatus(workspaceId, VersionStatus.IN_REVIEW, "MANAGER_APPROVAL",
+                filter, actorId);
     }
 
     /**
@@ -622,6 +918,33 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
                                                                    VersionStatus status,
                                                                    String action,
                                                                    ReviewQueueFilter filter) {
+        return itemsForWorkspaceStatus(workspaceId, status, action, filter, null);
+    }
+
+    /**
+     * The same queue, with the caller's own submissions left out.
+     *
+     * <p>A queue is a list of things the viewer can <em>act</em> on. A
+     * version the viewer submitted themselves is not one of them: the
+     * self-review guard refuses the verdict, so offering the row would
+     * offer an action that always fails. That is exactly what the
+     * reviewer saw — their own document sitting in the queue, and an
+     * error the moment they touched it.
+     *
+     * <p>The own submissions are not lost: they are listed under "My
+     * submissions", which is where the author watches their document
+     * move through the workflow.
+     *
+     * <p>The exception is a workspace with nobody else who could review
+     * at this tier. Then the author is the only possible reviewer, and
+     * hiding the row would leave the document with no way forward at
+     * all (see {@link #requireNotSelfReview}).
+     */
+    private List<ReviewQueueItemResponse> itemsForWorkspaceStatus(UUID workspaceId,
+                                                                   VersionStatus status,
+                                                                   String action,
+                                                                   ReviewQueueFilter filter,
+                                                                   UUID actorId) {
         List<Document> documents = documentRepository.findAllByWorkspaceIdOrderByUpdatedAtDesc(workspaceId);
         if (documents.isEmpty()) {
             return List.of();
@@ -636,6 +959,26 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         List<DocumentVersion> versions = versionRepository
                 .findAllByDocumentIdInAndStatusInOrderBySubmittedAtDesc(
                         byId.keySet(), List.of(status));
+
+        // The tier this queue belongs to, so the "can anybody else act
+        // on this?" question can be asked against the right set of
+        // reviewers.
+        String tier = switch (action) {
+            case "STAFF_REVIEW" -> TIER_STAFF;
+            case "MANAGER_APPROVAL" -> TIER_MANAGER;
+            default -> TIER_STAFF;
+        };
+        // Whether somebody other than the viewer could act on this tier.
+        // When nobody could, the viewer's own submissions stay in the
+        // queue — they are the only possible reviewer.
+        boolean someoneElseCanAct = actorId == null
+                || !isSoleReviewer(workspaceId, tier, actorId);
+        // The publish queue is a different kind of queue: publishing is
+        // a mechanical act on a version that already carries an approval,
+        // not a verdict about the content. The viewer's own approved
+        // version stays in it — hiding it would strand the document
+        // between "approved" and "published".
+        boolean filterOwnSubmissions = !"PUBLISH".equals(action);
 
         // The drift alerts of the whole workspace, grouped by document.
         // One query, not one per document.
@@ -665,6 +1008,13 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         for (DocumentVersion v : versions) {
             Document doc = byId.get(v.getDocumentId());
             if (doc == null) {
+                continue;
+            }
+            // The viewer's own submission is not something they can act
+            // on, so it does not belong in a queue of actionable work.
+            // It stays visible under "My submissions".
+            if (filterOwnSubmissions && someoneElseCanAct && actorId != null
+                    && actorId.equals(v.getSubmittedByUserId())) {
                 continue;
             }
             if (!matchesDocumentFilters(doc, v, filter)) {
@@ -938,13 +1288,20 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
     /**
      * The most recent Staff-tier review of a version, or {@code null} when
      * no Staff member has looked at it yet.
- *
- * <p>The repository returns newest-first, so the first element is the
- * authoritative Staff verdict.
- */
+     *
+     * <p>The repository returns newest-first, so the first element is the
+     * authoritative Staff verdict.
+     *
+     * <p>Only verdicts that are still <em>current</em> count. A verdict
+     * that a later Staff verdict replaced is kept in the trail but no
+     * longer represents the opinion of the tier — otherwise a Manager
+     * could be shown a Staff approval that the Staff tier itself had
+     * already withdrawn.
+     */
     private DocumentReview latestStaffReview(UUID versionId) {
         List<DocumentReview> staffReviews = reviewRepository
-                .findAllByDocumentVersionIdAndReviewerRoleOrderByDecidedAtDesc(versionId, TIER_STAFF);
+                .findAllByDocumentVersionIdAndReviewerRoleAndSupersededAtIsNullOrderByDecidedAtDesc(
+                        versionId, TIER_STAFF);
         return staffReviews.isEmpty() ? null : staffReviews.get(0);
     }
 
@@ -1039,11 +1396,13 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
         syncDocumentStatus(document, version, DocumentStatus.IN_REVIEW);
         documentRepository.save(document);
 
+        Integer submittedVersionNumber = version.getVersionNumber() != null
+                ? version.getVersionNumber() : 0;
         auditLogService.record(actorId, "USER", "document.submitted_for_review",
-                "document_version", versionId.toString(), document.getWorkspaceId(),
+                "document_version", versionId.toString(), document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId.toString(),
-                        "versionNumber", version.getVersionNumber()));
+                        "versionNumber", submittedVersionNumber));
 
         notifyReviewers(document, version, actorId);
 
@@ -1107,10 +1466,16 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
      * notified instead. The author's own notification preference
      * ("review requested") applies to them as well, so a reviewer who
      * turned it off is not notified twice.
+     *
+     * <p>Delegations are honoured here: when a Manager delegated the
+     * Staff tier of the workspace, the delegate is notified and the
+     * delegating Manager is not — handing work over means somebody else
+     * now does it.
      */
     private void notifyReviewers(Document document, DocumentVersion version, UUID actorId) {
         try {
             List<UUID> recipients = staffReviewersFor(document.getWorkspaceId());
+            recipients = applyDelegation(document.getWorkspaceId(), TIER_STAFF, recipients);
             // The author is not told "a review was requested" for their
             // own submission — they know.
             recipients = recipients.stream()
@@ -1143,10 +1508,14 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
      * <p>Sent when a Staff reviewer approved the version. The author is
      * excluded — they already know, and they are told separately by
      * {@link #notifySubmitter}.
+     *
+     * <p>Delegations are honoured here as well: the delegate of the
+     * Manager tier receives the work, the delegating Manager does not.
      */
     private void notifyManagerTier(Document document, DocumentVersion version, UUID actorId) {
         try {
             List<UUID> recipients = managerApproversFor(document.getWorkspaceId());
+            recipients = applyDelegation(document.getWorkspaceId(), TIER_MANAGER, recipients);
             recipients = recipients.stream()
                     .filter(id -> !id.equals(actorId))
                     .toList();
@@ -1167,6 +1536,32 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
             log.warn("Failed to notify the manager tier about document {}: {}",
                     document.getTitle(), e.getMessage());
         }
+    }
+
+    /**
+     * Route a tier's notifications through the delegations of the
+     * workspace.
+     *
+     * <p>The delegate is added to the recipients — a delegation nobody
+     * is told about would be pointless — and the delegating Manager is
+     * removed from them, because the whole point of handing work over
+     * is that somebody else does it now.
+     *
+     * <p>The delegate is added even when they do not hold the tier
+     * permission themselves: the delegation service refuses to create
+     * such a delegation in the first place, so an existing delegation
+     * always implies the permission.
+     */
+    private List<UUID> applyDelegation(UUID workspaceId, String tier, List<UUID> recipients) {
+        List<UUID> delegates = delegationService.delegatesFor(workspaceId, tier);
+        if (delegates.isEmpty()) {
+            return recipients;
+        }
+        List<UUID> delegators = delegationService.delegatorsFor(workspaceId, tier);
+        java.util.LinkedHashSet<UUID> out = new java.util.LinkedHashSet<>(recipients);
+        out.addAll(delegates);
+        out.removeAll(delegators);
+        return List.copyOf(out);
     }
 
     /**

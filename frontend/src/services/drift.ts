@@ -388,3 +388,72 @@ export const reviewsApi = {
       .then((r) => r.data);
   },
 };
+
+/**
+ * The tier a delegation covers.
+ *
+ * `STAFF` is the first-tier review, `MANAGER` the final approval. The
+ * tier is explicit in a delegation because the two are different acts.
+ */
+export type DelegationTier = 'STAFF' | 'MANAGER';
+
+/**
+ * One delegation of review work to somebody else.
+ *
+ * A delegation is per workspace and per tier: the delegate receives
+ * the work of that tier in that workspace, and the delegating Manager
+ * steps aside — they are neither notified nor allowed to act.
+ */
+export interface ReviewDelegation {
+  id: string;
+  workspaceId: string;
+  /** The Manager who handed the work over. */
+  fromUserId: string;
+  fromUserName: string | null;
+  /** The person who now receives the work. */
+  toUserId: string;
+  toUserName: string | null;
+  tier: DelegationTier;
+  reason: string | null;
+  createdAt: string;
+  /** When the delegation ended. `null` while it is in force. */
+  revokedAt: string | null;
+  revokedBy: string | null;
+  active: boolean;
+}
+
+export const delegationsApi = {
+  /**
+   * Every delegation of the workspace, in force or revoked.
+   *
+   * Manager-tier only — the backend answers 403 for anybody else.
+   */
+  list(workspaceId: string) {
+    return apiClient
+      .get<ReviewDelegation[]>(`/workspaces/${workspaceId}/reviews/delegations`)
+      .then((r) => r.data);
+  },
+  /**
+   * Hand the review or approval work of the workspace to somebody else.
+   *
+   * The delegate must be a workspace member who holds the permission
+   * of the tier being delegated — the backend refuses the request
+   * otherwise.
+   */
+  create(
+    workspaceId: string,
+    payload: { toUserId: string; tier: DelegationTier; reason?: string },
+  ) {
+    return apiClient
+      .post<ReviewDelegation>(`/workspaces/${workspaceId}/reviews/delegations`, payload)
+      .then((r) => r.data);
+  },
+  /** End an active delegation. */
+  revoke(workspaceId: string, delegationId: string) {
+    return apiClient
+      .delete<ReviewDelegation>(
+        `/workspaces/${workspaceId}/reviews/delegations/${delegationId}`,
+      )
+      .then((r) => r.data);
+  },
+};
