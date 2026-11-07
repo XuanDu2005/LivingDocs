@@ -216,7 +216,9 @@ if (submitter != null && submitter.equals(actorId)) {
   cảnh báo thay vì hard-block khi chỉ có 1 reviewer — hoặc đơn giản block luôn và ghi chép trong plan
   là quyết định sản phẩm; nếu chưa chốt thì hỏi user.)*
 
-**Verify:** script `scripts/verify-review-submissions.js` — STAFF submit bản của chính mình phải 403.
+**Verify:** test `backend/src/test/java/com/livingdocs/modules/review/service/DocumentReviewServiceTest.java`
+— `aReviewerMayNotReviewTheirOwnSubmission` + `theSelfReviewGuardAppliesToEveryDecision`
+(STAFF submit bản của chính mình phải 403).
 
 ---
 
@@ -653,16 +655,19 @@ từ Jira webhook. Khá nặng.
 
 Test hiện có để tham chiếu style: `backend/src/test/java/com/livingdocs/common/security/AuthorizationServiceTest.java`.
 
-### 6.2 Script verify (Node) — mở rộng `scripts/verify-review-submissions.js`
+### 6.2 Verify
 
-Thêm case mới:
-- STAFF bị chặn khi thiếu `DOCUMENT_VERSION_REVIEW` (khó test nếu không sửa matrix → cần admin
-  token).
+Các case này đã được cover bằng JUnit test trong
+`backend/src/test/java/com/livingdocs/modules/review/service/DocumentReviewServiceTest.java`
+và `ReviewDelegationServiceTest.java`:
+- STAFF bị chặn khi thiếu `DOCUMENT_VERSION_REVIEW`.
 - Self-review bị 403.
 - Manager approve khi Staff verdict mới nhất = `REQUEST_CHANGES` → 400.
 - Staff dismiss draft của người khác → 200 (nếu chốt là cho phép).
 - Template compliance endpoint trả kết quả đúng.
 - Filter/sort queue trả đúng tập kết quả.
+
+Nếu cần kiểm chứng end-to-end trên stack thật, chạy `node scripts/integration-check.js`.
 
 ### 6.3 Kiểm tra build
 
@@ -743,8 +748,7 @@ Tôi cần bạn thực hiện kế hoạch sửa cho vai trò **STAFF (review t
    M3 template compliance, M4 drift severity trong queue, M5 ticket reference,
    M6 review drawer + inline edit). Bắt đầu từ M2 và M3 vì chúng có giá trị cao/effort thấp.
 4. **Nhóm L — polish UI + i18n.**
-5. **Testing:** thêm JUnit test vào `backend/src/test/java/`, mở rộng
-   `scripts/verify-review-submissions.js`, chạy `mvn clean compile` + `npm run build`.
+5. **Testing:** thêm JUnit test vào `backend/src/test/java/`, chạy `mvn clean compile` + `npm run build`.
 6. **Cuối cùng, đánh giá lại** theo checklist 13 yêu cầu ở Phần 7 và báo cáo:
    mỗi yêu cầu đã đạt / chưa đạt / còn hạn chế, kèm file + dòng code làm bằng chứng.
 
