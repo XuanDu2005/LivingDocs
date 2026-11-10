@@ -716,6 +716,7 @@ private com.livingdocs.modules.version.model.ActorRole actorRoleFor(UUID actorId
                 caps.platformRoles(),
                 caps.member(),
                 caps.workspaceManager(),
+                caps.documentationOwner(),
                 caps.canStaffReview(),
                 caps.canManagerApprove(),
                 staffQueue,

@@ -1,5 +1,6 @@
 package com.livingdocs.modules.version.dto;
 
+import com.livingdocs.modules.template.model.OutputFormat;
 import com.livingdocs.modules.version.model.ActorRole;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
@@ -19,6 +20,15 @@ public record DocumentVersionResponse(
         UUID documentId,
         Integer versionNumber,
         String bodyMarkdown,
+        /**
+         * The body rendered into the format the template asked for.
+         *
+         * <p>Equal to {@code bodyMarkdown} for a markdown template; for
+         * an HTML template it is the converted document.
+         */
+        String renderedBody,
+        /** The format {@code renderedBody} is in. */
+        OutputFormat outputFormat,
         String changeSummary,
         ActorRole actorRole,
         UUID actorUserId,
@@ -52,6 +62,8 @@ public record DocumentVersionResponse(
                 v.getDocumentId(),
                 v.getVersionNumber(),
                 v.getBodyMarkdown(),
+                v.getRenderedBody() != null ? v.getRenderedBody() : v.getBodyMarkdown(),
+                v.getOutputFormat() == null ? OutputFormat.MARKDOWN : v.getOutputFormat(),
                 v.getChangeSummary(),
                 v.getActorRole(),
                 v.getActorUserId(),

@@ -78,6 +78,13 @@ export const templatesApi = {
       )
       .then((r) => r.data);
   },
+  setDefault(workspaceId: string, templateId: string) {
+    return apiClient
+      .post<DocTemplate>(
+        `/workspaces/${workspaceId}/templates/${templateId}/set-default`,
+      )
+      .then((r) => r.data);
+  },
   remove(workspaceId: string, templateId: string) {
     return apiClient.delete<void>(
       `/workspaces/${workspaceId}/templates/${templateId}`,

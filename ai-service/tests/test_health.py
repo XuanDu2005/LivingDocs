@@ -1,5 +1,7 @@
 """Test suite for the AI service."""
 
+import json
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -56,6 +58,53 @@ def test_generate_endpoint_with_mock_provider() -> None:
     body = response.json()
     assert body["markdown"]
     assert 0.0 <= body["confidence"] <= 1.0
+
+
+def test_generate_endpoint_accepts_template_schema() -> None:
+    """The template schema must be readable from the wire.
+
+    The backend serialises the schema as ``template_schema`` — the name
+    this request model expects. A mismatch here means the template is
+    silently dropped and the AI falls back to its built-in preset.
+    """
+
+    schema = {
+        "version": 1,
+        "name": "API Reference",
+        "instructions": "Use tables for parameter lists.",
+        "sections": [
+            {
+                "id": "endpoints",
+                "heading": "Endpoints",
+                "level": 2,
+                "placeholders": [
+                    {
+                        "key": "endpoints",
+                        "prompt": "List every public endpoint.",
+                        "required": True,
+                        "binding": "code.route",
+                    }
+                ],
+            }
+        ],
+    }
+    response = client.post("/api/v1/generate", json={
+        "files": [{"path": "calc.py", "content": "def add(a, b): return a + b"}],
+        "template": "default-api-reference",
+        "template_schema": json.dumps(schema),
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["markdown"]
+
+
+def test_generate_endpoint_rejects_non_object_schema() -> None:
+    response = client.post("/api/v1/generate", json={
+        "files": [{"path": "calc.py", "content": "def add(a, b): return a + b"}],
+        "template": "MODULE_GUIDE",
+        "template_schema": json.dumps(["not", "an", "object"]),
+    })
+    assert response.status_code == 400
 
 
 def test_drift_endpoint_detects_referential_drift() -> None:

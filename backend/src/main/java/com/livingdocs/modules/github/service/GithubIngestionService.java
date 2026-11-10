@@ -16,6 +16,7 @@ import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.notification.model.NotificationKinds;
 import com.livingdocs.modules.notification.service.NotificationService;
+import com.livingdocs.modules.template.model.AutoGenerateTrigger;
 import com.livingdocs.modules.workspace.model.WorkspaceMember;
 import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
@@ -175,7 +176,7 @@ public class GithubIngestionService {
         // this the whole "documentation drift is detected on every PR"
         // promise — the centrepiece of the CI/CD integration — silently
         // did nothing.
-        triggerAutoUpdateForPullRequest(repo.get(), payload);
+        triggerAutoUpdateForPullRequest(repo.get(), payload, resolvePullRequestTrigger(payload));
 
         // ... and the documentation that covers the changed code must be
         // checked for drift, so the alert appears without anyone
@@ -242,8 +243,12 @@ public class GithubIngestionService {
      *
      * <p>Mirrors the push path: the repository toggle and the workspace
      * policy both gate the run, and a failure never fails the webhook.
+     *
+     * @param trigger which of the template's {@code auto_generate_on_*}
+     *                flags has to be set for the regeneration to happen
      */
-    private void triggerAutoUpdateForPullRequest(Repository repo, JsonNode payload) {
+    private void triggerAutoUpdateForPullRequest(Repository repo, JsonNode payload,
+                                                  AutoGenerateTrigger trigger) {
         if (!repo.isAutoUpdateEnabled()) {
             log.debug("Auto-update disabled for repo {}, skipping pull-request trigger",
                     repo.getFullName());
@@ -252,6 +257,9 @@ public class GithubIngestionService {
         Optional<com.livingdocs.modules.workspace.model.WorkspaceSettings> settingsOpt =
                 workspaceSettingsRepository.findByWorkspaceId(repo.getWorkspaceId());
         if (settingsOpt.isPresent() && !settingsOpt.get().isAutoUpdateOnPr()) {
+            // The workspace switched off PR-driven automation entirely.
+            // A merge is delivered as a pull_request event too, so it is
+            // covered by the same switch.
             log.debug("Workspace autoUpdateOnPr disabled, skipping pull-request trigger");
             return;
         }
@@ -280,13 +288,37 @@ public class GithubIngestionService {
 
         try {
             int queued = autoUpdateService.triggerAutoUpdate(
-                    repo, changedFiles, branch, headSha, accessToken);
-            log.info("Queued {} document regeneration(s) for repo {} (pull request {})",
-                    queued, repo.getFullName(), headSha);
+                    repo, changedFiles, branch, headSha, accessToken, trigger);
+            log.info("Queued {} document regeneration(s) for repo {} (pull request {}, trigger {})",
+                    queued, repo.getFullName(), headSha, trigger);
         } catch (Exception ex) {
             log.warn("Auto-update failed for repo {} on pull request: {}",
                     repo.getFullName(), ex.getMessage());
         }
+    }
+
+    /**
+     * Decide whether a pull-request webhook describes a plain pull
+     * request or a merge.
+     *
+     * <p>GitHub delivers the merge as a {@code pull_request} event with
+     * the action {@code closed} and a {@code merged_at} timestamp set.
+     * The two cases have to be distinguished because the templates
+     * carry two different opt-ins for them: a template that only asked
+     * for "on merge" must not be regenerated while the pull request is
+     * still open.
+     *
+     * <p>Only a pull request that was actually merged counts as a
+     * merge. A pull request that was closed without merging was never
+     * integrated into the base branch, so it must not trigger the
+     * "on merge" opt-in — the code it carried never landed.
+     */
+    private static AutoGenerateTrigger resolvePullRequestTrigger(JsonNode payload) {
+        JsonNode pr = payload.path("pull_request");
+        boolean merged = !pr.path("merged_at").isMissingNode()
+                && !pr.path("merged_at").isNull()
+                && !pr.path("merged_at").asText("").isBlank();
+        return merged ? AutoGenerateTrigger.MERGE : AutoGenerateTrigger.PR;
     }
 
     private void upsert(Repository repo, GithubPullRequest pr) {
@@ -448,7 +480,7 @@ public class GithubIngestionService {
 
         try {
             int queued = autoUpdateService.triggerAutoUpdate(
-                    repo, changedFiles, branch, headSha, accessToken);
+                    repo, changedFiles, branch, headSha, accessToken, AutoGenerateTrigger.COMMIT);
             log.info("Queued {} document regeneration(s) for repo {} (commit {})",
                     queued, repo.getFullName(), headSha);
         } catch (Exception ex) {

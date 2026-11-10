@@ -44,6 +44,15 @@ export interface DocumentVersion {
   documentId: string;
   versionNumber: number;
   bodyMarkdown: string;
+  /**
+   * The body rendered into the format the template asked for.
+   *
+   * <p>Equal to `bodyMarkdown` for a Markdown template; for an HTML
+   * template it is the converted document.
+   */
+  renderedBody?: string | null;
+  /** The format `renderedBody` is in. */
+  outputFormat?: 'MARKDOWN' | 'HTML' | 'PDF' | null;
   changeSummary: string | null;
   actorRole: ActorRole;
   actorUserId: string | null;
@@ -129,9 +138,24 @@ export const documentsApi = {
     documentId: string,
     payload: {
       title: string;
+      /**
+       * The summary.
+       *
+       * <p>Omit it to leave the summary alone. Send an empty string to
+       * clear it. The backend treats a missing field and an explicit
+       * null the same way — neither changes the summary — so a caller
+       * that only wants to touch the title cannot accidentally erase
+       * it.
+       */
       summary?: string;
       repositoryId?: string;
       templateId?: string;
+      /**
+       * The new owner. Omit it to leave the owner alone; send it to
+       * reassign. The backend only lets a workspace manager do that,
+       * and the new owner must be a member of the workspace.
+       */
+      ownerId?: string;
       autoUpdateEnabled: boolean;
     },
   ) {

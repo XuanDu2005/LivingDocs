@@ -6,7 +6,11 @@ import json
 
 from app.llm import LLMClient
 from app.services import DocumentationGenerator, DriftDetector
-from app.services.generator import _heuristic_confidence
+from app.services.generator import (
+    _heuristic_confidence,
+    _normalise_template_key,
+    _system_prompt_from_schema,
+)
 from app.services.drift import DriftReport
 
 
@@ -86,3 +90,128 @@ def test_llm_client_mock_offline_summary() -> None:
     )
     assert response.ok
     assert "documentation" in response.text.lower() or "documentation" in response.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Template schema rendering
+# ---------------------------------------------------------------------------
+
+
+def _canonical_schema() -> dict:
+    """The canonical shape the backend produces for a template body."""
+
+    return {
+        "version": 1,
+        "titleHint": "API Reference — {{moduleName}}",
+        "instructions": "Use tables for parameter lists.",
+        "sections": [
+            {
+                "id": "overview",
+                "heading": "Overview",
+                "level": 2,
+                "placeholders": [
+                    {
+                        "key": "summary",
+                        "prompt": "What does this API cover?",
+                        "required": True,
+                        "maxWords": 80,
+                    }
+                ],
+            },
+            {
+                "id": "endpoints",
+                "heading": "Endpoints",
+                "level": 2,
+                "placeholders": [
+                    {
+                        "key": "endpoints",
+                        "prompt": "List every public endpoint…",
+                        "required": True,
+                        "maxWords": 80,
+                        "binding": "code.route",
+                    },
+                    {
+                        "key": "errors",
+                        "prompt": "List the error codes this API can return.",
+                        "required": False,
+                    },
+                ],
+            },
+        ],
+        "variables": [{"key": "moduleName", "default": "core"}],
+    }
+
+
+def test_system_prompt_reads_guidance_from_placeholders() -> None:
+    """The placeholder prompt must reach the prompt — this is the bug.
+
+    The canonical schema keeps the prompt on the *placeholder*, so a
+    renderer that reads it from the section level produces an empty
+    guidance and silently falls back to the built-in preset.
+    """
+
+    prompt = _system_prompt_from_schema("default-api-reference", _canonical_schema())
+
+    assert "Guidance: What does this API cover?" in prompt
+    assert "Guidance: List every public endpoint…" in prompt
+    assert "Guidance: List the error codes this API can return." in prompt
+
+
+def test_system_prompt_renders_section_headings_verbatim() -> None:
+    prompt = _system_prompt_from_schema("default-api-reference", _canonical_schema())
+
+    assert "## Endpoints" in prompt
+    assert "## Overview" in prompt
+    # The heading text has to be used verbatim — it is what the AI is
+    # told to emit.
+    assert "Endpoints" in prompt
+
+
+def test_system_prompt_carries_placeholder_constraints() -> None:
+    prompt = _system_prompt_from_schema("default-api-reference", _canonical_schema())
+
+    assert "REQUIRED" in prompt
+    assert "max 80 words" in prompt
+    assert "code.route" in prompt
+
+
+def test_system_prompt_carries_template_instructions_and_variables() -> None:
+    prompt = _system_prompt_from_schema("default-api-reference", _canonical_schema())
+
+    assert "Use tables for parameter lists." in prompt
+    assert "moduleName" in prompt
+
+
+def test_system_prompt_handles_missing_optional_fields() -> None:
+    """A minimal schema must not crash the renderer."""
+
+    prompt = _system_prompt_from_schema(
+        "MODULE_GUIDE",
+        {"sections": [{"heading": "Overview", "placeholders": []}]},
+    )
+
+    assert "## Overview" in prompt
+
+
+def test_normalise_template_key_maps_slugs_to_presets() -> None:
+    """The frontend sends slugs; the presets are keyed by doc type."""
+
+    assert _normalise_template_key("default-api-reference") == "API_REFERENCE"
+    assert _normalise_template_key("API_REFERENCE") == "API_REFERENCE"
+    assert _normalise_template_key("default-module-guide") == "MODULE_GUIDE"
+    assert _normalise_template_key("default-adr") == "ADR"
+    assert _normalise_template_key("default-architecture") == "ARCHITECTURE"
+    assert _normalise_template_key(None) == "MODULE_GUIDE"
+    assert _normalise_template_key("") == "MODULE_GUIDE"
+
+
+def test_generator_uses_schema_over_preset() -> None:
+    """A template with its own schema must not fall back to the preset."""
+
+    generator = DocumentationGenerator()
+    result = generator.generate(
+        files=_files(),
+        template="default-api-reference",
+        template_schema=_canonical_schema(),
+    )
+    assert result.markdown

@@ -20,6 +20,7 @@ import java.util.Map;
  * {
  *   "version": 1,
  *   "titleHint": "Module Guide — {{moduleName}}",
+ *   "instructions": "Formatting rules applied to the whole document.",
  *   "sections": [
  *     { "id": "overview", "heading": "Overview",
  *       "level": 2,
@@ -48,6 +49,13 @@ import java.util.Map;
 @Component
 public class TemplateSchema {
 
+    /**
+     * Upper bound for the free-form {@code instructions} block. The text is
+     * pasted verbatim into the AI system prompt, so an unbounded field
+     * would let a single template blow up the prompt budget.
+     */
+    public static final int MAX_INSTRUCTIONS_LENGTH = 2000;
+
     private final ObjectMapper objectMapper;
 
     public TemplateSchema(ObjectMapper objectMapper) {
@@ -58,6 +66,8 @@ public class TemplateSchema {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("version", 1);
         root.put("titleHint", "Module Guide — {{moduleName}}");
+        root.put("instructions", "");
+        root.put("strict", false);
         ArrayNode sections = root.putArray("sections");
 
         ObjectNode overview = sections.addObject();
@@ -118,6 +128,13 @@ public class TemplateSchema {
         JsonNode root = objectMapper.readTree(body);
         ObjectNode out = root instanceof ObjectNode ? ((ObjectNode) root).deepCopy() : objectMapper.createObjectNode();
         if (!out.has("version")) out.put("version", 1);
+        // ``instructions`` is optional but must be a string when present —
+        // the AI service renders it verbatim into the system prompt.
+        if (!out.has("instructions") || !out.get("instructions").isTextual()) {
+            out.put("instructions", "");
+        } else {
+            out.put("instructions", out.get("instructions").asText());
+        }
         if (!out.has("sections") || !out.get("sections").isArray()) {
             // Legacy: { sections: [...] } without placeholder nesting.
             if (root.has("sections") && root.get("sections").isArray()) {
@@ -186,6 +203,20 @@ public class TemplateSchema {
         JsonNode sections = tree.get("sections");
         if (sections == null || !sections.isArray()) {
             throw new BadRequestException("Template body must contain a 'sections' array");
+        }
+        JsonNode instructions = tree.get("instructions");
+        if (instructions != null && !instructions.isNull()) {
+            if (!instructions.isTextual()) {
+                throw new BadRequestException("Template 'instructions' must be a string");
+            }
+            if (instructions.asText().length() > MAX_INSTRUCTIONS_LENGTH) {
+                throw new BadRequestException(
+                        "Template 'instructions' must be at most " + MAX_INSTRUCTIONS_LENGTH + " characters");
+            }
+        }
+        JsonNode strict = tree.get("strict");
+        if (strict != null && !strict.isNull() && !strict.isBoolean()) {
+            throw new BadRequestException("Template 'strict' must be a boolean");
         }
         java.util.Set<String> seenIds = new java.util.HashSet<>();
         java.util.Set<String> seenKeys = new java.util.HashSet<>();

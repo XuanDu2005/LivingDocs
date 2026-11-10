@@ -20,6 +20,15 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
 
     List<Document> findAllByRepositoryIdOrderByUpdatedAtDesc(UUID repositoryId);
 
+    /**
+     * Every document of a workspace that belongs to one repository.
+     *
+     * <p>Used to resolve the repository axis of the change log: a
+     * version belongs to a repository through its document, so the
+     * repository filter has to go through the document table.
+     */
+    List<Document> findAllByWorkspaceIdAndRepositoryId(UUID workspaceId, UUID repositoryId);
+
     List<Document> findAllByWorkspaceIdAndDocTypeOrderByUpdatedAtDesc(UUID workspaceId, String docType);
 
     List<Document> findAllByOwnerIdOrderByUpdatedAtDesc(UUID ownerId);

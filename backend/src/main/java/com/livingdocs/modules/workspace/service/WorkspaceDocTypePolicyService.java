@@ -121,15 +121,18 @@ public class WorkspaceDocTypePolicyService {
     /**
      * Set the workflow this workspace applies to one doc type.
      *
-     * <p>Requires the workspace {@code MANAGER} role. The change is
-     * written to the audit trail, because it decides whether generated
-     * content reaches the readers without a human ever reading it.
+     * <p>Requires the workspace {@code MANAGER} or
+     * {@code DOCUMENTATION_OWNER} role, on top of the
+     * {@code GOVERNANCE_MANAGE} capability the endpoint enforces. The
+     * change is written to the audit trail, because it decides whether
+     * generated content reaches the readers without a human ever reading
+     * it.
      */
     @Transactional
     public WorkspaceDocTypePolicyResponse upsert(UUID workspaceId, UUID actorId,
                                                   String docType,
                                                   UpdateWorkspaceDocTypePolicyRequest req) {
-        workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        workspaceService.requireDocumentationGovernance(actorId, workspaceId);
 
         String normalized = normalizeDocType(docType);
         Workflow workflow = parseWorkflow(req.workflow());
@@ -169,11 +172,12 @@ public class WorkspaceDocTypePolicyService {
      * Drop the workspace's override for a doc type, so it inherits the
      * platform policy again.
      *
-     * <p>Requires the workspace {@code MANAGER} role.
+     * <p>Requires the workspace {@code MANAGER} or
+     * {@code DOCUMENTATION_OWNER} role.
      */
     @Transactional
     public void delete(UUID workspaceId, UUID actorId, String docType) {
-        workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        workspaceService.requireDocumentationGovernance(actorId, workspaceId);
 
         String normalized = normalizeDocType(docType);
         WorkspaceDocTypePolicy row = repository

@@ -134,6 +134,7 @@ export interface ReviewQueue {
   platformRoles: string[];
   member: boolean;
   workspaceManager: boolean;
+  documentationOwner: boolean;
   canStaffReview: boolean;
   canManagerApprove: boolean;
   staffQueue: ReviewQueueItem[];
@@ -147,6 +148,13 @@ export interface ReviewQueue {
 export interface WorkspaceCapabilities {
   member: boolean;
   workspaceManager: boolean;
+  /**
+   * Whether the caller is the documentation owner of this workspace.
+   *
+   * <p>That role owns the templates, the doc-type workflows and the
+   * governance settings — it does not administer the membership.
+   */
+  documentationOwner: boolean;
   canStaffReview: boolean;
   canManagerApprove: boolean;
   admin: boolean;
@@ -172,9 +180,16 @@ export interface TemplateSectionCompliance {
 export interface TemplateCompliance {
   templateId: string | null;
   templateName: string | null;
+  /**
+   * Whether the template asks for its structure to be enforced when a
+   * version is published. Set by the workspace on the template body.
+   */
+  strict: boolean;
   compliant: boolean;
   sections: TemplateSectionCompliance[];
   missingHeadings: string[];
+  /** The subset of `missingHeadings` the template marks as required. */
+  missingRequiredHeadings: string[];
   outOfOrderHeadings: string[];
 }
 

@@ -477,6 +477,25 @@ async function checkPermissionExposure() {
     (staff.body?.permissions ?? []).includes('GOVERNANCE_VIEW'),
     JSON.stringify(staff.body?.permissions),
   );
+
+  // Resolving a drift alert is a content judgement, so it belongs to
+  // the review tiers — the DEVELOPER may run a drift scan and read the
+  // alerts, but it may not close them.
+  check(
+    'DEVELOPER does not hold DRIFT_RESOLVE',
+    !(dev.body?.permissions ?? []).includes('DRIFT_RESOLVE'),
+    JSON.stringify(dev.body?.permissions),
+  );
+  check(
+    'STAFF holds DRIFT_RESOLVE',
+    (staff.body?.permissions ?? []).includes('DRIFT_RESOLVE'),
+    JSON.stringify(staff.body?.permissions),
+  );
+  check(
+    'DEVELOPER still holds DRIFT_DETECT_RUN',
+    (dev.body?.permissions ?? []).includes('DRIFT_DETECT_RUN'),
+    JSON.stringify(dev.body?.permissions),
+  );
 }
 
 async function checkGeneration() {

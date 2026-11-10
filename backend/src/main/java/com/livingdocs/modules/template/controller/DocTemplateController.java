@@ -106,12 +106,19 @@ public class DocTemplateController {
                 .toList();
     }
 
+    @PostMapping("/workspaces/{workspaceId}/templates/{templateId}/set-default")
+    @Operation(summary = "Set this workspace template as the default for its doc type")
+    public DocTemplateResponse setDefault(@PathVariable UUID workspaceId,
+                                           @PathVariable UUID templateId) {
+        return templateService.setDefault(CurrentUser.requireId(), templateId);
+    }
+
     @PostMapping("/workspaces/{workspaceId}/templates/{templateId}/clone")
     @Operation(summary = "Clone a template into a new template in this workspace")
     public ResponseEntity<DocTemplateResponse> clone(@PathVariable UUID workspaceId,
                                                        @PathVariable UUID templateId,
                                                        @RequestParam("newName") String newName) {
-        DocTemplateResponse cloned = templateService.clone(CurrentUser.requireId(), templateId, newName);
+        DocTemplateResponse cloned = templateService.clone(CurrentUser.requireId(), workspaceId, templateId, newName);
         return ResponseEntity.status(HttpStatus.CREATED).body(cloned);
     }
 

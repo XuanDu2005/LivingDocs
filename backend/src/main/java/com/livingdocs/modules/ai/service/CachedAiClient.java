@@ -73,30 +73,6 @@ public class CachedAiClient {
     }
 
     /**
-     * Convenience overload for callers that do not use a custom
-     * template schema (e.g. the repository-wide "generate all" flow).
-     *
-     * <p>This overload carries its own {@code @Cacheable} annotation
-     * rather than delegating to the six-argument method: Spring's
-     * cache proxy is bypassed on internal {@code this} calls, so a
-     * self-delegating method would silently never be cached.
-     */
-    @Cacheable(
-            cacheNames = "ai-responses",
-            key = "T(java.util.Objects).hash(#workspaceId, #template, #sourceFiles.![path], #sourceFiles.![content])",
-            unless = "#result == null"
-    )
-    public AiDtos.GenerateResponse generateCached(UUID workspaceId,
-                                                    List<AiDtos.SourceFile> sourceFiles,
-                                                    String template) {
-        log.debug("AI generate cache miss for workspace={}, files={}, template={}",
-                workspaceId,
-                sourceFiles == null ? 0 : sourceFiles.size(),
-                template);
-        return delegate.generate(workspaceId, sourceFiles, template, null, null, null);
-    }
-
-    /**
      * Cache wrapper around {@link AiServiceClient#detectDrift}. Only
      * non-null responses are cached so a transient outage doesn't
      * pin a "no drift" result.

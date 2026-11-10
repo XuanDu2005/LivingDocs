@@ -55,6 +55,29 @@ public class WorkspaceService {
         return saved;
     }
 
+    /**
+     * Return the id of the first workspace the given user manages.
+     *
+     * <p>Used as a fallback when an operation has to pick a workspace on
+     * the user's behalf (e.g. cloning a global template) and no explicit
+     * target was supplied. Returns {@code null} when the user does not
+     * manage any workspace.
+     *
+     * <p>The workspace {@code DOCUMENTATION_OWNER} counts here too: it
+     * may edit the template library of the workspace it owns, so it is a
+     * legitimate target for a clone even when it does not administer the
+     * workspace.
+     */
+    @Transactional(readOnly = true)
+    public UUID findFirstManagedWorkspaceId(UUID userId) {
+        return memberRepository.findAllByUserId(userId).stream()
+                .filter(m -> m.getRole() == WorkspaceRole.MANAGER
+                        || m.getRole() == WorkspaceRole.DOCUMENTATION_OWNER)
+                .map(WorkspaceMember::getWorkspaceId)
+                .findFirst()
+                .orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public Workspace getById(UUID workspaceId) {
         return workspaceRepository.findById(workspaceId)
@@ -159,6 +182,32 @@ public class WorkspaceService {
         return member.getRole();
     }
 
+    /**
+     * Guard for the documentation-governance surfaces: the templates, the
+     * doc-type workflows and the governance settings.
+     *
+     * <p>Two workspace roles may pass: {@code MANAGER}, which owns the
+     * whole workspace, and {@code DOCUMENTATION_OWNER}, which owns the
+     * shape of the documentation without administering the membership.
+     *
+     * <p>This is the <em>workspace</em> half of the two-axis model only.
+     * The capability half — {@code GOVERNANCE_MANAGE} — is enforced by the
+     * permission interceptor on the endpoint, so a workspace
+     * DOCUMENTATION_OWNER still needs the capability to change anything.
+     */
+    @Transactional(readOnly = true)
+    public WorkspaceRole requireDocumentationGovernance(UUID actorId, UUID workspaceId) {
+        WorkspaceMember member = memberRepository.findByWorkspaceIdAndUserId(workspaceId, actorId)
+                .orElseThrow(() -> new ForbiddenException("You are not a member of this workspace"));
+
+        WorkspaceRole role = member.getRole();
+        if (role != WorkspaceRole.MANAGER && role != WorkspaceRole.DOCUMENTATION_OWNER) {
+            throw new ForbiddenException(
+                    "Only a workspace manager or documentation owner can perform this action");
+        }
+        return role;
+    }
+
     @Transactional(readOnly = true)
     public void requireMember(UUID actorId, UUID workspaceId) {
         if (!memberRepository.existsByWorkspaceIdAndUserId(workspaceId, actorId)) {
@@ -166,10 +215,19 @@ public class WorkspaceService {
         }
     }
 
+    /**
+     * The rank of a workspace role, used by {@link #requireRole}.
+     *
+     * <p>{@code DOCUMENTATION_OWNER} sits between {@code MEMBER} and
+     * {@code MANAGER}: it may do everything a member may do, and it owns
+     * the documentation governance — but it does not administer the
+     * membership, so it never satisfies a {@code MANAGER} requirement.
+     */
     private int rank(WorkspaceRole role) {
         return switch (role) {
             case MEMBER -> 1;
-            case MANAGER -> 2;
+            case DOCUMENTATION_OWNER -> 2;
+            case MANAGER -> 3;
         };
     }
 }

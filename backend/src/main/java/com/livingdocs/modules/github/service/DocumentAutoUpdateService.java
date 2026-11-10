@@ -14,6 +14,9 @@ import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.GithubConnectionRepository;
 import com.livingdocs.modules.link.model.CodeDocumentLink;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
+import com.livingdocs.modules.template.model.AutoGenerateTrigger;
+import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +72,7 @@ public class DocumentAutoUpdateService {
     private final GithubClient githubClient;
     private final AiDocumentationService aiDocumentationService;
     private final ModuleAutoUpdateService moduleAutoUpdateService;
+    private final TemplateSchemaResolver schemaResolver;
 
     public DocumentAutoUpdateService(ObjectMapper objectMapper,
                                      CodeEntityRepository codeEntityRepository,
@@ -78,7 +82,8 @@ public class DocumentAutoUpdateService {
                                      WorkspaceMemberRepository workspaceMemberRepository,
                                      GithubClient githubClient,
                                      AiDocumentationService aiDocumentationService,
-                                     ModuleAutoUpdateService moduleAutoUpdateService) {
+                                     ModuleAutoUpdateService moduleAutoUpdateService,
+                                     TemplateSchemaResolver schemaResolver) {
         this.objectMapper = objectMapper;
         this.codeEntityRepository = codeEntityRepository;
         this.linkRepository = linkRepository;
@@ -88,10 +93,17 @@ public class DocumentAutoUpdateService {
         this.githubClient = githubClient;
         this.aiDocumentationService = aiDocumentationService;
         this.moduleAutoUpdateService = moduleAutoUpdateService;
+        this.schemaResolver = schemaResolver;
     }
 
     /**
      * Handle a code change for a repository.
+     *
+     * <p>Convenience overload for the common case: a commit was
+     * pushed. Callers that know the SCM event should use
+     * {@link #triggerAutoUpdate(Repository, Set, String, String, String, AutoGenerateTrigger)}
+     * so the template's {@code auto_generate_on_*} flags can be
+     * honoured.
      *
      * @param repo        the repository that changed
      * @param changedFilePaths paths that were added or modified
@@ -106,6 +118,33 @@ public class DocumentAutoUpdateService {
                                  String branch,
                                  String commitSha,
                                  String accessToken) {
+        return triggerAutoUpdate(repo, changedFilePaths, branch, commitSha,
+                accessToken, AutoGenerateTrigger.COMMIT);
+    }
+
+    /**
+     * Handle a code change for a repository.
+     *
+     * @param repo        the repository that changed
+     * @param changedFilePaths paths that were added or modified
+     * @param branch      the branch the change landed on
+     * @param commitSha   the head commit of the change (may be null)
+     * @param accessToken GitHub token used to fetch the new file contents
+     * @param trigger     the SCM event that caused this run — it decides
+     *                    which {@code auto_generate_on_*} flag of the
+     *                    template has to be set for the document to be
+     *                    regenerated
+     * @return the number of documents that were queued for regeneration
+     */
+    @Transactional(readOnly = true)
+    public int triggerAutoUpdate(Repository repo,
+                                 Set<String> changedFilePaths,
+                                 String branch,
+                                 String commitSha,
+                                 String accessToken,
+                                 AutoGenerateTrigger trigger) {
+        AutoGenerateTrigger effectiveTrigger = trigger == null
+                ? AutoGenerateTrigger.COMMIT : trigger;
         if (changedFilePaths == null || changedFilePaths.isEmpty()) {
             return 0;
         }
@@ -178,6 +217,17 @@ public class DocumentAutoUpdateService {
                 // Defensive: a link should never cross workspaces.
                 continue;
             }
+            // 4b. The template decides whether this kind of event may
+            //     regenerate the document. The three
+            //     {@code auto_generate_on_*} flags are per-template
+            //     opt-ins — without this check they were dead settings:
+            //     a template that only asked for "on merge" was
+            //     regenerated on every commit as well.
+            if (!isTriggerAllowed(document, effectiveTrigger)) {
+                log.debug("Template of document {} does not allow auto-generation on {} — skipping",
+                        document.getTitle(), effectiveTrigger);
+                continue;
+            }
             try {
                 aiDocumentationService.generateForDocument(
                         null,                       // system-initiated
@@ -197,6 +247,51 @@ public class DocumentAutoUpdateService {
             }
         }
         return queued;
+    }
+
+    /**
+     * Does the template that applies to this document allow
+     * auto-generation for the given SCM event?
+     *
+     * <p>This is the gate that makes the template's
+     * {@code auto_generate_on_commit} / {@code auto_generate_on_pr} /
+     * {@code auto_generate_on_merge} flags live. Until this check
+     * existed the flags were pure metadata: a template that only opted
+     * into "on merge" was regenerated on every commit and every pull
+     * request as well.
+     *
+     * <p>The template is resolved with the same precedence the AI
+     * generation uses — the template pinned to the document, else the
+     * workspace default for its doc type, else the global default.
+     *
+     * <p><b>No template at all</b> means the document is not governed
+     * by any template, so there is no flag to satisfy. Such a
+     * document keeps the pre-existing behaviour (it is regenerated
+     * whenever the document-level and repository-level toggles allow
+     * it). Only a template that explicitly says "no" vetoes the run —
+     * otherwise every document that has no template would silently
+     * stop being auto-updated, which would be a much bigger change
+     * than this setting was ever meant to be.
+     */
+    private boolean isTriggerAllowed(Document document, AutoGenerateTrigger trigger) {
+        DocTemplate template;
+        try {
+            template = schemaResolver.resolveTemplateForDocument(document);
+        } catch (Exception e) {
+            // A failure to resolve the template must not silently stop
+            // the regeneration — fall back to the old behaviour and say so.
+            log.warn("Could not resolve the template of document {}: {}",
+                    document.getTitle(), e.getMessage());
+            return true;
+        }
+        if (template == null) {
+            return true;
+        }
+        return switch (trigger) {
+            case COMMIT -> template.isAutoGenerateOnCommit();
+            case PR -> template.isAutoGenerateOnPr();
+            case MERGE -> template.isAutoGenerateOnMerge();
+        };
     }
 
     /**

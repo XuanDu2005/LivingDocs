@@ -16,6 +16,16 @@ public final class PermissionCodes {
     public static final String HEALTH_DASHBOARD_VIEW = "HEALTH_DASHBOARD_VIEW";
     /** Read the aggregated analytics of a workspace. */
     public static final String ANALYTICS_VIEW = "ANALYTICS_VIEW";
+    /**
+     * Read the documentation-to-code dependency graph and the impact
+     * analysis of a code entity.
+     *
+     * <p>Distinct from {@link #HEALTH_DASHBOARD_VIEW}: the health
+     * dashboard answers "how healthy is the documentation?", the
+     * dependency graph answers "what does this documentation depend
+     * on, and what breaks when the code changes?".
+     */
+    public static final String DEPENDENCY_GRAPH_VIEW = "DEPENDENCY_GRAPH_VIEW";
     /** Read the governance audit trail of a workspace. */
     public static final String AUDIT_LOG_VIEW = "AUDIT_LOG_VIEW";
 
@@ -88,6 +98,15 @@ public final class PermissionCodes {
     public static final String MODULE_AUTO_UPDATE_MANAGE = "MODULE_AUTO_UPDATE_MANAGE";
     /** Run a drift detection pass (manually or from a pull request). */
     public static final String DRIFT_DETECT_RUN = "DRIFT_DETECT_RUN";
+    /**
+     * Resolve a drift alert — accept it, dismiss it or mark it fixed.
+     *
+     * <p>Distinct from {@link #DRIFT_DETECT_RUN}: detecting drift is a
+     * machine action anybody may trigger, while resolving one is a
+     * judgement about the documentation that belongs to the people who
+     * review content.
+     */
+    public static final String DRIFT_RESOLVE = "DRIFT_RESOLVE";
     /** Read the repository access scopes granted to the GitHub connection. */
     public static final String GITHUB_SCOPE_VIEW = "GITHUB_SCOPE_VIEW";
     /** Change the repository access scopes of the GitHub connection. */

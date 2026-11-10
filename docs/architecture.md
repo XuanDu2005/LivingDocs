@@ -26,14 +26,30 @@ Assigned by an administrator, stored in `user_roles`.
 | `MANAGER`        | Final approval, publishing, workspace administration.               |
 | `ADMIN`          | Full platform access.                                                |
 
+`TECHNICAL_LEAD` is a *platform* capability, not a workspace ownership:
+it holds `GOVERNANCE_MANAGE`, so it may *read* the governance of every
+workspace it belongs to and review there — but changing that governance
+still requires owning the workspace (see below). At the workspace it
+manages, the Technical Lead configures the governance; in every other
+workspace it only sees and reviews.
+
 ### Workspace role axis
 
 Assigned per workspace, stored in `workspace_members`.
 
-| Role     | Capabilities                                              |
-| -------- | --------------------------------------------------------- |
-| `MEMBER` | Read and contribute.                                       |
-| `MANAGER` | Workspace administration (members, repository connections). |
+| Role                  | Capabilities                                                       |
+| --------------------- | ------------------------------------------------------------------ |
+| `MEMBER`              | Read and contribute.                                                |
+| `DOCUMENTATION_OWNER` | Owns the documentation governance: templates, doc-type workflows, governance settings. |
+| `MANAGER`             | Workspace administration (members, repository connections) **plus** everything the documentation owner may do. |
+
+`DOCUMENTATION_OWNER` exists because "owns the shape of the
+documentation" and "administers the workspace" are genuinely different
+responsibilities. A team can hand one person the first without handing
+them the second. The role grants nothing on its own — the capability
+axis still has to agree (a documentation owner without
+`GOVERNANCE_MANAGE` cannot change a knob), so the two axes stay
+combined with AND.
 
 ### The AND rule
 
@@ -61,10 +77,12 @@ Every review, approval, publish and rollback path routes through it:
 | `requireStaffReviewer`          | platform ∈ {STAFF, TECHNICAL_LEAD, MANAGER, ADMIN} **and** member |
 | `requireManagerApprover`        | platform ∈ {TECHNICAL_LEAD, MANAGER, ADMIN} **and** member |
 | `requireWorkspaceManager`       | workspace role = `MANAGER` (platform role does not substitute) |
+| `requireDocumentationGovernance`| workspace role ∈ {`MANAGER`, `DOCUMENTATION_OWNER`} |
 | `requireWorkspaceMember`        | member                                          |
 
 `GET /workspaces/{id}/capabilities` returns the caller's effective
-capabilities so the frontend never renders a button the API would reject.
+capabilities — including `workspaceManager` and `documentationOwner` —
+so the frontend never renders a button the API would reject.
 
 ### The capability axis
 
@@ -547,6 +565,11 @@ docker run --rm -v "${PWD}:/app" -w /app --entrypoint python \
 | V29     | `doc_generation_jobs`                  | tracks async generation jobs                   |
 | V30     | `two_axis_role_model`                  | normalises `workspace_members.role`, grants `TECHNICAL_LEAD` permissions |
 | V31     | `widen_encrypted_token_columns`        | widens token columns so ciphertext always fits |
+| V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role |
+| V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role and widens `workspace_members.role` |
+| V52     | `documentation_owner_workspace_role`   | widens `workspace_members.role` and adds the `DOCUMENTATION_OWNER` value |
+| V53     | `drift_resolve_permission`            | adds the `DRIFT_RESOLVE` permission for the review tiers |
+| V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role and widens the role column |
 
 ### Why some migrations are not Flyway migrations
 

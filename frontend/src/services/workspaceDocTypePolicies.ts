@@ -41,10 +41,11 @@ export interface UpdateWorkspaceDocTypePolicyPayload {
  * Whether the caller may change the rows of this workspace.
  *
  * <p>The API requires <em>both</em> axes: the `GOVERNANCE_MANAGE`
- * capability (the permission interceptor) and the workspace `MANAGER`
- * role (the service layer). A TECHNICAL_LEAD holds the capability but
- * is not a workspace manager, so the UI has to check both before
- * offering the controls.
+ * capability (the permission interceptor) and a workspace role that owns
+ * the documentation governance — the workspace `MANAGER` or the
+ * workspace `DOCUMENTATION_OWNER` (the service layer). A TECHNICAL_LEAD
+ * holds the capability but is only a workspace MEMBER, so it can read
+ * the policies but not change them.
  */
 export async function canManageDocTypePolicies(
   workspaceId: string,
@@ -54,7 +55,7 @@ export async function canManageDocTypePolicies(
   try {
     const capabilities: WorkspaceCapabilities =
       await reviewsApi.capabilities(workspaceId);
-    return !!capabilities?.workspaceManager;
+    return !!capabilities?.workspaceManager || !!capabilities?.documentationOwner;
   } catch {
     return false;
   }

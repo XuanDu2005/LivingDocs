@@ -3,14 +3,14 @@ import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, MessageSquare, Plus, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, X, Play } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, MessageSquare, Plus, Radar, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, UserCog, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import {
-  Card, CardContent, CardHeader, CardTitle,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '../components/ui/card';
 import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -26,14 +26,16 @@ import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { documentsApi, Document, DocumentVersion, DocumentVersionSummary, ActorRole, VersionStatus } from '../services/documents';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import DocumentAuditTrail from '../components/document/DocumentAuditTrail';
+import { DocumentImpactPanel } from '../components/DependencyImpactPanel';
 import ReviewDrawer from '../components/review/ReviewDrawer';
-import { driftApi, DriftAlert, reviewsApi, ReviewDecision } from '../services/drift';
+import { driftApi, DriftAlert, reviewsApi, ReviewDecision, TemplateCompliance } from '../services/drift';
 import { linksApi, CodeDocumentLink } from '../services/knowledge';
 import { codeApi, CodeEntity } from '../services/knowledge';
 import { aiApi, GroundingSource } from '../services/ai';
 import { githubApi, Repository } from '../services/github';
 import { describeError, hasPermission } from '../services/auth';
 import { useAuth } from '../contexts/AuthContext';
+import { listMembers, WorkspaceMember } from '../services/workspaces';
 import { templatesApi, DocTemplate } from '../services/templates';
 import { format } from 'date-fns';
 const STATUS_VARIANT: Record<VersionStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
@@ -108,6 +110,15 @@ export default function DocumentDetailPage() {
   // reviewing it: the trail shows who did what, which is exactly the
   // oversight surface the MANAGER tier needs before granting approval.
   const canViewAuditTrail = hasPermission(user, 'AUDIT_LOG_VIEW');
+  // The impact analysis reads the documentation-to-code dependency
+  // graph. It is a separate capability from the audit trail: it shows
+  // which code a document depends on and what a code change
+  // invalidates, not who changed what.
+  const canViewDependencyGraph = hasPermission(user, 'DEPENDENCY_GRAPH_VIEW');
+  // Resolving a drift alert is a judgement about the documentation, so
+  // it is gated by the permission matrix just like the review tiers.
+  // A member who may not resolve one must not be offered the button.
+  const canResolveDrift = hasPermission(user, 'DRIFT_RESOLVE');
 
   const [doc, setDoc] = useState<Document | null>(null);
   const [timeline, setTimeline] = useState<DocumentVersionSummary[]>([]);
@@ -146,6 +157,15 @@ export default function DocumentDetailPage() {
     [timeline, user?.id],
   );
   const [editBody, setEditBody] = useState<string>('');
+  /**
+   * The template compliance of each version, keyed by version id.
+   *
+   * <p>The backend refuses to publish a version that does not follow a
+   * strict template, so the Publish button must not offer an action the
+   * API would reject. The compliance of the versions that may be
+   * published is fetched with the timeline.
+   */
+  const [complianceByVersion, setComplianceByVersion] = useState<Record<string, TemplateCompliance>>({});
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
@@ -178,6 +198,95 @@ export default function DocumentDetailPage() {
   const [reviewDrawerVersionId, setReviewDrawerVersionId] = useState<string | null>(null);
   const [reviewDrawerKind, setReviewDrawerKind] = useState<'staff' | 'manager'>('staff');
   const [docTags, setDocTags] = useState<DocumentTag[]>([]);
+
+  // ── Owner reassignment ──
+  //
+  // The owner of a document is the person who is responsible for it.
+  // Reassigning it is a management act: the backend only lets a
+  // workspace MANAGER do it, so the dropdown is rendered for managers
+  // and shown read-only for everybody else. The member list is
+  // fetched once and reused, so the page does not grow a second
+  // round-trip per render.
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [isWorkspaceManager, setIsWorkspaceManager] = useState<boolean>(false);
+  const [ownerSaving, setOwnerSaving] = useState<boolean>(false);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    listMembers(workspaceId)
+      .then((list) => {
+        setMembers(list);
+        const me = list.find((m) => m.userId === user?.id);
+        setIsWorkspaceManager(me?.role === 'MANAGER');
+      })
+      .catch((err) => console.error('Lỗi tải thành viên workspace:', err));
+  }, [workspaceId, user?.id]);
+
+  /** The label to show for a member in the owner dropdown. */
+  function memberLabel(member: WorkspaceMember): string {
+    return member.displayName || member.userEmail || member.userId;
+  }
+
+  /** The member record of the current owner, when it is still known. */
+  const currentOwner = useMemo(
+    () => members.find((m) => m.userId === doc?.ownerId),
+    [members, doc?.ownerId],
+  );
+
+  /**
+   * The options of the owner dropdown.
+   *
+   * <p>The current owner is added when they are no longer a member of
+   * the workspace — a document may outlive the membership of the
+   * person who owned it. Without that entry the dropdown would show
+   * an empty selection for a document that plainly has an owner.
+   */
+  const ownerOptions = useMemo<WorkspaceMember[]>(() => {
+    if (!doc || currentOwner) return members;
+    return [
+      ...members,
+      {
+        id: '',
+        workspaceId: doc.workspaceId,
+        userId: doc.ownerId,
+        userEmail: null,
+        displayName: null,
+        role: 'MEMBER',
+        joinedAt: '',
+      },
+    ];
+  }, [members, currentOwner, doc]);
+
+  /**
+   * Reassign the document to another member.
+   *
+   * <p>The error is surfaced inline instead of an alert, because the
+   * backend can refuse for two different reasons — the caller is not
+   * a manager, or the chosen member left the workspace in the
+   * meantime — and the message explains which one it was.
+   */
+  async function handleOwnerChange(newOwnerId: string) {
+    if (!workspaceId || !documentId || !doc) return;
+    setOwnerSaving(true);
+    setOwnerError(null);
+    try {
+      const updated = await documentsApi.update(workspaceId, documentId, {
+        title: doc.title,
+        // The summary is not part of this change, so it is left out —
+        // the backend keeps the current one when the field is absent.
+        repositoryId: doc.repositoryId ?? undefined,
+        templateId: doc.templateId ?? undefined,
+        ownerId: newOwnerId,
+        autoUpdateEnabled: doc.autoUpdateEnabled,
+      });
+      setDoc(updated);
+    } catch (err) {
+      setOwnerError(describeError(err));
+    } finally {
+      setOwnerSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (workspaceId && documentId) {
@@ -278,6 +387,37 @@ export default function DocumentDetailPage() {
     }
   }
 
+  /**
+   * Fetch the template compliance of the versions that may be
+   * published.
+   *
+   * <p>Only the APPROVED versions matter: those are the ones the
+   * Publish button is rendered for. A version that a strict template
+   * refuses is marked here so the button can be disabled with an
+   * explanation instead of failing after the click.
+   */
+  const loadCompliance = useCallback(async (versions: DocumentVersionSummary[]) => {
+    if (!workspaceId || !documentId) return;
+    const publishable = versions.filter((v) => v.status === 'APPROVED');
+    if (publishable.length === 0) {
+      setComplianceByVersion({});
+      return;
+    }
+    const results = await Promise.all(
+      publishable.map((v) =>
+        reviewsApi
+          .templateCompliance(workspaceId, documentId, v.id)
+          .then((c) => [v.id, c] as const)
+          .catch(() => null),
+      ),
+    );
+    const next: Record<string, TemplateCompliance> = {};
+    for (const entry of results) {
+      if (entry) next[entry[0]] = entry[1];
+    }
+    setComplianceByVersion(next);
+  }, [workspaceId, documentId]);
+
   const load = useCallback(async () => {
     if (!workspaceId || !documentId) return;
     setLoading(true);
@@ -296,12 +436,34 @@ export default function DocumentDetailPage() {
         setSelectedVersion(full);
         setEditBody(full.bodyMarkdown);
       }
+      await loadCompliance(tl);
     } catch (err) {
       setError(describeError(err));
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, documentId]);
+  }, [workspaceId, documentId, loadCompliance]);
+
+  /**
+   * Why a version cannot be published, or {@code null} when it can.
+   *
+   * <p>The backend refuses to publish a version whose body is missing a
+   * required section of a <em>strict</em> template. A template that is
+   * not strict only produces a warning, and sections that are merely in
+   * the wrong order never block a publication either way.
+   */
+  function publishBlockedReason(versionId: string): string | null {
+    const compliance = complianceByVersion[versionId];
+    if (!compliance) return null;
+    if (!compliance.strict) return null;
+    const missing = compliance.missingRequiredHeadings ?? [];
+    if (missing.length === 0) return null;
+    return t('documentDetail.publishBlockedByTemplate', {
+      template: compliance.templateName ?? '',
+      sections: missing.join(', '),
+      defaultValue: `This version does not conform to template "${compliance.templateName ?? ''}". Missing: ${missing.join(', ')}`,
+    });
+  }
 
   const loadDrift = useCallback(async () => {
     if (!workspaceId || !documentId) return;
@@ -318,6 +480,14 @@ export default function DocumentDetailPage() {
       setLinks(l);
     } catch { /* non-critical */ }
   }, [workspaceId, documentId]);
+
+  // The code entities the document documents. The impact tab runs the
+  // impact analysis of each of them, so the ids are collected once
+  // here rather than inside the render of the tab.
+  const linkedEntityIds = useMemo(
+    () => Array.from(new Set(links.map((l) => l.codeEntityId))),
+    [links],
+  );
 
   const loadCodeEntities = useCallback(async () => {
     if (!workspaceId || !doc?.repositoryId) {
@@ -357,6 +527,8 @@ export default function DocumentDetailPage() {
     try {
       const updated = await documentsApi.update(workspaceId, documentId, {
         title: doc.title,
+        // The summary is not part of this change, so it is left out —
+        // the backend keeps the current one when the field is absent.
         repositoryId: selectedRepoId ? selectedRepoId : undefined,
         autoUpdateEnabled: doc.autoUpdateEnabled,
       });
@@ -382,7 +554,7 @@ export default function DocumentDetailPage() {
 
   useEffect(() => {
     if (tab === 'drift') void loadDrift();
-    if (tab === 'links') {
+    if (tab === 'links' || tab === 'impact') {
       void loadLinks();
       void loadCodeEntities();
     }
@@ -955,7 +1127,44 @@ export default function DocumentDetailPage() {
                 )}
               </Badge>
             </button>
+            {/* Owner — the person responsible for the document.
+                Only a workspace manager may reassign it, so the
+                dropdown is disabled for everybody else. It still
+                renders, because knowing who owns a document is
+                useful to every reader. */}
+            <div className="flex items-center gap-1.5">
+              <UserCog className="w-3 h-3" />
+              <span className="text-xs">{t('documentDetail.owner', 'Owner')}:</span>
+              {isWorkspaceManager ? (
+                <Select
+                  value={doc.ownerId}
+                  onValueChange={(v) => void handleOwnerChange(v)}
+                  disabled={ownerSaving}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[200px] text-xs"
+                    title={t('documentDetail.ownerChangeHint', 'Assign this document to another workspace member.')}
+                  >
+                    <SelectValue placeholder={t('documentDetail.ownerPlaceholder', 'Select a member…')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ownerOptions.map((m) => (
+                      <SelectItem key={m.userId} value={m.userId}>
+                        {memberLabel(m)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-xs font-medium text-foreground">
+                  {currentOwner ? memberLabel(currentOwner) : doc.ownerId}
+                </span>
+              )}
+            </div>
           </div>
+          {ownerError && (
+            <p className="text-xs text-destructive">{ownerError}</p>
+          )}
         </div>
         {/* Tag Management */}
           <div className="pt-3 flex items-center gap-2 flex-wrap min-h-[32px]">
@@ -1189,6 +1398,11 @@ export default function DocumentDetailPage() {
           <TabsTrigger value="versions">Versions</TabsTrigger>
           <TabsTrigger value="links">Links</TabsTrigger>
           <TabsTrigger value="drift">Drift</TabsTrigger>
+          {canViewDependencyGraph && (
+            <TabsTrigger value="impact">
+              {t('documentDetail.tabImpact', 'Impact')}
+            </TabsTrigger>
+          )}
           {canViewAuditTrail && (
             <TabsTrigger value="audit">{t('documentDetail.tabAudit', 'Audit trail')}</TabsTrigger>
           )}
@@ -1262,10 +1476,25 @@ export default function DocumentDetailPage() {
                             size="sm"
                             variant="ghost"
                             className="h-6 text-xs px-1.5"
+                            disabled={!!publishBlockedReason(v.id)}
+                            title={publishBlockedReason(v.id) ?? t('documentDetail.publishTitle')}
                             onClick={(e) => { e.stopPropagation(); void handlePublishVersion(v.versionNumber); }}
                           >
                             <Upload className="h-3 w-3 mr-0.5" /> Publish
                           </Button>
+                        )}
+                        {/* A version that does not follow its template is
+                            marked right where the Publish button is —
+                            the publisher sees the problem before the
+                            click, not after the error. */}
+                        {v.status === 'APPROVED' && complianceByVersion[v.id]
+                          && !complianceByVersion[v.id].compliant && (
+                          <span
+                            className="self-center text-[10px] text-destructive"
+                            title={t('documentDetail.nonCompliantTitle', 'This version does not follow the template.')}
+                          >
+                            {t('documentDetail.nonCompliantBadge', 'Template ✗')}
+                          </span>
                         )}
                         {canRollback && (v.status === 'PUBLISHED' || v.status === 'APPROVED') && (
                           <Button
@@ -1512,6 +1741,8 @@ export default function DocumentDetailPage() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs"
+                                disabled={!!publishBlockedReason(v.id)}
+                                title={publishBlockedReason(v.id) ?? t('documentDetail.publishTitle')}
                                 onClick={() => void handlePublishVersion(v.versionNumber)}
                               >
                                 Publish
@@ -1902,36 +2133,42 @@ export default function DocumentDetailPage() {
                           {format(new Date(a.detectedAt), 'MMM d, yyyy')}
                         </TableCell>
                         <TableCell>
-                          <Dialog open={resolveAlertId === a.id} onOpenChange={(o) => { if (!o) setResolveAlertId(null); }}>
-                            <DialogTrigger asChild>
-                              <Button size="sm" variant="outline" onClick={() => setResolveAlertId(a.id)}>
-                                Resolve
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
-                                <DialogDescription>{a.title}</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-3">
-                                <Select value={resolveResolution} onValueChange={setResolveResolution}>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
-                                    <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted')}</SelectItem>
-                                    <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
-                                    <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <DialogFooter>
-                                <Button variant="outline" onClick={() => setResolveAlertId(null)}>Cancel</Button>
-                                <Button onClick={() => void handleResolveDrift(a.id)}>Resolve</Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
+                          {canResolveDrift ? (
+                            <Dialog open={resolveAlertId === a.id} onOpenChange={(o) => { if (!o) setResolveAlertId(null); }}>
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline" onClick={() => setResolveAlertId(a.id)}>
+                                  Resolve
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
+                                  <DialogDescription>{a.title}</DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-3">
+                                  <Select value={resolveResolution} onValueChange={setResolveResolution}>
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
+                                      <SelectItem value="ACCEPTED">{t('drift.resolutionAccepted')}</SelectItem>
+                                      <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
+                                      <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <DialogFooter>
+                                  <Button variant="outline" onClick={() => setResolveAlertId(null)}>Cancel</Button>
+                                  <Button onClick={() => void handleResolveDrift(a.id)}>Resolve</Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {t('drift.resolveHint', 'Only reviewers can resolve a drift alert.')}
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1941,6 +2178,36 @@ export default function DocumentDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── IMPACT TAB ── */}
+        {/* The impact analysis of every code entity this document
+            documents: which of them are drifting, what else moves with
+            them, and which pull requests are open. It reads the
+            dependency graph, so it carries the same capability. */}
+        {canViewDependencyGraph && (
+          <TabsContent value="impact" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Radar className="h-4 w-4" />
+                  {t('documentDetail.impactTitle', 'Impact analysis')}
+                </CardTitle>
+                <CardDescription>
+                  {t(
+                    'documentDetail.impactDesc',
+                    'What a change to the code this document describes would invalidate.',
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DocumentImpactPanel
+                  workspaceId={workspaceId!}
+                  entityIds={linkedEntityIds}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ── AUDIT TRAIL TAB ── */}
         {/* The Manager tier has to be able to "view the complete audit

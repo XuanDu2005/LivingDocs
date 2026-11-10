@@ -17,5 +17,14 @@ public interface CodeDocumentLinkRepository extends JpaRepository<CodeDocumentLi
     Optional<CodeDocumentLink> findByDocumentIdAndCodeEntityId(UUID documentId, UUID codeEntityId);
     List<CodeDocumentLink> findByCodeEntityIdIn(Collection<UUID> codeEntityIds);
 
+    /**
+     * The links of a batch of documents.
+     *
+     * <p>Used by the dependency graph: resolving the links of every
+     * document of a workspace one by one would be one query per
+     * document, and the graph needs them all at once.
+     */
+    List<CodeDocumentLink> findAllByDocumentIdIn(Collection<UUID> documentIds);
+
     void deleteByDocumentId(UUID documentId);
 }

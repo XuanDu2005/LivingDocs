@@ -16,6 +16,7 @@ import com.livingdocs.modules.drift.dto.DriftAlertResponse;
 import com.livingdocs.modules.drift.service.DriftAlertService;
 import com.livingdocs.modules.github.service.PullRequestDiffService;
 import com.livingdocs.modules.github.service.PullRequestDiffService.DiffFiles;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
@@ -54,6 +55,7 @@ public class AiController {
     private final DocGenerationJobService jobService;
     private final BulkGenerationService bulkGenerationService;
     private final PullRequestDiffService pullRequestDiffService;
+    private final TemplateSchemaResolver schemaResolver;
 
     public AiController(AiDocumentationService aiService,
                         DocumentVersionService versionService,
@@ -63,7 +65,8 @@ public class AiController {
                         ObjectMapper objectMapper,
                         DocGenerationJobService jobService,
                         BulkGenerationService bulkGenerationService,
-                        PullRequestDiffService pullRequestDiffService) {
+                        PullRequestDiffService pullRequestDiffService,
+                        TemplateSchemaResolver schemaResolver) {
         this.aiService = aiService;
         this.versionService = versionService;
         this.driftService = driftService;
@@ -73,6 +76,7 @@ public class AiController {
         this.jobService = jobService;
         this.bulkGenerationService = bulkGenerationService;
         this.pullRequestDiffService = pullRequestDiffService;
+        this.schemaResolver = schemaResolver;
     }
 
     /**
@@ -91,8 +95,16 @@ public class AiController {
             @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template,
             @RequestParam(required = false) String focus,
             @RequestBody List<AiDtos.SourceFile> files) {
+        // The frontend sends a template *slug* (e.g. "default-api-reference")
+        // while the AI service keys its presets off the canonical doc type.
+        // Normalise here so the slug and the doc type reach the same
+        // template — otherwise the run silently fell back to MODULE_GUIDE.
+        // The resolved schema is passed explicitly so the picked
+        // template's own sections drive the output.
+        var resolved = schemaResolver.resolveTemplate(workspaceId, template);
         UUID correlationId = aiService.generateForDocument(
-                CurrentUser.requireId(), documentId, files, template, null, focus, null, null);
+                CurrentUser.requireId(), documentId, files, resolved.docType(),
+                resolved.schema(), focus, null, null);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
                 "status", "ACCEPTED",
                 "jobId", correlationId.toString(),
@@ -178,8 +190,13 @@ public class AiController {
                                                     @PathVariable UUID documentId,
                                                     @RequestParam(required = false, defaultValue = "MODULE_GUIDE") String template,
                                                     @RequestBody List<AiDtos.SourceFile> files) {
-        var resp = aiService.previewForDocument(CurrentUser.requireId(), documentId, files, template);
-        return PreviewGenerateResponse.of(resp, template);
+        // Normalise the slug into the canonical doc type, exactly like
+        // the queued generation path does, so the preview and the real
+        // run use the same template.
+        var resolved = schemaResolver.resolveTemplate(workspaceId, template);
+        var resp = aiService.previewForDocument(CurrentUser.requireId(), documentId, files,
+                resolved.docType(), resolved.schema());
+        return PreviewGenerateResponse.of(resp, resolved.docType());
     }
 
     @GetMapping("/workspaces/{workspaceId}/documents/{documentId}/versions/{versionId}/grounding")

@@ -29,6 +29,8 @@ import {
   Database,
   Layers,
   ScrollText,
+  History,
+  Radar,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
@@ -160,6 +162,18 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
         { labelKey: 'nav.reviews', to: `/workspaces/${workspaceId}/reviews`, icon: Shield },
         { labelKey: 'nav.docUpdates', to: `/workspaces/${workspaceId}/doc-updates`, icon: GitPullRequest },
         { labelKey: 'nav.drift', to: `/workspaces/${workspaceId}/drift`, icon: AlertTriangle },
+        {
+          // The workspace-level change log: every change of every
+          // document, filterable by role, document, repository and date
+          // range. It is the surface the "version history & change logs
+          // across the repository" requirement asks for, and it carries
+          // the same capability as the audit trail — reading it means
+          // reading who changed what.
+          labelKey: 'nav.changeLog',
+          to: `/workspaces/${workspaceId}/change-log`,
+          icon: History,
+          permissions: ['AUDIT_LOG_VIEW'],
+        },
       ],
     },
     {
@@ -178,6 +192,18 @@ function buildWorkspaceItems(workspaceId?: string): WorkspaceNavGroup[] {
       labelKey: 'nav.workspaceGroupInsights',
       items: [
         { labelKey: 'nav.knowledge', to: `/workspaces/${workspaceId}/knowledge`, icon: Library },
+        {
+          // The documentation-to-code dependency graph: which
+          // documentation depends on which code, and what a code change
+          // invalidates. It is an oversight surface (it exposes the
+          // structure of the workspace), so it carries its own
+          // capability rather than sharing one with the health
+          // dashboard.
+          labelKey: 'nav.dependencyGraph',
+          to: `/workspaces/${workspaceId}/dependency-graph`,
+          icon: Radar,
+          permissions: ['DEPENDENCY_GRAPH_VIEW'],
+        },
         {
           labelKey: 'nav.analytics',
           to: `/workspaces/${workspaceId}/analytics`,

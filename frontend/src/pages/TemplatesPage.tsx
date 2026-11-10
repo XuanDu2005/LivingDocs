@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Code2, Eye, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Code2, Copy, Eye, Pencil, Plus, Sparkles, Star, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -22,8 +22,10 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { templatesApi, DocTemplate, DocTemplateListResponse } from '../services/templates';
 import { templateSchemaApi } from '../services/templateSchema';
+import { reviewsApi } from '../services/drift';
 import { describeError } from '../services/auth';
 import { VisualTemplateBuilder } from '../components/VisualTemplateBuilder';
+import OutputFormatSelect, { type OutputFormat } from '../components/OutputFormatSelect';
 import { VersionHistoryDialog } from '../components/VersionHistoryDialog';
 import {
   TemplateBody,
@@ -36,9 +38,6 @@ import {
 import { format } from 'date-fns';
 
 type EditMode = 'visual' | 'json' | 'preview';
-type OutputFormat = 'MARKDOWN' | 'HTML' | 'PDF';
-
-const OUTPUT_FORMATS: OutputFormat[] = ['MARKDOWN', 'HTML', 'PDF'];
 
 export default function TemplatesPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -68,6 +67,12 @@ export default function TemplatesPage() {
   const [editMode, setEditMode] = useState<EditMode>('visual');
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [historyTemplateId, setHistoryTemplateId] = useState<string | null>(null);
+  // Template the user asked to promote to default; null = dialog closed.
+  const [defaultTarget, setDefaultTarget] = useState<DocTemplate | null>(null);
+  // Whether the caller owns the template library of this workspace: the
+  // workspace MANAGER or the workspace DOCUMENTATION_OWNER. The API
+  // refuses everybody else, so the UI must not offer the controls.
+  const [canEditTemplates, setCanEditTemplates] = useState<boolean>(false);
 
   const load = async () => {
     if (!workspaceId) return;
@@ -89,6 +94,28 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     void load();
+  }, [workspaceId]);
+
+  // Resolve the caller's workspace role once: the template library
+  // belongs to the workspace MANAGER and to the workspace
+  // DOCUMENTATION_OWNER. A failure here is not an error — the caller
+  // simply is not allowed to edit templates, and the page still shows
+  // the library read-only.
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    reviewsApi
+      .capabilities(workspaceId)
+      .then((caps) => {
+        if (cancelled) return;
+        setCanEditTemplates(!!caps?.workspaceManager || !!caps?.documentationOwner);
+      })
+      .catch(() => {
+        if (!cancelled) setCanEditTemplates(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId]);
 
   // Re-derive JSON when the body changes through the visual builder.
@@ -134,6 +161,8 @@ export default function TemplatesPage() {
     setBody({
       version: 1,
       titleHint: seed.titleHint ?? '',
+      instructions: seed.instructions ?? '',
+      strict: seed.strict ?? false,
       sections: seed.sections.map((s) => ({ ...s, placeholders: s.placeholders.map((p) => ({ ...p })) })),
       variables: seed.variables?.map((v) => ({ ...v })) ?? [],
     });
@@ -172,7 +201,12 @@ export default function TemplatesPage() {
         name,
         description: description || undefined,
         bodyJson: bodyToJson(body),
-        outputFormat,
+        // PDF is not implemented yet and the backend rejects it. A
+        // template that still carries the value (it was accepted
+        // before the renderer existed) is normalised to Markdown
+        // instead of failing the save with a server error the user
+        // cannot act on.
+        outputFormat: outputFormat === 'PDF' ? 'MARKDOWN' : outputFormat,
         autoGenerateOnCommit: autoOnCommit,
         autoGenerateOnPr: autoOnPr,
         autoGenerateOnMerge: autoOnMerge,
@@ -207,6 +241,51 @@ export default function TemplatesPage() {
     }
   }
 
+  /**
+   * Promote a workspace template to be the default for its doc type.
+   *
+   * <p>The backend enforces the invariant "at most one default per
+   * (workspace, docType)": the previous default loses its badge in the
+   * same transaction, so the list is simply reloaded afterwards.
+   */
+  async function handleSetDefault(tmpl: DocTemplate) {
+    if (!workspaceId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await templatesApi.setDefault(workspaceId, tmpl.id);
+      setDefaultTarget(null);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Clone a template into this workspace.
+   *
+   * <p>A global template is read-only, so the only way to get an editable
+   * copy of it is to clone it: the copy lands in the workspace as a
+   * workspace-scoped template.
+   */
+  async function handleClone(tmpl: DocTemplate) {
+    if (!workspaceId) return;
+    const newName = window.prompt(t('templates.clonePrompt'), tmpl.name);
+    if (!newName) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await templatesApi.clone(workspaceId, tmpl.id, newName);
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!workspaceId) return <EmptyState title="Missing workspace id" />;
 
   return (
@@ -224,9 +303,11 @@ export default function TemplatesPage() {
             {t('templates.subtitle')}
           </p>
         </div>
-        <Button onClick={() => openCreate()}>
-          <Plus className="mr-1 h-4 w-4" /> {t('templates.newCta')}
-        </Button>
+        {canEditTemplates && (
+          <Button onClick={() => openCreate()}>
+            <Plus className="mr-1 h-4 w-4" /> {t('templates.newCta')}
+          </Button>
+        )}
       </div>
 
       {error && <ErrorState message={error} />}
@@ -301,25 +382,18 @@ export default function TemplatesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="tmpl-output">{t('templates.outputFormat')}</Label>
-                <Select
+                <OutputFormatSelect
+                  id="tmpl-output"
                   value={outputFormat}
-                  onValueChange={(v) => setOutputFormat(v as OutputFormat)}
-                >
-                  <SelectTrigger id="tmpl-output"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {OUTPUT_FORMATS.map((f) => (
-                      <SelectItem key={f} value={f}>
-                        {t(`templates.outputFormat_${f}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(v) => setOutputFormat(v)}
+                />
               </div>
             </div>
 
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
               <div className="text-sm font-medium">{t('templates.autoTriggers')}</div>
               <p className="text-xs text-muted-foreground">{t('templates.autoTriggersDesc')}</p>
+              <p className="text-xs text-muted-foreground">{t('templates.autoTriggersLive')}</p>
               <div className="space-y-1.5">
                 {[
                   { field: 'autoOnCommit' as const, label: t('templates.autoOnCommit'), value: autoOnCommit, set: setAutoOnCommit },
@@ -426,9 +500,11 @@ export default function TemplatesPage() {
                     title={t('templates.emptyWorkspaceTitle', 'No workspace templates')}
                     description={t('templates.emptyWorkspaceDesc', 'Create a template to scaffold new documents.')}
                     action={
-                      <Button onClick={() => openCreate()}>
-                        <Plus className="mr-1 h-4 w-4" /> New template
-                      </Button>
+                      canEditTemplates ? (
+                        <Button onClick={() => openCreate()}>
+                          <Plus className="mr-1 h-4 w-4" /> New template
+                        </Button>
+                      ) : undefined
                     }
                   />
                 </CardContent>
@@ -457,6 +533,31 @@ export default function TemplatesPage() {
                       <div className="flex gap-1.5 flex-wrap">
                         <Badge variant="muted" className="text-xs">{tmpl.docType}</Badge>
                         <Badge variant="muted" className="text-xs">v{tmpl.version}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {tmpl.outputFormat ?? 'MARKDOWN'}
+                        </Badge>
+                      </div>
+                      {/* Which of the three auto-generation triggers are
+                          actually armed. They are live settings now —
+                          the webhook only regenerates a document when
+                          the template that applies to it opted into
+                          that event. */}
+                      <div className="flex gap-1 flex-wrap">
+                        {tmpl.autoGenerateOnCommit && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnCommit')}
+                          </Badge>
+                        )}
+                        {tmpl.autoGenerateOnPr && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnPr')}
+                          </Badge>
+                        )}
+                        {tmpl.autoGenerateOnMerge && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnMerge')}
+                          </Badge>
+                        )}
                       </div>
                       {tmpl.description && (
                         <p className="text-xs text-muted-foreground">{tmpl.description}</p>
@@ -465,9 +566,22 @@ export default function TemplatesPage() {
                         Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
                       <div className="flex gap-2 pt-1 flex-wrap">
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(tmpl)}>
-                          <Pencil className="mr-1 h-3 w-3" /> Edit
-                        </Button>
+                        {canEditTemplates && (
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(tmpl)}>
+                            <Pencil className="mr-1 h-3 w-3" /> Edit
+                          </Button>
+                        )}
+                        {canEditTemplates && !tmpl.isDefault && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={busy}
+                            onClick={() => setDefaultTarget(tmpl)}
+                          >
+                            <Star className="mr-1 h-3 w-3" /> {t('templates.setDefaultCta')}
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -479,9 +593,11 @@ export default function TemplatesPage() {
                         >
                           <Code2 className="mr-1 h-3 w-3" /> History
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete(tmpl)}>
-                          <Trash2 className="mr-1 h-3 w-3" /> Delete
-                        </Button>
+                        {canEditTemplates && (
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete(tmpl)}>
+                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -529,6 +645,26 @@ export default function TemplatesPage() {
                       <div className="flex gap-1.5 flex-wrap">
                         <Badge variant="muted" className="text-xs">{tmpl.docType}</Badge>
                         <Badge variant="muted" className="text-xs">v{tmpl.version}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {tmpl.outputFormat ?? 'MARKDOWN'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-1 flex-wrap">
+                        {tmpl.autoGenerateOnCommit && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnCommit')}
+                          </Badge>
+                        )}
+                        {tmpl.autoGenerateOnPr && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnPr')}
+                          </Badge>
+                        )}
+                        {tmpl.autoGenerateOnMerge && (
+                          <Badge variant="info" className="text-[10px]">
+                            {t('templates.autoOnMerge')}
+                          </Badge>
+                        )}
                       </div>
                       {tmpl.description && (
                         <p className="text-xs text-muted-foreground">{tmpl.description}</p>
@@ -536,6 +672,19 @@ export default function TemplatesPage() {
                       <p className="text-xs text-muted-foreground">
                         Updated {format(new Date(tmpl.updatedAt), 'MMM d, yyyy')}
                       </p>
+                      <div className="flex gap-2 pt-1 flex-wrap">
+                        {canEditTemplates && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={busy}
+                            onClick={() => void handleClone(tmpl)}
+                          >
+                            <Copy className="mr-1 h-3 w-3" /> {t('templates.cloneCta')}
+                          </Button>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground italic">{t('templates.readOnly')}</p>
                     </CardContent>
                   </Card>
@@ -546,6 +695,35 @@ export default function TemplatesPage() {
         </>
       )}
 
+      {/* Set-as-default confirmation dialog */}
+      <Dialog
+        open={defaultTarget !== null}
+        onOpenChange={(open) => { if (!open) setDefaultTarget(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('templates.setDefaultTitle')}</DialogTitle>
+            <DialogDescription>
+              {defaultTarget
+                ? t('templates.setDefaultDesc', { name: defaultTarget.name, docType: defaultTarget.docType })
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={busy}>{t('common.cancel')}</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={busy || !defaultTarget}
+              onClick={() => { if (defaultTarget) void handleSetDefault(defaultTarget); }}
+            >
+              {busy ? t('common.actions.saving') : t('templates.setDefaultCta')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {workspaceId && (
         <VersionHistoryDialog
           workspaceId={workspaceId}
@@ -553,6 +731,7 @@ export default function TemplatesPage() {
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           onRollback={() => void load()}
+          canEdit={canEditTemplates}
         />
       )}
     </div>

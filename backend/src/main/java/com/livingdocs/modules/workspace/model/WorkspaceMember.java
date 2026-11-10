@@ -44,7 +44,7 @@ public class WorkspaceMember {
     private UUID userId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "role", nullable = false, length = 16)
+    @Column(name = "role", nullable = false, length = 32)
     private WorkspaceRole role;
 
     @Column(name = "joined_at", nullable = false, updatable = false)

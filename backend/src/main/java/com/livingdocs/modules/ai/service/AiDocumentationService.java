@@ -25,6 +25,7 @@ import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.link.model.CodeDocumentLink;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
 import com.livingdocs.modules.review.service.DocumentReviewService;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
@@ -81,6 +82,7 @@ public class AiDocumentationService {
     private final AiRateLimitService rateLimitService;
     private final GovernancePolicyService governancePolicyService;
     private final PermissionService permissionService;
+    private final TemplateSchemaResolver schemaResolver;
 
     public AiDocumentationService(AiServiceClient aiClient,
                                   CachedAiClient cachedAiClient,
@@ -101,7 +103,8 @@ public class AiDocumentationService {
                                   ConfidenceThresholdService confidenceThresholdService,
                                   AiRateLimitService rateLimitService,
                                   GovernancePolicyService governancePolicyService,
-                                  PermissionService permissionService) {
+                                  PermissionService permissionService,
+                                  TemplateSchemaResolver schemaResolver) {
         this.aiClient = aiClient;
         this.cachedAiClient = cachedAiClient;
         this.documentRepository = documentRepository;
@@ -122,6 +125,7 @@ public class AiDocumentationService {
         this.rateLimitService = rateLimitService;
         this.governancePolicyService = governancePolicyService;
         this.permissionService = permissionService;
+        this.schemaResolver = schemaResolver;
     }
 
     /**
@@ -189,6 +193,19 @@ public class AiDocumentationService {
                     sf.path(), sf.content()));
         }
 
+        // Resolve the template schema from the single source of truth
+        // (the template pinned to the document / version, else the
+        // workspace default for the doc type). Callers may pass an
+        // explicit schema, but when they pass {@code null} we resolve it
+        // here so that <em>every</em> AI entry point — user-triggered,
+        // webhook auto-update, bulk generation — ends up sending the
+        // workspace's own template. Before this, the schema was dropped
+        // on the floor and the AI fell back to its built-in preset.
+        String effectiveSchema = templateSchema;
+        if (effectiveSchema == null) {
+            effectiveSchema = schemaResolver.resolveForDocument(document, null);
+        }
+
         // The job id doubles as the correlation id, so the whole chain
         // (request → Kafka → AI worker → persistence) is traceable and
         // a Kafka redelivery cannot create a second version.
@@ -208,7 +225,7 @@ public class AiDocumentationService {
                 documentId,
                 actorId,
                 template,
-                templateSchema,
+                effectiveSchema,
                 focus,
                 null,
                 sourceCommitSha,
@@ -216,8 +233,9 @@ public class AiDocumentationService {
                 payload
         ));
 
-        log.info("Queued doc generation for document {} (template={}, files={}, correlation={})",
-                documentId, template, effectiveFiles.size(), correlationId);
+        log.info("Queued doc generation for document {} (template={}, files={}, correlation={}, schema={})",
+                documentId, template, effectiveFiles.size(), correlationId,
+                effectiveSchema == null ? "none" : "custom");
         return correlationId;
     }
 
@@ -314,6 +332,22 @@ public class AiDocumentationService {
     public AiDtos.GenerateResponse previewForDocument(UUID actorId, UUID documentId,
                                                        List<AiDtos.SourceFile> sourceFiles,
                                                        String template) {
+        return previewForDocument(actorId, documentId, sourceFiles, template, null);
+    }
+
+    /**
+     * Preview a generation with an explicit template schema.
+     *
+     * <p>When {@code templateSchema} is {@code null} the schema is
+     * resolved from the document's own template, exactly like the queued
+     * generation path does. Passing it explicitly lets the caller honour
+     * a template the user picked explicitly.
+     */
+    @Transactional(readOnly = true)
+    public AiDtos.GenerateResponse previewForDocument(UUID actorId, UUID documentId,
+                                                       List<AiDtos.SourceFile> sourceFiles,
+                                                       String template,
+                                                       String templateSchema) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         workspaceService.requireMember(actorId, document.getWorkspaceId());
@@ -323,8 +357,15 @@ public class AiDocumentationService {
         // entities — otherwise the preview would show the placeholder the
         // AI produces for an empty prompt.
         List<AiDtos.SourceFile> effectiveFiles = _resolveSourceFiles(document, sourceFiles);
+        // The preview must use the same template as the real generation
+        // run, otherwise the user previews one structure and gets
+        // another one back. The schema is resolved the same way the
+        // queued path resolves it.
+        String schema = templateSchema != null
+                ? templateSchema
+                : schemaResolver.resolveForDocument(document, null);
         return cachedAiClient.generateCached(
-                document.getWorkspaceId(), effectiveFiles, template);
+                document.getWorkspaceId(), effectiveFiles, template, schema, null, null);
     }
 
     /**
@@ -413,7 +454,13 @@ public class AiDocumentationService {
         // source file.
         List<AiDtos.SourceFile> sourceFiles = _resolveSourceFiles(document, List.of());
 
-        return generateForDocument(actorId, documentId, sourceFiles, "MODULE_GUIDE", null,
+        // Use the document's own doc type rather than a hard-coded
+        // "MODULE_GUIDE" — the doc type is the canonical template
+        // identity, and it is what the template resolver keys on.
+        // The schema is resolved inside generateForDocument.
+        String templateName = document.getDocType() != null
+                ? document.getDocType() : "MODULE_GUIDE";
+        return generateForDocument(actorId, documentId, sourceFiles, templateName, null,
                 "Please refine, update and regenerate this documentation thoroughly.",
                 null, null);
     }
@@ -444,8 +491,16 @@ public class AiDocumentationService {
         List<AiDtos.SourceFile> sourceFiles = List.of(
                 new AiDtos.SourceFile(entity.getFilePath(), actualSourceCode));
 
+        // The template argument is a doc type (canonical) or a slug. Map
+        // it onto the canonical doc type so the template resolver and
+        // the AI service's preset lookup both land on the same key,
+        // and resolve the workspace's own template schema so the
+        // generated document follows the user's structure.
+        String docType = schemaResolver.resolveDocType(workspaceId, template);
+        String schema = schemaResolver.resolveForDocType(workspaceId, docType);
+
         AiDtos.GenerateResponse resp = aiClient.generate(
-                workspaceId, sourceFiles, template,
+                workspaceId, sourceFiles, docType, schema,
                 "Generate documentation for this " + entity.getEntityType() + " '"
                         + entity.getSimpleName() + "'. Include purpose, parameters, return value, and examples if applicable.",
                 entity.getLanguage());

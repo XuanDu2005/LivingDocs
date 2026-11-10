@@ -31,6 +31,9 @@ build/
 hs_err_pid*
 replay_pid*
 
+# Local Maven repository cache (used by the dockerised maven build)
+.m2/
+
 # IDE — IntelliJ / JetBrains
 .idea/
 *.iml

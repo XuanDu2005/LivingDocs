@@ -23,7 +23,7 @@ import java.util.UUID;
  *       {@code TECHNICAL_LEAD}, {@code MANAGER}, {@code ADMIN}.</li>
  *   <li><b>Workspace role</b> — assigned per workspace, stored in
  *       {@code workspace_members}. Values: {@code MEMBER},
- *       {@code MANAGER}.</li>
+ *       {@code DOCUMENTATION_OWNER}, {@code MANAGER}.</li>
  * </ul>
  *
  * <p>Enforcement is <b>AND</b>: to pass a guard the actor needs the
@@ -49,6 +49,12 @@ import java.util.UUID;
  * <p>Note that {@code TECHNICAL_LEAD} intentionally does <em>not</em>
  * imply workspace administration — managing members and repository
  * connections stays with the workspace {@code MANAGER}.
+ *
+ * <p>The same is true of the workspace {@code DOCUMENTATION_OWNER}: it
+ * owns the documentation governance of one workspace (the templates, the
+ * doc-type workflows, the governance settings) without administering that
+ * workspace, and it grants nothing on its own — the capability axis
+ * still has to agree.
  */
 @Service
 public class AuthorizationService {
@@ -241,6 +247,28 @@ public class AuthorizationService {
     }
 
     /**
+     * Guard for resolving a documentation drift alert.
+     *
+     * <p>Resolving a drift alert is a judgement about the documentation:
+     * "the code changed and the documentation is now wrong" versus "the
+     * documentation is still correct, the analysis was wrong". That
+     * judgement belongs to the people who review content, which is why
+     * it is a capability of its own ({@code DRIFT_RESOLVE}) rather than
+     * plain workspace membership.
+     *
+     * <p>Note the asymmetry with {@code DRIFT_DETECT_RUN} on the
+     * detection side: detecting drift is a machine action that anybody
+     * may trigger, so it stays a member-level operation.
+     */
+    @Transactional(readOnly = true)
+    public void requireDriftResolver(UUID userId, UUID workspaceId) {
+        if (!isAdmin(userId)) {
+            permissionService.requireAnyPermission(userId, PermissionCodes.DRIFT_RESOLVE);
+        }
+        requireWorkspaceMember(userId, workspaceId);
+    }
+
+    /**
      * Guard for workspace administration (members, repository connections).
      *
      * <p>Requires the workspace {@code MANAGER} role. Platform roles do
@@ -259,6 +287,27 @@ public class AuthorizationService {
     public void requireWorkspaceMember(UUID userId, UUID workspaceId) {
         if (!isWorkspaceMember(userId, workspaceId)) {
             throw new ForbiddenException("You are not a member of this workspace");
+        }
+    }
+
+    /**
+     * Guard for the documentation-governance surfaces: the templates, the
+     * doc-type workflows and the governance settings.
+     *
+     * <p>Two workspace roles pass: {@code MANAGER}, which owns the whole
+     * workspace, and {@code DOCUMENTATION_OWNER}, which owns the shape of
+     * the documentation without administering the membership.
+     *
+     * <p>This is the workspace half of the AND rule only — the caller
+     * also needs the {@code GOVERNANCE_MANAGE} capability, which the
+     * permission interceptor checks on the endpoint.
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentationGovernance(UUID userId, UUID workspaceId) {
+        WorkspaceRole role = workspaceRole(userId, workspaceId);
+        if (role != WorkspaceRole.MANAGER && role != WorkspaceRole.DOCUMENTATION_OWNER) {
+            throw new ForbiddenException(
+                    "Only a workspace manager or documentation owner can perform this action");
         }
     }
 
@@ -290,10 +339,12 @@ public class AuthorizationService {
                 userId, PermissionCodes.DOCUMENT_VERSION_REVIEW));
         boolean manager = member && (admin || permissionService.hasAnyPermission(
                 userId, PermissionCodes.DOCUMENT_VERSION_APPROVE));
+        boolean documentationOwner = member && wsRole == WorkspaceRole.DOCUMENTATION_OWNER;
 
         return new Capabilities(
                 member,
                 member && wsRole == WorkspaceRole.MANAGER,
+                documentationOwner,
                 staff,
                 manager,
                 admin,
@@ -306,6 +357,7 @@ public class AuthorizationService {
     public record Capabilities(
             boolean member,
             boolean workspaceManager,
+            boolean documentationOwner,
             boolean canStaffReview,
             boolean canManagerApprove,
             boolean admin,

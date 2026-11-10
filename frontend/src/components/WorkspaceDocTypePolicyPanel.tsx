@@ -49,11 +49,12 @@ interface Props {
   /**
    * Whether the current user holds the `GOVERNANCE_MANAGE` capability.
    *
-   * <p>The capability alone is not enough: the API also requires the
-   * workspace `MANAGER` role, so the panel resolves both before it
-   * offers the controls. Otherwise a TECHNICAL_LEAD — who holds the
-   * capability but is not a workspace manager — would see selectors
-   * that the API refuses.
+   * <p>The capability alone is not enough: the API also requires a
+   * workspace role that owns the documentation governance — the workspace
+   * `MANAGER` or the workspace `DOCUMENTATION_OWNER`. The panel
+   * resolves both before it offers the controls. Otherwise a
+   * TECHNICAL_LEAD — who holds the capability but is only a workspace
+   * member — would see selectors that the API refuses.
    */
   hasGovernanceManage: boolean;
 }

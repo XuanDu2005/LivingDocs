@@ -13,6 +13,11 @@ import com.livingdocs.modules.github.model.Commit;
 import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
+import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.model.OutputFormat;
+import com.livingdocs.modules.template.service.TemplateComplianceEvaluator;
+import com.livingdocs.modules.template.service.TemplateRenderer;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.version.dto.CommitSummaryDto;
 import com.livingdocs.modules.version.dto.DocumentVersionDiffResponse;
 import com.livingdocs.modules.version.dto.DocumentVersionResponse;
@@ -71,6 +76,9 @@ public class DocumentVersionService {
     private final AuthorizationService authorizationService;
     private final PermissionService permissionService;
     private final AuditLogService auditLogService;
+    private final TemplateSchemaResolver templateResolver;
+    private final TemplateComplianceEvaluator complianceEvaluator;
+    private final TemplateRenderer templateRenderer;
 
     public DocumentVersionService(DocumentVersionRepository versionRepository,
                                   DocumentRepository documentRepository,
@@ -79,7 +87,10 @@ public class DocumentVersionService {
                                   PullRequestRepository pullRequestRepository,
                                   AuthorizationService authorizationService,
                                   PermissionService permissionService,
-                                  AuditLogService auditLogService) {
+                                  AuditLogService auditLogService,
+                                  TemplateSchemaResolver templateResolver,
+                                  TemplateComplianceEvaluator complianceEvaluator,
+                                  TemplateRenderer templateRenderer) {
         this.versionRepository = versionRepository;
         this.documentRepository = documentRepository;
         this.workspaceService = workspaceService;
@@ -88,6 +99,9 @@ public class DocumentVersionService {
         this.authorizationService = authorizationService;
         this.permissionService = permissionService;
         this.auditLogService = auditLogService;
+        this.templateResolver = templateResolver;
+        this.complianceEvaluator = complianceEvaluator;
+        this.templateRenderer = templateRenderer;
     }
 
     /**
@@ -118,6 +132,12 @@ public class DocumentVersionService {
                 null, null, document.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
+        // A manual edit is rendered into the output format of the
+        // template as well — the format belongs to the document, not to
+        // the way the body happened to be produced.
+        RenderedBody rendered = renderForTemplate(document, bodyMarkdown);
+        version.setRenderedBody(rendered.body());
+        version.setOutputFormat(rendered.format());
         DocumentVersion saved = versionRepository.save(version);
         // A human edit is one of the three things the audit trail of a
         // document has to show ("AI-generated, auto-updated,
@@ -167,8 +187,10 @@ public class DocumentVersionService {
                                            Float confidenceScore,
                                            String groundingJson) {
         Document document = loadAndAuthorize(actorUserId, documentId);
+        RenderedBody rendered = renderForTemplate(document, bodyMarkdown);
         return buildAiVersion(document, actorUserId, documentId, bodyMarkdown, changeSummary,
-                sourceCommitSha, sourcePrId, confidenceScore, groundingJson);
+                sourceCommitSha, sourcePrId, confidenceScore, groundingJson,
+                rendered.body(), rendered.format());
     }
 
     /**
@@ -191,10 +213,73 @@ public class DocumentVersionService {
                                                     UUID sourcePrId,
                                                     Float confidenceScore,
                                                     String groundingJson) {
+        return createAiVersionInternal(actorUserId, documentId, bodyMarkdown, changeSummary,
+                sourceCommitSha, sourcePrId, confidenceScore, groundingJson, null, null);
+    }
+
+    /**
+     * Append an AI-generated version from a background worker, with the
+     * body rendered into the template's output format.
+     *
+     * <p>When {@code renderedBody} or {@code outputFormat} is
+     * {@code null} the body is rendered here, using the template that
+     * applies to the document — so every AI version ends up in the shape
+     * its template asks for, no matter which entry point created it.
+     *
+     * @param renderedBody the body converted into the output format of
+     *                     the template; {@code null} to render it here
+     * @param outputFormat the format {@code renderedBody} is in;
+     *                     {@code null} to resolve it from the template
+     */
+    @Transactional
+    public DocumentVersion createAiVersionInternal(UUID actorUserId,
+                                                    UUID documentId,
+                                                    String bodyMarkdown,
+                                                    String changeSummary,
+                                                    String sourceCommitSha,
+                                                    UUID sourcePrId,
+                                                    Float confidenceScore,
+                                                    String groundingJson,
+                                                    String renderedBody,
+                                                    OutputFormat outputFormat) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
+        if (renderedBody == null || outputFormat == null) {
+            RenderedBody rendered = renderForTemplate(document, bodyMarkdown);
+            if (renderedBody == null) {
+                renderedBody = rendered.body();
+            }
+            if (outputFormat == null) {
+                outputFormat = rendered.format();
+            }
+        }
         return buildAiVersion(document, actorUserId, documentId, bodyMarkdown, changeSummary,
-                sourceCommitSha, sourcePrId, confidenceScore, groundingJson);
+                sourceCommitSha, sourcePrId, confidenceScore, groundingJson,
+                renderedBody, outputFormat);
+    }
+
+    /**
+     * The body rendered into the output format of the template that
+     * applies to the document.
+     *
+     * <p>When no template applies, the document is markdown — that is
+     * the canonical representation of a LivingDocs document.
+     */
+    private RenderedBody renderForTemplate(Document document, String bodyMarkdown) {
+        DocTemplate template = templateResolver.resolveTemplateForDocument(document);
+        if (template == null) {
+            return new RenderedBody(bodyMarkdown, OutputFormat.MARKDOWN);
+        }
+        OutputFormat format = template.getOutputFormat() == null
+                ? OutputFormat.MARKDOWN : template.getOutputFormat();
+        return new RenderedBody(templateRenderer.render(bodyMarkdown, format),
+                templateRenderer.effectiveFormat(format));
+    }
+
+    /**
+     * A body together with the format it is in.
+     */
+    private record RenderedBody(String body, OutputFormat format) {
     }
 
     private DocumentVersion buildAiVersion(Document document,
@@ -205,7 +290,9 @@ public class DocumentVersionService {
                                            String sourceCommitSha,
                                            UUID sourcePrId,
                                            Float confidenceScore,
-                                           String groundingJson) {
+                                           String groundingJson,
+                                           String renderedBody,
+                                           OutputFormat outputFormat) {
         int next = nextVersionNumber(documentId);
         DocumentVersion version = new DocumentVersion(
                 documentId, next, bodyMarkdown, changeSummary,
@@ -214,6 +301,8 @@ public class DocumentVersionService {
                 VersionStatus.DRAFT, confidenceScore
         );
         version.setGroundingJson(groundingJson);
+        version.setRenderedBody(renderedBody != null ? renderedBody : bodyMarkdown);
+        version.setOutputFormat(outputFormat == null ? OutputFormat.MARKDOWN : outputFormat);
         // Requirement #2: the grounding panel shows the ticket the
         // change belongs to. The reference lives in the commit message
         // or the pull-request title of the triggering change, so it is
@@ -327,6 +416,12 @@ public class DocumentVersionService {
      * straight away. The background worker acts on behalf of the system,
      * so no membership check happens here — the request that triggered
      * the generation was authorised when it was queued.
+     *
+     * <p>The template compliance is enforced here as well: an
+     * auto-published version that does not follow the template would
+     * become canonical without anybody ever looking at it. When the
+     * template is strict and a required section is missing, the version
+     * stays a draft and the reason is recorded in the audit trail.
      */
     @Transactional
     public void publishAiVersionInternal(UUID documentId, UUID versionId, UUID actorUserId) {
@@ -343,6 +438,18 @@ public class DocumentVersionService {
             // prevents an auto-publish from racing a human review.
             log.info("Version {} is already {} — skipping auto-publish",
                     versionId, target.getStatus());
+            return;
+        }
+        TemplateComplianceEvaluator.Result compliance =
+                evaluateCompliance(document, target);
+        if (compliance != null && blocksPublication(compliance)) {
+            // The version stays a draft: a human has to look at it.
+            recordNonCompliantPublish(document, target, compliance,
+                    "document.version.auto_publish_skipped_noncompliant",
+                    ActorRole.SYSTEM.name(), actorUserId);
+            log.warn("Auto-publish skipped — version {} does not conform to template '{}': {}",
+                    versionId, compliance.templateName(),
+                    describeCompliance(compliance));
             return;
         }
         promoteToHead(document, target);
@@ -447,6 +554,15 @@ public class DocumentVersionService {
      * is a separate capability from {@code DOCUMENT_VERSION_APPROVE} — and
      * workspace membership. Publishing used to reuse the Manager-approval
      * guard, so a role could publish without the matrix saying so.
+     *
+     * <p>The version also has to conform to the template it was generated
+     * from. A template that is marked <em>strict</em> refuses a
+     * publication whose body is missing one of its required sections —
+     * publishing a document that does not follow the template is exactly
+     * what the template is there to prevent. A template that is not
+     * strict only produces a warning and an audit entry; the sections
+     * that are present but in the wrong order never block a publication
+     * either way.
      */
     @Transactional
     public void publishVersion(UUID actorId, UUID documentId, Integer versionNumber) {
@@ -457,16 +573,117 @@ public class DocumentVersionService {
         if (target.getStatus() != VersionStatus.APPROVED) {
             throw new BadRequestException("Only approved versions can be published");
         }
+        TemplateComplianceEvaluator.Result compliance = evaluateCompliance(document, target);
+        if (compliance != null && blocksPublication(compliance)) {
+            throw new BadRequestException(describeCompliance(compliance));
+        }
         promoteToHead(document, target);
         // Publishing is the moment the content becomes canonical, so it
         // is the single most important entry of the document's trail.
         String versionId = target.getId() != null ? target.getId().toString() : "";
-        auditLogService.record(actorId, actorRoleFor(actorId, document.getWorkspaceId()).name(),
+        String actorRole = actorRoleFor(actorId, document.getWorkspaceId()).name();
+        if (compliance != null && !compliance.compliant()) {
+            // The version was published although it does not fully
+            // follow the template. That has to be visible in the trail —
+            // a reader of the trail must be able to tell that this
+            // publication went through the soft path.
+            recordNonCompliantPublish(document, target, compliance,
+                    "document.version.published_noncompliant", actorRole, actorId);
+        }
+        auditLogService.record(actorId, actorRole,
                 "document.version.published", "document_version",
                 versionId, document.getWorkspaceId(), documentId,
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId,
                         "versionNumber", versionNumberOrZero(target)));
+    }
+
+    /**
+     * Evaluate the template compliance of a version.
+     *
+     * @return the compliance result, or {@code null} when no template
+     *         applies to the document — there is nothing to comply with
+     */
+    private TemplateComplianceEvaluator.Result evaluateCompliance(Document document,
+                                                                  DocumentVersion version) {
+        DocTemplate template = templateResolver.resolveTemplate(document, version);
+        if (template == null) {
+            return null;
+        }
+        return complianceEvaluator.evaluate(template, version.getBodyMarkdown());
+    }
+
+    /**
+     * Whether a non-compliant version may still be published.
+     *
+     * <p>Only a <em>strict</em> template blocks a publication, and only
+     * when a section it marks as required is missing. A missing optional
+     * section, or sections that are merely in the wrong order, is
+     * reported but never blocks — the ordering of a document is a
+     * stylistic matter, while a missing required section means the
+     * document does not carry the content the template promised.
+     */
+    private boolean blocksPublication(TemplateComplianceEvaluator.Result compliance) {
+        return compliance.strict() && !compliance.missingRequiredHeadings().isEmpty();
+    }
+
+    /**
+     * The message a refused publication carries.
+     *
+     * <p>It names the template and the sections that are missing, so the
+     * publisher knows exactly what to fix without having to open the
+     * document.
+     */
+    private String describeCompliance(TemplateComplianceEvaluator.Result compliance) {
+        StringBuilder sb = new StringBuilder()
+                .append("Version does not conform to template '")
+                .append(compliance.templateName() == null ? "(unnamed)" : compliance.templateName())
+                .append("'. Missing required section(s): ")
+                .append(String.join(", ", compliance.missingRequiredHeadings()));
+        if (!compliance.outOfOrderHeadings().isEmpty()) {
+            sb.append("; out of order: ")
+                    .append(String.join(", ", compliance.outOfOrderHeadings()));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Record that a version was published although it does not fully
+     * follow its template.
+     *
+     * <p>The entry is what turns "the publish was allowed" into "the
+     * publish was allowed <em>and</em> the template was not followed" —
+     * the difference matters when somebody reads the trail of a
+     * document to find out how it came to look the way it does.
+     */
+    private void recordNonCompliantPublish(Document document,
+                                           DocumentVersion version,
+                                           TemplateComplianceEvaluator.Result compliance,
+                                           String action,
+                                           String actorRole,
+                                           UUID actorId) {
+        try {
+            String versionId = version.getId() != null ? version.getId().toString() : "";
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("documentId", document.getId().toString());
+            payload.put("versionId", versionId);
+            payload.put("versionNumber", versionNumberOrZero(version));
+            payload.put("templateId",
+                    compliance.templateId() == null ? "" : compliance.templateId().toString());
+            payload.put("templateName",
+                    compliance.templateName() == null ? "" : compliance.templateName());
+            payload.put("strict", compliance.strict());
+            payload.put("missingHeadings", String.join(", ", compliance.missingHeadings()));
+            payload.put("missingRequiredHeadings",
+                    String.join(", ", compliance.missingRequiredHeadings()));
+            payload.put("outOfOrderHeadings", String.join(", ", compliance.outOfOrderHeadings()));
+            auditLogService.record(actorId, actorRole, action, "document_version",
+                    versionId, document.getWorkspaceId(), document.getId(), payload);
+        } catch (Exception e) {
+            // The audit entry must never abort the publication itself.
+            log.warn("Failed to record the non-compliant publish entry of version {}: {}",
+                    version.getId(), e.getMessage());
+        }
     }
 
     /**
@@ -571,6 +788,12 @@ public class DocumentVersionService {
                 target.getSourceCommitSha(), target.getSourcePrId(), document.getTemplateId(),
                 VersionStatus.DRAFT, null
         );
+        // The rolled-back content is re-rendered with the template that
+        // applies now — the template may have changed since the version
+        // being restored was written.
+        RenderedBody rendered = renderForTemplate(document, target.getBodyMarkdown());
+        rollback.setRenderedBody(rendered.body());
+        rollback.setOutputFormat(rendered.format());
         DocumentVersion saved = versionRepository.save(rollback);
         String versionId = saved.getId() != null ? saved.getId().toString() : "";
         auditLogService.record(actorId, role.name(), "document.version.rolled_back",

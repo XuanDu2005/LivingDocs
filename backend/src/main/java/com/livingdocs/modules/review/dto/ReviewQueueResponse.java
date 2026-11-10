@@ -22,6 +22,7 @@ public record ReviewQueueResponse(
         List<String> platformRoles,
         boolean member,
         boolean workspaceManager,
+        boolean documentationOwner,
         boolean canStaffReview,
         boolean canManagerApprove,
         List<ReviewQueueItemResponse> staffQueue,

@@ -23,8 +23,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -189,6 +191,96 @@ class WorkspaceServiceTest {
         // Owner can delete (the mock will return normally).
         service.delete(alice, wsId);
         org.mockito.Mockito.verify(workspaceRepo).delete(ws);
+    }
+
+    @Test
+    void findFirstManagedWorkspaceId_returnsTheFirstWorkspaceTheUserManages() {
+        UUID wsA = UUID.randomUUID();
+        UUID wsB = UUID.randomUUID();
+        when(memberRepo.findAllByUserId(alice)).thenReturn(List.of(
+                member(wsA, alice, WorkspaceRole.MEMBER),
+                member(wsB, alice, WorkspaceRole.MANAGER)));
+
+        assertEquals(wsB, service.findFirstManagedWorkspaceId(alice));
+    }
+
+    @Test
+    void findFirstManagedWorkspaceId_returnsNullWhenTheUserManagesNothing() {
+        UUID wsA = UUID.randomUUID();
+        when(memberRepo.findAllByUserId(alice))
+                .thenReturn(List.of(member(wsA, alice, WorkspaceRole.MEMBER)));
+
+        assertNull(service.findFirstManagedWorkspaceId(alice));
+    }
+
+    @Test
+    void findFirstManagedWorkspaceId_includesTheDocumentationOwner() {
+        UUID wsA = UUID.randomUUID();
+        when(memberRepo.findAllByUserId(alice))
+                .thenReturn(List.of(member(wsA, alice, WorkspaceRole.DOCUMENTATION_OWNER)));
+
+        assertEquals(wsA, service.findFirstManagedWorkspaceId(alice),
+                "the documentation owner may edit the template library of its workspace");
+    }
+
+    // -----------------------------------------------------------------
+    // documentation governance
+    // -----------------------------------------------------------------
+
+    @Test
+    void requireDocumentationGovernance_acceptsTheManager() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.MANAGER)));
+
+        assertEquals(WorkspaceRole.MANAGER,
+                service.requireDocumentationGovernance(alice, wsId));
+    }
+
+    @Test
+    void requireDocumentationGovernance_acceptsTheDocumentationOwner() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.DOCUMENTATION_OWNER)));
+
+        assertEquals(WorkspaceRole.DOCUMENTATION_OWNER,
+                service.requireDocumentationGovernance(alice, wsId));
+    }
+
+    @Test
+    void requireDocumentationGovernance_refusesAPlainMember() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.MEMBER)));
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireDocumentationGovernance(alice, wsId));
+    }
+
+    @Test
+    void requireDocumentationGovernance_refusesANonMember() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.empty());
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireDocumentationGovernance(alice, wsId));
+    }
+
+    /**
+     * The documentation owner ranks above a plain member, so the generic
+     * {@code requireRole} guard lets it through a MEMBER requirement —
+     * but it never satisfies a MANAGER requirement.
+     */
+    @Test
+    void requireRole_ranksTheDocumentationOwnerBetweenMemberAndManager() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.DOCUMENTATION_OWNER)));
+
+        assertDoesNotThrow(() -> service.requireRole(alice, wsId, WorkspaceRole.MEMBER));
+        assertThrows(ForbiddenException.class,
+                () -> service.requireRole(alice, wsId, WorkspaceRole.MANAGER));
     }
 
     // ---------------- helpers ----------------

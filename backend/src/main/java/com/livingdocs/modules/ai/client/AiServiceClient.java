@@ -71,14 +71,6 @@ public class AiServiceClient {
         }
     }
 
-    public AiDtos.GenerateResponse generate(UUID workspaceId,
-                                            List<AiDtos.SourceFile> files,
-                                            String template,
-                                            String focus,
-                                            String languageHint) {
-        return generate(workspaceId, files, template, null, focus, languageHint);
-    }
-
     /**
      * Generate documentation.
      *

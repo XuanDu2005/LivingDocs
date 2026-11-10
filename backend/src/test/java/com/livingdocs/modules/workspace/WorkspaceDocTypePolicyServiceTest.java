@@ -204,7 +204,7 @@ class WorkspaceDocTypePolicyServiceTest {
     @Test
     void upsertRequiresTheManagerRole() {
         org.mockito.Mockito.doThrow(new ForbiddenException("not a manager"))
-                .when(workspaceService).requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+                .when(workspaceService).requireDocumentationGovernance(actorId, workspaceId);
 
         assertThrows(ForbiddenException.class, () -> service.upsert(
                 workspaceId, actorId, "README",
@@ -229,7 +229,7 @@ class WorkspaceDocTypePolicyServiceTest {
     @Test
     void deleteRequiresTheManagerRole() {
         org.mockito.Mockito.doThrow(new ForbiddenException("not a manager"))
-                .when(workspaceService).requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+                .when(workspaceService).requireDocumentationGovernance(actorId, workspaceId);
 
         assertThrows(ForbiddenException.class,
                 () -> service.delete(workspaceId, actorId, "README"));
