@@ -5,7 +5,6 @@ import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.workspace.model.WorkspaceSettings;
 import com.livingdocs.modules.workspace.repository.WorkspaceSettingsRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
-import com.livingdocs.modules.workspace.model.WorkspaceRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -52,7 +51,19 @@ public class ConfidenceThresholdService {
     }
 
     /**
-     * Update the threshold. Requires MANAGER membership.
+     * Update the threshold.
+     *
+     * <p>The confidence threshold is a <em>governance knob</em>: it
+     * decides whether generated content may be published without a human
+     * reading it. It is therefore guarded by
+     * {@code requireDocumentationGovernance} — the same guard the other
+     * governance settings use — and not by the plain workspace-manager
+     * requirement. A workspace {@code DOCUMENTATION_OWNER} owns the shape
+     * of the documentation, which is exactly what this knob decides.
+     *
+     * <p>The capability half of the rule ({@code GOVERNANCE_MANAGE}) is
+     * enforced by the permission interceptor on the endpoint, so the two
+     * axes stay combined with AND.
      */
     @Transactional
     public float update(UUID actorId, UUID workspaceId, float value) {
@@ -60,7 +71,7 @@ public class ConfidenceThresholdService {
             throw new com.livingdocs.common.exception.BadRequestException(
                     "Confidence threshold must be between 0.0 and 1.0");
         }
-        workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        workspaceService.requireDocumentationGovernance(actorId, workspaceId);
 
         WorkspaceSettings s = loadOrCreate(workspaceId);
         float previous = s.getAiConfidenceThreshold();

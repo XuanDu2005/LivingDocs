@@ -81,6 +81,30 @@ export interface TriggerCommitSummary {
   url: string | null;
 }
 
+/**
+ * The outcome of the rollback of one document inside a bulk rollback.
+ */
+export interface DocumentRollbackResult {
+  documentId: string;
+  documentTitle: string;
+  /** Whether a rollback version was created for this document. */
+  rolledBack: boolean;
+  newVersionId: string | null;
+  newVersionNumber: number | null;
+  /** The version the content was restored from. */
+  restoredFromVersion: number | null;
+  status: VersionStatus | null;
+  /** Why the document was skipped. */
+  reason: string | null;
+}
+
+export interface BulkRollbackResponse {
+  total: number;
+  rolledBack: number;
+  skipped: number;
+  results: DocumentRollbackResult[];
+}
+
 export interface DocumentVersionSummary {
   id: string;
   versionNumber: number;
@@ -245,6 +269,36 @@ export const documentsApi = {
     return apiClient
       .post<DocumentVersion>(
         `/documents/${documentId}/rollback?version=${version}`,
+      )
+      .then((r) => r.data);
+  },
+  /**
+   * Roll back a whole collection of documents at once.
+   *
+   * <p>The collection is selected by an explicit list of document ids, by
+   * repository, by documentation type, or by all three combined; with
+   * none of them it is every document of the workspace.
+   *
+   * <p>The batch is partially successful by design: every document
+   * carries its own outcome, so a document that could not be rolled back
+   * (never published, target version never approved) is reported rather
+   * than aborting the whole batch.
+   */
+  bulkRollback(
+    workspaceId: string,
+    payload: {
+      documentIds?: string[];
+      repositoryId?: string;
+      docType?: string;
+      strategy?: 'PREVIOUS_PUBLISHED' | 'VERSION_NUMBER';
+      targetVersionNumber?: number;
+      reason?: string;
+    },
+  ) {
+    return apiClient
+      .post<BulkRollbackResponse>(
+        `/workspaces/${workspaceId}/documents/bulk-rollback`,
+        payload,
       )
       .then((r) => r.data);
   },

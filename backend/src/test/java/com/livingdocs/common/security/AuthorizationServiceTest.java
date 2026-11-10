@@ -8,6 +8,7 @@ import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -65,16 +66,17 @@ class AuthorizationServiceTest {
         when(memberRepository.findByWorkspaceIdAndUserId(any(), any())).thenReturn(Optional.empty());
 
         // The boolean query answers from the granted set.
-        when(permissionService.hasAnyPermission(any(), any(String[].class)))
+        //
+        // The matchers are plain `any()` because the production methods
+        // are varargs methods: Mockito expands a varargs call into
+        // separate invocation arguments, so a one-code call arrives as
+        // [userId, "CODE_A"]. A `any(String[].class)` matcher would not
+        // match that shape at all, and the stub would silently never
+        // apply — leaving the matrix decorative again.
+        when(permissionService.hasAnyPermission(any(), any()))
                 .thenAnswer(inv -> {
-                    for (Object arg : inv.getArguments()) {
-                        if (arg instanceof String[] codes) {
-                            for (String code : codes) {
-                                if (granted.contains(code)) {
-                                    return true;
-                                }
-                            }
-                        } else if (arg instanceof String code && granted.contains(code)) {
+                    for (String code : requestedCodes(inv.getArguments(), 1)) {
+                        if (granted.contains(code)) {
                             return true;
                         }
                     }
@@ -85,14 +87,42 @@ class AuthorizationServiceTest {
         // user holds none of the requested codes.
         doAnswer(inv -> {
             UUID actor = inv.getArgument(0);
-            String[] requested = inv.getArgument(1, String[].class);
-            if (permissionService.hasAnyPermission(actor, requested)) {
+            List<String> requested = requestedCodes(inv.getArguments(), 1);
+            if (permissionService.hasAnyPermission(actor, requested.toArray(new String[0]))) {
                 return null;
             }
             throw new ForbiddenException(
                     "This action requires one of these permissions: "
                             + String.join(", ", requested));
-        }).when(permissionService).requireAnyPermission(any(), any(String[].class));
+        }).when(permissionService).requireAnyPermission(any(), any());
+    }
+
+    /**
+     * The permission codes of one invocation, whatever shape they arrive
+     * in.
+     *
+     * <p>The production methods are varargs methods, and Mockito expands
+     * a varargs call into <em>separate</em> invocation arguments: a
+     * one-code call arrives as {@code [userId, "CODE_A"]} rather than as
+     * {@code [userId, String[]]}. Reading the second argument as a
+     * {@code String[]} therefore threw a {@code ClassCastException} the
+     * moment a guard asked for a single code.
+     *
+     * <p>This flattens everything after the user id — a lone
+     * {@code String} as well as a {@code String[]} — into one list of
+     * codes, so the stub answers the same way for both shapes.
+     */
+    private static List<String> requestedCodes(Object[] arguments, int fromIndex) {
+        List<String> codes = new ArrayList<>();
+        for (int i = fromIndex; i < arguments.length; i++) {
+            Object arg = arguments[i];
+            if (arg instanceof String[] array) {
+                codes.addAll(List.of(array));
+            } else if (arg instanceof String code) {
+                codes.add(code);
+            }
+        }
+        return codes;
     }
 
     // -----------------------------------------------------------------

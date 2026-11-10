@@ -77,9 +77,20 @@ class DriftAlertServiceTest {
         actorId = UUID.randomUUID();
         alertId = UUID.randomUUID();
 
-        when(driftRepository.findById(alertId)).thenReturn(Optional.of(anAlert()));
+        // The alert is built into a local variable first. Calling
+        // `anAlert()` inside the argument of another `when(...)` would
+        // nest one stubbing inside another, which Mockito rejects with
+        // an UnfinishedStubbingException — the inner `when(...)` calls
+        // would never see a completed `thenReturn(...)`.
+        DriftAlert alert = anAlert();
+        when(driftRepository.findById(alertId)).thenReturn(Optional.of(alert));
         when(driftRepository.findAllByWorkspaceIdOrderByDetectedAtDesc(workspaceId))
-                .thenReturn(List.of(anAlert()));
+                .thenReturn(List.of(alert));
+
+        // The repository hands back whatever it was given, the way the
+        // JPA implementation does.
+        when(driftRepository.save(any(DriftAlert.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     /**

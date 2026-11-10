@@ -773,14 +773,53 @@ public class DocumentVersionService {
         permissionService.requireAnyPermission(actorId, PermissionCodes.DOCUMENT_ROLLBACK);
         DocumentVersion target = versionRepository.findByDocumentIdAndVersionNumber(documentId, targetVersionNumber)
                 .orElseThrow(() -> new NotFoundException("Target version not found"));
-        if (target.getStatus() != VersionStatus.PUBLISHED && target.getStatus() != VersionStatus.APPROVED) {
-            throw new BadRequestException("Only published or approved versions can be rolled back to");
+        return rollbackToVersion(actorId, document, target, null);
+    }
+
+    /**
+     * The versions a rollback may restore.
+     *
+     * <p>{@code PUBLISHED} and {@code APPROVED} are obvious. {@code
+     * SUPERSEDED} belongs here too: a superseded version <em>was</em>
+     * published — it is what the document showed before the current head
+     * replaced it — so it is exactly what "roll back to the previous
+     * published version" means. Without it the only restorable version
+     * would be the current head, which would make a rollback a no-op.
+     */
+    private static final Set<VersionStatus> ROLLBACK_TARGET_STATUSES =
+            Set.of(VersionStatus.PUBLISHED, VersionStatus.APPROVED, VersionStatus.SUPERSEDED);
+
+    /**
+     * Restore the content of a specific version of a document.
+     *
+     * <p>Shared by the single-document rollback and the bulk rollback, so
+     * both produce exactly the same kind of version: an append-only
+     * {@link VersionStatus#DRAFT} that still has to go through the review
+     * workflow before it becomes the published head.
+     *
+     * @param actorId  the actor performing the rollback
+     * @param document the document to roll back
+     * @param target   the version whose content is restored
+     * @param summary  the change summary of the new version; {@code null}
+     *                 to use the default ("Rolled back to version N")
+     */
+    @Transactional
+    public DocumentVersion rollbackToVersion(UUID actorId,
+                                             Document document,
+                                             DocumentVersion target,
+                                             String summary) {
+        if (!ROLLBACK_TARGET_STATUSES.contains(target.getStatus())) {
+            throw new BadRequestException(
+                    "Only published, approved or superseded versions can be rolled back to");
         }
+        UUID documentId = document.getId();
         int next = nextVersionNumber(documentId);
         ActorRole role = actorRoleFor(actorId, document.getWorkspaceId());
         DocumentVersion rollback = new DocumentVersion(
                 documentId, next, target.getBodyMarkdown(),
-                "Rolled back to version " + targetVersionNumber,
+                summary != null && !summary.isBlank()
+                        ? summary
+                        : "Rolled back to version " + target.getVersionNumber(),
                 role, actorId,
                 // Carry the grounding of the version we rolled back to,
                 // so the reviewer can still see which commit the content
@@ -802,10 +841,77 @@ public class DocumentVersionService {
                 Map.of("documentId", documentId.toString(),
                         "versionId", versionId,
                         "versionNumber", next,
-                        "restoredFromVersion", targetVersionNumber));
+                        "restoredFromVersion", target.getVersionNumber()));
         log.info("Rollback version created: document={} new_version={} target_version={}",
-                documentId, next, targetVersionNumber);
+                documentId, next, target.getVersionNumber());
         return saved;
+    }
+
+    /**
+     * The version a bulk rollback restores a document to when the caller
+     * asks for "the previous published version".
+     *
+     * <p>The head of a document is {@code PUBLISHED}; the versions it
+     * replaced are {@code SUPERSEDED}. The target is therefore the newest
+     * restorable version that sits <em>below</em> the head — the content
+     * the document showed before the current head was published.
+     *
+     * <p>When the document was never published (no head), the newest
+     * approved version is used instead: it is the last content a
+     * reviewer accepted, which is the closest thing to a "previous
+     * published version" the document has.
+     *
+     * @return the target version, or {@code null} when the document has
+     *         nothing to restore
+     */
+    @Transactional(readOnly = true)
+    public DocumentVersion findPreviousPublishedVersion(Document document) {
+        List<DocumentVersion> restorable = versionRepository
+                .findAllByDocumentIdAndStatusInOrderByVersionNumberDesc(
+                        document.getId(), ROLLBACK_TARGET_STATUSES);
+        if (restorable.isEmpty()) {
+            return null;
+        }
+        Integer headNumber = headVersionNumber(document, restorable);
+        if (headNumber != null) {
+            for (DocumentVersion v : restorable) {
+                if (v.getVersionNumber() != null && v.getVersionNumber() < headNumber) {
+                    return v;
+                }
+            }
+            return null;
+        }
+        // No head: the newest approved version is the best approximation
+        // of "what the document used to say".
+        for (DocumentVersion v : restorable) {
+            if (v.getStatus() == VersionStatus.APPROVED) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The version number of the published head of a document.
+     *
+     * <p>Resolved from the document's {@code headVersionId}; falls back
+     * to the newest {@code PUBLISHED} version when the head pointer is
+     * missing or dangling.
+     */
+    private Integer headVersionNumber(Document document, List<DocumentVersion> restorable) {
+        if (document.getHeadVersionId() != null) {
+            for (DocumentVersion v : restorable) {
+                if (document.getHeadVersionId().equals(v.getId())) {
+                    return v.getVersionNumber();
+                }
+            }
+        }
+        for (DocumentVersion v : restorable) {
+            if (v.getStatus() == VersionStatus.PUBLISHED) {
+                return v.getVersionNumber();
+            }
+        }
+        return null;
     }
 
     @Transactional(readOnly = true)

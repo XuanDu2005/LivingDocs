@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, FileText, Plus, Search } from 'lucide-react';
+import { ArrowLeft, FileText, Plus, RotateCcw, Search } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { BulkRollbackDialog } from '../components/BulkRollbackDialog';
+import { usePermission } from '../hooks/usePermission';
+import { PermissionCodes } from '../services/permissions';
 import {
   Table,
   TableBody,
@@ -54,6 +57,9 @@ export default function DocumentsListPage() {
   const [search, setSearch] = useState<string>('');
   const [docType, setDocType] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const canRollback = usePermission(PermissionCodes.DOCUMENT_ROLLBACK);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -77,6 +83,35 @@ export default function DocumentsListPage() {
     });
   }, [docs, search, docType, statusFilter]);
 
+  /**
+   * Toggle one document of the selection.
+   */
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Select (or clear) every document of the current filter.
+   */
+  function toggleAll() {
+    setSelected((prev) => {
+      if (filtered.length > 0 && filtered.every((d) => prev.has(d.id))) {
+        return new Set<string>();
+      }
+      return new Set(filtered.map((d) => d.id));
+    });
+  }
+
+  const allSelected = filtered.length > 0 && filtered.every((d) => selected.has(d.id));
+
   if (!workspaceId) return <EmptyState title={t('documents.missingWorkspaceId')} />;
 
   return (
@@ -91,11 +126,32 @@ export default function DocumentsListPage() {
         title={t('documents.title')}
         subtitle={t('documents.subtitle')}
         action={
-          <Button asChild>
-            <Link to={`/workspaces/${workspaceId}/documents/new`}>
-              <Plus className="mr-1 h-4 w-4" /> {t('documents.newCta')}
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {canRollback && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkOpen(true)}
+                disabled={selected.size === 0}
+                title={
+                  selected.size === 0
+                    ? t('bulkRollback.selectFirst', 'Select documents first')
+                    : t('bulkRollback.title')
+                }
+              >
+                <RotateCcw className="mr-1 h-4 w-4" />
+                {t('bulkRollback.title')}
+                {selected.size > 0 && (
+                  <Badge variant="muted" className="ml-2">{selected.size}</Badge>
+                )}
+              </Button>
+            )}
+            <Button asChild>
+              <Link to={`/workspaces/${workspaceId}/documents/new`}>
+                <Plus className="mr-1 h-4 w-4" /> {t('documents.newCta')}
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -157,6 +213,17 @@ export default function DocumentsListPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canRollback && (
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label={t('bulkRollback.selectAll', 'Select all documents')}
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>{t('documents.colTitle')}</TableHead>
                 <TableHead>{t('documents.colType')}</TableHead>
                 <TableHead>{t('documents.colStatus')}</TableHead>
@@ -180,6 +247,17 @@ export default function DocumentsListPage() {
                   role="link"
                   aria-label={`${t('common.view', 'View')} ${d.title}`}
                 >
+                  {canRollback && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${t('bulkRollback.select', 'Select')} ${d.title}`}
+                        checked={selected.has(d.id)}
+                        onChange={() => toggleSelected(d.id)}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <div className="font-medium text-primary group-hover:underline">
                       {d.title}
@@ -219,6 +297,21 @@ export default function DocumentsListPage() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {canRollback && (
+        <BulkRollbackDialog
+          workspaceId={workspaceId}
+          documentIds={Array.from(selected)}
+          collectionSize={selected.size}
+          open={bulkOpen}
+          onOpenChange={setBulkOpen}
+          onDone={() => {
+            // The rollback creates drafts; reloading shows the new
+            // versions in the timelines of the affected documents.
+            documentsApi.list(workspaceId).then(setDocs).catch(() => undefined);
+          }}
+        />
       )}
     </div>
   );

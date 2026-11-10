@@ -40,12 +40,20 @@ public class AiUsageController {
 
     @PutMapping("/limits")
     @RequirePermission({"AI_USAGE_MANAGE"})
-    @Operation(summary = "Update rate limits for this workspace (Manager only)")
+    @Operation(summary = "Update rate limits for this workspace")
     public ResponseEntity<AiRateLimitService.UsageSummary> updateLimits(
             @PathVariable UUID workspaceId,
             @RequestBody UpdateLimitsRequest req) {
         UUID actor = CurrentUser.requireId();
-        workspaceService.requireRole(actor, workspaceId, WorkspaceRole.MANAGER);
+        // The token budget and the rate limits are governance knobs:
+        // they decide how much the workspace may spend and how fast it
+        // may go. They are therefore guarded by the
+        // documentation-governance guard — the same one the other
+        // governance settings use — and not by the plain
+        // workspace-manager requirement. The capability half of the rule
+        // (AI_USAGE_MANAGE) is enforced by the permission interceptor on
+        // the endpoint, so the two axes stay combined with AND.
+        workspaceService.requireDocumentationGovernance(actor, workspaceId);
         // Persist the new limits to workspace_settings.extra JSONB
         rateLimitService.updateLimits(workspaceId, req.dailyTokenLimit(), req.monthlyTokenLimit(),
                 req.rateLimitPerMinute());

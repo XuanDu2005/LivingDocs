@@ -10,6 +10,7 @@ public enum DocType {
     MODULE_GUIDE("A high-level walkthrough of a single module / package."),
     API_REFERENCE("Endpoint-by-endpoint reference, usually auto-derived from routes/handlers."),
     README("Project root README — quickstart, installation, contributing."),
+    ONBOARDING_GUIDE("A guide for new engineers — architecture, how to run, where things are."),
     ARCHITECTURE("System architecture overview — components, data flow, boundaries."),
     ADR("Architecture Decision Record — context, decision, consequences."),
     CHANGELOG("Chronological list of changes."),

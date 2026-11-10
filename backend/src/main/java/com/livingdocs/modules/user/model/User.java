@@ -57,6 +57,24 @@ public class User {
     @Column(name = "email_verified_at")
     private OffsetDateTime emailVerifiedAt;
 
+    /**
+     * Whether the account owner still has to replace their password.
+     *
+     * <p>Set when a platform administrator issues a temporary password
+     * (either at account creation or through a password reset). The
+     * account is usable — it can log in — but every request other than
+     * "read your profile" and "change your password" is refused until
+     * the owner replaces the temporary credential.
+     *
+     * <p>The flag lives on the account rather than inside the JWT on
+     * purpose: the authentication filter already loads the user row on
+     * every request, so the check is free, and it cannot go stale the
+     * way a token claim would (a token issued before the reset would
+     * still claim the account is in good standing).
+     */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -88,6 +106,18 @@ public class User {
     public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
     public OffsetDateTime getEmailVerifiedAt() { return emailVerifiedAt; }
     public void setEmailVerifiedAt(OffsetDateTime emailVerifiedAt) { this.emailVerifiedAt = emailVerifiedAt; }
+
+    /**
+     * Does the owner still have to replace a temporary password?
+     */
+    public boolean isMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+
+    /**
+     * Clear the "must change password" flag. Called when the account
+     * owner successfully replaces their password.
+     */
+    public void clearMustChangePassword() { this.mustChangePassword = false; }
 
     /**
      * Mark the email address as verified. Idempotent: calling it twice is safe.
