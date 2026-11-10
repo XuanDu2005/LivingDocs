@@ -57,6 +57,19 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
 
     List<DocumentVersion> findAllByDocumentIdAndStatusOrderByCreatedAtDesc(UUID documentId, VersionStatus status);
 
+    /**
+     * Every version of a document that is in one of the given statuses,
+     * newest version first.
+     *
+     * <p>Used by the bulk rollback to find the version that was published
+     * before the current head: the head of a document is
+     * {@code PUBLISHED} and the versions it replaced are
+     * {@code SUPERSEDED}, so both statuses have to be looked at to
+     * reconstruct the publication history.
+     */
+    List<DocumentVersion> findAllByDocumentIdAndStatusInOrderByVersionNumberDesc(
+            UUID documentId, Collection<VersionStatus> statuses);
+
     /** All version numbers for a document, ordered newest first. Used for the timeline UI. */
     List<Integer> findDistinctVersionNumberByDocumentIdOrderByVersionNumberDesc(UUID documentId);
 

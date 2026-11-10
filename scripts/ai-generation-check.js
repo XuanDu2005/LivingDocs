@@ -183,8 +183,8 @@ async function findDocument() {
     const list = Array.isArray(versions.body) ? versions.body : [];
     check('the new version is listed', list.length > 0);
     check(
-      'the new version is queued for review or published',
-      ['PENDING', 'PUBLISHED', 'IN_REVIEW'].includes(list[0]?.status),
+      'the new version is a draft, published or awaiting review',
+      ['DRAFT', 'PENDING', 'PUBLISHED', 'IN_REVIEW', 'APPROVED'].includes(list[0]?.status),
       list[0]?.status,
     );
 

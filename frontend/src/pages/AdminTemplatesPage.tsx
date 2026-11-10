@@ -43,6 +43,7 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: 'MODULE_GUIDE', label: 'Module guide' },
   { value: 'API_REFERENCE', label: 'API reference' },
   { value: 'README', label: 'README' },
+  { value: 'ONBOARDING_GUIDE', label: 'Onboarding guide' },
   { value: 'ARCHITECTURE', label: 'Architecture' },
   { value: 'ADR', label: 'ADR' },
   { value: 'CHANGELOG', label: 'Changelog' },

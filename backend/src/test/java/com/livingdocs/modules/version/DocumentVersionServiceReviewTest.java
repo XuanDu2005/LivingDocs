@@ -338,6 +338,100 @@ class DocumentVersionServiceReviewTest {
         return version;
     }
 
+    // -----------------------------------------------------------------
+    // Finding the previous published version
+    // -----------------------------------------------------------------
+
+    /**
+     * The version a bulk rollback restores a document to: the version
+     * that was published before the current head.
+     *
+     * <p>The head is {@code PUBLISHED} and the version it replaced is
+     * {@code SUPERSEDED} — a superseded version <em>was</em> published,
+     * so it is what "roll back to the previous published version" means.
+     */
+    @Test
+    void thePreviousPublishedVersionIsTheOneBelowTheHead() {
+        Document document = mock(Document.class);
+        when(document.getId()).thenReturn(documentId);
+
+        DocumentVersion head = givenVersion(VersionStatus.PUBLISHED, otherId, 5);
+        DocumentVersion previous = givenVersion(VersionStatus.SUPERSEDED, otherId, 3);
+        // The id is read before the stubbing call: reading a mock inside
+        // a `thenReturn(...)` argument leaves the stubbing unfinished.
+        UUID headId = head.getId();
+        when(document.getHeadVersionId()).thenReturn(headId);
+        when(versionRepository.findAllByDocumentIdAndStatusInOrderByVersionNumberDesc(
+                documentId,
+                java.util.Set.of(VersionStatus.PUBLISHED, VersionStatus.APPROVED,
+                        VersionStatus.SUPERSEDED)))
+                .thenReturn(java.util.List.of(head, previous));
+
+        DocumentVersion target = service.findPreviousPublishedVersion(document);
+
+        assertEquals(previous, target,
+                "the target is the version that was published before the head");
+    }
+
+    /**
+     * A document that was never published has no "previous published
+     * version" — but the newest approved version is the closest thing
+     * it has.
+     */
+    @Test
+    void thePreviousPublishedVersionFallsBackToTheNewestApproved() {
+        Document document = mock(Document.class);
+        when(document.getId()).thenReturn(documentId);
+
+        DocumentVersion approved = givenVersion(VersionStatus.APPROVED, otherId, 2);
+        when(document.getHeadVersionId()).thenReturn(null);
+        when(versionRepository.findAllByDocumentIdAndStatusInOrderByVersionNumberDesc(
+                documentId,
+                java.util.Set.of(VersionStatus.PUBLISHED, VersionStatus.APPROVED,
+                        VersionStatus.SUPERSEDED)))
+                .thenReturn(java.util.List.of(approved));
+
+        DocumentVersion target = service.findPreviousPublishedVersion(document);
+
+        assertEquals(approved, target);
+    }
+
+    /**
+     * A document with no restorable version at all has nothing to roll
+     * back to.
+     */
+    @Test
+    void aDocumentWithoutAnyRestorableVersionHasNoTarget() {
+        Document document = mock(Document.class);
+        when(document.getId()).thenReturn(documentId);
+        when(document.getHeadVersionId()).thenReturn(null);
+        when(versionRepository.findAllByDocumentIdAndStatusInOrderByVersionNumberDesc(
+                documentId,
+                java.util.Set.of(VersionStatus.PUBLISHED, VersionStatus.APPROVED,
+                        VersionStatus.SUPERSEDED)))
+                .thenReturn(java.util.List.of());
+
+        assertEquals(null, service.findPreviousPublishedVersion(document));
+    }
+
+    /**
+     * A rollback to a superseded version is allowed: the version was
+     * published, it is just not the head any more.
+     */
+    @Test
+    void aRollbackToASupersededVersionIsAllowed() {
+        DocumentVersion target = givenVersion(VersionStatus.SUPERSEDED, otherId, 3);
+        when(target.getSourceCommitSha()).thenReturn("abc1234");
+        when(target.getTemplateId()).thenReturn(null);
+        when(versionRepository.findFirstByDocumentIdOrderByVersionNumberDesc(documentId))
+                .thenReturn(Optional.of(target));
+
+        DocumentVersion rollback = service.rollback(actorId, documentId, 3);
+
+        assertEquals(VersionStatus.DRAFT, rollback.getStatus());
+        assertEquals(4, rollback.getVersionNumber());
+    }
+
     /**
      * The headline rule: a version that does not follow the template it
      * was generated from cannot become the published head.

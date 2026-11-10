@@ -8,6 +8,7 @@ import com.livingdocs.modules.admin.model.PlatformSettings;
 import com.livingdocs.modules.admin.repository.PlatformDocTypePolicyRepository;
 import com.livingdocs.modules.admin.repository.PlatformSettingsRepository;
 import com.livingdocs.modules.audit.service.AuditLogService;
+import com.livingdocs.modules.template.model.DocType;
 import com.livingdocs.modules.workspace.dto.UpdateWorkspaceDocTypePolicyRequest;
 import com.livingdocs.modules.workspace.model.WorkspaceDocTypePolicy;
 import com.livingdocs.modules.workspace.model.WorkspaceMember;
@@ -99,11 +100,27 @@ class WorkspaceDocTypePolicyServiceTest {
     void listShowsEveryCanonicalDocType() {
         var rows = service.list(workspaceId, actorId);
 
-        assertEquals(10, rows.size(),
+        // The count is derived from the enum rather than hard-coded: a
+        // new documentation type has to appear in the policy panel, and
+        // a hard-coded number would have to be bumped by hand every time
+        // one is added.
+        assertEquals(DocType.values().length, rows.size(),
                 "every canonical doc type must be listed so an inherited "
                         + "policy is visible as inherited");
         assertTrue(rows.stream().allMatch(r -> r.scope().equals("DEFAULT")),
                 "without any row the scope is DEFAULT");
+    }
+
+    /**
+     * The onboarding guide is a canonical doc type like every other —
+     * it has its own row in the policy panel.
+     */
+    @Test
+    void theOnboardingGuideIsListedAsACanonicalDocType() {
+        var rows = service.list(workspaceId, actorId);
+
+        assertTrue(rows.stream().anyMatch(r -> r.docType().equals("ONBOARDING_GUIDE")),
+                "the onboarding guide must be listed so its policy can be overridden");
     }
 
     @Test

@@ -6,7 +6,6 @@ import com.livingdocs.modules.notification.dto.NotificationPolicyDto;
 import com.livingdocs.modules.notification.model.NotificationKinds;
 import com.livingdocs.modules.notification.model.NotificationPolicy;
 import com.livingdocs.modules.notification.repository.NotificationPolicyRepository;
-import com.livingdocs.modules.workspace.model.WorkspaceRole;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,9 +25,10 @@ import java.util.stream.Collectors;
  * platform default row (workspace_id = null); when neither exists the
  * kind is treated as enabled (the legacy default).
  *
- * <p>Mutations require MANAGER-or-above for a workspace row, and the
- * ADMIN platform role for the platform default row. Every change is
- * recorded in the audit log.
+ * <p>Mutations require the documentation-governance role of the
+ * workspace ({@code MANAGER} or {@code DOCUMENTATION_OWNER}) for a
+ * workspace row, and the ADMIN platform role for the platform default
+ * row. Every change is recorded in the audit log.
  */
 @Service
 public class NotificationPolicyService {
@@ -150,7 +150,16 @@ public class NotificationPolicyService {
     public NotificationPolicyDto upsertWorkspaceOverride(UUID actorId, UUID workspaceId,
                                                           String eventKind, boolean enabled) {
         ensureValidKind(eventKind);
-        workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        // The per-workspace notification policy is a governance knob:
+        // it decides which events the workspace reacts to. It is
+        // therefore guarded by the documentation-governance guard, the
+        // same one the other governance settings use — not by the plain
+        // workspace-manager requirement. The capability half of the rule
+        // (NOTIFICATION_POLICY_MANAGE) is enforced by the permission
+        // interceptor on the endpoint, so the two axes stay combined
+        // with AND.
+        String actorRoleCode = workspaceService
+                .requireDocumentationGovernance(actorId, workspaceId).name();
 
         NotificationPolicy existing = repository
                 .findByWorkspaceIdAndEventKind(workspaceId, eventKind)
@@ -167,7 +176,7 @@ public class NotificationPolicyService {
         }
         row = repository.save(row);
 
-        auditLogService.record(actorId, "MANAGER",
+        auditLogService.record(actorId, actorRoleCode,
                 "notification.policy.update",
                 "notification_policy",
                 row.getId().toString(), workspaceId,

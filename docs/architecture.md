@@ -416,6 +416,39 @@ A `REQUEST_CHANGES` verdict at either tier returns the version to
 
 ---
 
+## 4b. Rolling back a collection
+
+`POST /workspaces/{workspaceId}/documents/bulk-rollback` undoes a bad
+automatic update across a whole collection of documents in one call.
+
+The collection is selected by an explicit list of document ids, by
+repository, by documentation type, or by all three combined; with none
+of them it is every document of the workspace. The collection is always
+intersected with the workspace of the URL, so a document of another
+workspace is never touched.
+
+The target version of each document is chosen by the strategy:
+
+| Strategy             | Restores                                                          |
+| -------------------- | ----------------------------------------------------------------- |
+| `PREVIOUS_PUBLISHED`| the version that was published before the current head             |
+| `VERSION_NUMBER`     | the given version number of every document                         |
+
+A rollback appends a new **draft** version carrying the old content — it
+never rewrites the published head, so the correction still has to go
+through review.
+
+The batch is deliberately **partially successful**: a document that was
+never published, or whose target was never approved, cannot be rolled
+back, and it is reported in the result list instead of aborting the
+whole batch. The response carries one outcome per document plus the
+counters the UI needs.
+
+The endpoint requires the `DOCUMENT_ROLLBACK` capability and workspace
+membership — the same guard as the single-document rollback.
+
+---
+
 ## 5. Drift detection
 
 Drift detection combines mechanical analysis with LLM reasoning.
@@ -553,6 +586,7 @@ docker run --rm -v "${PWD}:/app" -w /app --entrypoint python \
 | `MergeGateServiceTest` | scan-then-gate ordering, failed scan, workspace isolation, audit |
 | `EncryptedStringConverterTest` | round-trip, IV freshness, legacy plaintext, key rotation |
 | `DocumentVersionServiceDiffTest` | unified diff format                                  |
+| `BulkRollbackServiceTest` | collection selection, partial success, workspace isolation |
 | `test_diffing_and_semantic_drift.py` | diff building, LLM finding parsing, confidence filtering |
 | `test_ast.py`               | Python / Java / TypeScript analysers                     |
 
@@ -565,11 +599,9 @@ docker run --rm -v "${PWD}:/app" -w /app --entrypoint python \
 | V29     | `doc_generation_jobs`                  | tracks async generation jobs                   |
 | V30     | `two_axis_role_model`                  | normalises `workspace_members.role`, grants `TECHNICAL_LEAD` permissions |
 | V31     | `widen_encrypted_token_columns`        | widens token columns so ciphertext always fits |
-| V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role |
 | V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role and widens `workspace_members.role` |
-| V52     | `documentation_owner_workspace_role`   | widens `workspace_members.role` and adds the `DOCUMENTATION_OWNER` value |
 | V53     | `drift_resolve_permission`            | adds the `DRIFT_RESOLVE` permission for the review tiers |
-| V52     | `documentation_owner_workspace_role`   | adds the `DOCUMENTATION_OWNER` workspace role and widens the role column |
+| V54     | `onboarding_guide_doc_type`           | adds the `ONBOARDING_GUIDE` doc type and its default template |
 
 ### Why some migrations are not Flyway migrations
 

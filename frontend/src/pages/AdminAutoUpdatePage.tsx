@@ -60,6 +60,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   MODULE_GUIDE: 'Module guide',
   API_REFERENCE: 'API reference',
   README: 'README',
+  ONBOARDING_GUIDE: 'Onboarding guide',
   ARCHITECTURE: 'Architecture',
   ADR: 'ADR',
   CHANGELOG: 'Changelog',
