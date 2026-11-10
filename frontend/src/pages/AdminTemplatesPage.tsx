@@ -30,6 +30,7 @@ import {
   DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
+import OutputFormatSelect from '../components/OutputFormatSelect';
 import { describeError } from '../services/auth';
 import {
   AdminCreateTemplatePayload,
@@ -50,9 +51,7 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: 'CUSTOM', label: 'Custom' },
 ];
 
-const OUTPUT_FORMATS = ['MARKDOWN', 'HTML', 'PDF'] as const;
-type OutputFormat = typeof OUTPUT_FORMATS[number];
-
+type OutputFormat = 'MARKDOWN' | 'HTML' | 'PDF';
 const SAMPLE_BODY = JSON.stringify({
   version: 1,
   titleHint: 'Sample template — {{moduleName}}',
@@ -176,12 +175,18 @@ export default function AdminTemplatesPage() {
     }
     setSaving(true);
     try {
+      // PDF is not implemented yet and the backend rejects it. A
+      // template that still carries the value (it was accepted before
+      // the renderer existed) is normalised to Markdown instead of
+      // failing the save with a server error the admin cannot act on.
+      const outputFormat =
+        form.outputFormat === 'PDF' ? 'MARKDOWN' : form.outputFormat;
       if (editing) {
         const payload: AdminUpdateTemplatePayload = {
           name: form.name.trim(),
           description: form.description.trim() || undefined,
           bodyJson: form.bodyJson,
-          outputFormat: form.outputFormat,
+          outputFormat,
           autoGenerateOnCommit: form.autoOnCommit,
           autoGenerateOnPr: form.autoOnPr,
           autoGenerateOnMerge: form.autoOnMerge,
@@ -195,7 +200,7 @@ export default function AdminTemplatesPage() {
           description: form.description.trim() || undefined,
           docType: form.docType,
           bodyJson: form.bodyJson,
-          outputFormat: form.outputFormat,
+          outputFormat,
           autoGenerateOnCommit: form.autoOnCommit,
           autoGenerateOnPr: form.autoOnPr,
           autoGenerateOnMerge: form.autoOnMerge,
@@ -422,17 +427,11 @@ export default function AdminTemplatesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="adm-tpl-output">{t('templates.outputFormat')}</Label>
-                <Select
+                <OutputFormatSelect
+                  id="adm-tpl-output"
                   value={form.outputFormat}
-                  onValueChange={(v) => setForm({ ...form, outputFormat: v as OutputFormat })}
-                >
-                  <SelectTrigger id="adm-tpl-output"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {OUTPUT_FORMATS.map((f) => (
-                      <SelectItem key={f} value={f}>{f}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(v) => setForm({ ...form, outputFormat: v })}
+                />
               </div>
             </div>
 
@@ -448,6 +447,7 @@ export default function AdminTemplatesPage() {
 
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
               <div className="text-sm font-medium">{t('templates.autoTriggers')}</div>
+              <p className="text-xs text-muted-foreground">{t('templates.autoTriggersLive')}</p>
               <div className="grid grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <Switch

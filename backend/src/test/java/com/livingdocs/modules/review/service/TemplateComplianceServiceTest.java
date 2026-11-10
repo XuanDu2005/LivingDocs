@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.modules.template.model.DocTemplate;
 import com.livingdocs.modules.template.repository.DocTemplateRepository;
 import com.livingdocs.modules.template.service.DocTemplateService;
+import com.livingdocs.modules.template.service.TemplateComplianceEvaluator;
 import com.livingdocs.modules.template.service.TemplateSchema;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,9 +34,8 @@ class TemplateComplianceServiceTest {
                 mock(com.livingdocs.modules.version.repository.DocumentVersionRepository.class),
                 mock(DocTemplateRepository.class),
                 mock(DocTemplateService.class),
-                new TemplateSchema(objectMapper),
-                mock(com.livingdocs.modules.workspace.service.WorkspaceService.class),
-                objectMapper);
+                new TemplateComplianceEvaluator(new TemplateSchema(objectMapper), objectMapper),
+                mock(com.livingdocs.modules.workspace.service.WorkspaceService.class));
     }
 
     /**
@@ -198,5 +198,77 @@ class TemplateComplianceServiceTest {
 
         assertTrue(result.compliant());
         assertTrue(result.sections().isEmpty());
+    }
+
+    /**
+     * A template that says nothing about being strict is not strict —
+     * the workspace has to opt in.
+     */
+    @Test
+    void aTemplateIsNotStrictByDefault() {
+        DocTemplate template = templateWith("""
+                {
+                  "sections": [
+                    { "id": "overview", "heading": "Overview" }
+                  ]
+                }
+                """);
+
+        var result = service.evaluate(template, "# Something else\n\ntext\n");
+
+        assertFalse(result.strict());
+        assertTrue(result.missingRequiredHeadings().contains("Overview"),
+                "the missing section is reported, whatever the strictness");
+    }
+
+    /**
+     * A strict template that asks for a section the document does not
+     * have — the section is reported as a missing <em>required</em>
+     * one, which is what blocks a publication.
+     */
+    @Test
+    void aStrictTemplateReportsTheMissingRequiredSections() {
+        DocTemplate template = templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "notes", "heading": "Notes", "required": false }
+                  ]
+                }
+                """);
+
+        var result = service.evaluate(template, "# Overview\n\ntext\n");
+
+        assertTrue(result.strict());
+        assertFalse(result.compliant());
+        assertTrue(result.missingHeadings().contains("Notes"));
+        assertTrue(result.missingRequiredHeadings().isEmpty(),
+                "the only missing section is the optional one");
+    }
+
+    /**
+     * A strict template whose required section is missing — this is the
+     * case that refuses a publication.
+     */
+    @Test
+    void aStrictTemplateReportsAMissingRequiredSection() {
+        DocTemplate template = templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "notes", "heading": "Notes", "required": false }
+                  ]
+                }
+                """);
+
+        var result = service.evaluate(template, "# Notes\n\ntext\n");
+
+        assertTrue(result.strict());
+        assertFalse(result.compliant());
+        assertTrue(result.missingRequiredHeadings().contains("Overview"));
+        assertFalse(result.missingRequiredHeadings().contains("Notes"),
+                "an optional section never blocks a publication");
     }
 }

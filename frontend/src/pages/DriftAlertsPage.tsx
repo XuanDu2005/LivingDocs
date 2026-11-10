@@ -14,6 +14,8 @@ import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { driftApi, DriftAlert, DriftKind, DriftResolution, DriftSeverity } from '../services/drift';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import { describeError } from '../services/auth';
+import { usePermission } from '../hooks/usePermission';
+import { PermissionCodes } from '../services/permissions';
 import { format } from 'date-fns';
 
 const SEVERITY_BADGE: Record<DriftSeverity, 'destructive' | 'warning' | 'info' | 'muted'> = {
@@ -117,6 +119,11 @@ function extractDiff(evidenceJson: string): string | null {
 export default function DriftAlertsPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { t } = useTranslation();
+
+  // Everybody in the workspace needs to see the drift alerts; only the
+  // review tiers may close them. The backend refuses a resolve from
+  // anybody else, so the button is hidden rather than left to fail.
+  const canResolve = usePermission(PermissionCodes.DRIFT_RESOLVE);
 
   const [alerts, setAlerts] = useState<AlertWithRepo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -466,34 +473,40 @@ export default function DriftAlertsPage() {
                       <Badge variant={RESOLUTION_BADGE[a.resolutionStatus]}>{t(RESOLUTION_KEY[a.resolutionStatus])}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Dialog open={resolveAlertId === a.id} onOpenChange={(o) => { if (!o) setResolveAlertId(null); }}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(a.id); setResolveResolution('FIXED'); }}>
-                            <Check className="mr-1 h-3 w-3" /> {t('drift.resolve')}
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
-                            <DialogDescription>{a.title}</DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-3 py-2">
-                            <Select value={resolveResolution} onValueChange={(v) => setResolveResolution(v as DriftResolution)}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
-                                <SelectItem value="ACCEPTED">{t('drift.resolutionAcceptedFull')}</SelectItem>
-                                <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
-                                <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <DialogFooter>
-                            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
-                            <Button onClick={() => void handleResolve()}>{t('drift.confirmResolution')}</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
+                      {canResolve ? (
+                        <Dialog open={resolveAlertId === a.id} onOpenChange={(o) => { if (!o) setResolveAlertId(null); }}>
+                          <DialogTrigger asChild>
+                            <Button size="sm" variant="outline" onClick={() => { setResolveAlertId(a.id); setResolveResolution('FIXED'); }}>
+                              <Check className="mr-1 h-3 w-3" /> {t('drift.resolve')}
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>{t('drift.resolveDialogTitle')}</DialogTitle>
+                              <DialogDescription>{a.title}</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-3 py-2">
+                              <Select value={resolveResolution} onValueChange={(v) => setResolveResolution(v as DriftResolution)}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="FIXED">{t('drift.resolutionFixed')}</SelectItem>
+                                  <SelectItem value="ACCEPTED">{t('drift.resolutionAcceptedFull')}</SelectItem>
+                                  <SelectItem value="DISMISSED">{t('drift.resolutionDismissed')}</SelectItem>
+                                  <SelectItem value="OPEN">{t('drift.resolutionOpen')}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <DialogFooter>
+                              <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
+                              <Button onClick={() => void handleResolve()}>{t('drift.confirmResolution')}</Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {t('drift.resolveHint', 'Only reviewers can resolve a drift alert.')}
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

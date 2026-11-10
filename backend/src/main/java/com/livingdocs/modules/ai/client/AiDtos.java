@@ -30,12 +30,19 @@ public final class AiDtos {
      * <p>{@code templateSchema} carries the canonical template JSON
      * (sections + placeholders). When present the AI service builds its
      * prompt from the user's own template instead of a built-in preset.
+     *
+     * <p>The field is serialised as {@code template_schema} because that
+     * is the name the AI service's request model expects. Without the
+     * explicit name the backend sent {@code templateSchema}, Pydantic
+     * silently dropped it as an unknown field, and the template never
+     * reached the prompt at all — the "template is passed but ignored"
+     * bug.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GenerateRequest(
             List<SourceFile> files,
             String template,
-            String templateSchema,
+            @JsonProperty("template_schema") String templateSchema,
             String focus,
             @JsonProperty("language_hint") String languageHint) {}
 

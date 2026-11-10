@@ -9,6 +9,10 @@ import java.util.List;
  * the visual builder needs without making a separate round-trip:
  * the canonical sample, the supported placeholders, and the list of
  * known documentation types.
+ *
+ * <p>The sample already carries the optional {@code instructions} field
+ * (the free-form formatting rules the AI applies to the whole
+ * document), so the builder picks it up without an extra field here.
  */
 public record TemplateSchemaResponse(
         int canonicalVersion,

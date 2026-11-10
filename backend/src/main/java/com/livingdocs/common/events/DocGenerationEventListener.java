@@ -15,6 +15,10 @@ import com.livingdocs.modules.link.model.CodeDocumentLink;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
 import com.livingdocs.modules.notification.service.NotificationService;
 import com.livingdocs.modules.review.service.DocumentReviewService;
+import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.model.OutputFormat;
+import com.livingdocs.modules.template.service.TemplateRenderer;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.service.DocumentVersionService;
 import org.slf4j.Logger;
@@ -76,6 +80,8 @@ public class DocGenerationEventListener {
     private final CodeEntityRepository codeEntityRepository;
     private final CodeDocumentLinkRepository codeDocumentLinkRepository;
     private final AuditLogService auditLogService;
+    private final TemplateSchemaResolver templateResolver;
+    private final TemplateRenderer templateRenderer;
 
     public DocGenerationEventListener(CachedAiClient cachedAiClient,
                                        AiDocumentationService aiDocumentationService,
@@ -89,7 +95,9 @@ public class DocGenerationEventListener {
                                        GovernancePolicyService governancePolicyService,
                                        CodeEntityRepository codeEntityRepository,
                                        CodeDocumentLinkRepository codeDocumentLinkRepository,
-                                       AuditLogService auditLogService) {
+                                       AuditLogService auditLogService,
+                                       TemplateSchemaResolver templateResolver,
+                                       TemplateRenderer templateRenderer) {
         this.cachedAiClient = cachedAiClient;
         this.aiDocumentationService = aiDocumentationService;
         this.eventPublisher = eventPublisher;
@@ -103,6 +111,8 @@ public class DocGenerationEventListener {
         this.codeEntityRepository = codeEntityRepository;
         this.codeDocumentLinkRepository = codeDocumentLinkRepository;
         this.auditLogService = auditLogService;
+        this.templateResolver = templateResolver;
+        this.templateRenderer = templateRenderer;
     }
 
     @KafkaListener(
@@ -217,6 +227,14 @@ public class DocGenerationEventListener {
                 return existing.getDocumentVersionId();
             }
 
+            // The template's output format decides what shape the
+            // generated body is stored in. This is where the setting
+            // stops being dead metadata: the template that applies to
+            // the document says whether the AI output should stay
+            // markdown or be converted (currently to HTML).
+            OutputFormat outputFormat = resolveOutputFormat(event.getDocumentId());
+            String renderedBody = templateRenderer.render(markdown, outputFormat);
+
             DocumentVersion version = versionService.createAiVersionInternal(
                     event.getRequestedByUserId(),
                     event.getDocumentId(),
@@ -225,7 +243,9 @@ public class DocGenerationEventListener {
                     event.getSourceCommitSha(),
                     event.getSourcePrId(),
                     confidence,
-                    groundingJson(grounding));
+                    groundingJson(grounding),
+                    renderedBody,
+                    templateRenderer.effectiveFormat(outputFormat));
 
             // The doc type drives the platform's per-type workflow policy.
             String documentDocType = documentRepository.findById(event.getDocumentId())
@@ -471,6 +491,33 @@ public class DocGenerationEventListener {
         } catch (Exception e) {
             log.warn("Failed to serialise grounding evidence: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * The output format the template that applies to the document asks
+     * for.
+     *
+     * <p>Resolved with the same precedence the AI generation uses — the
+     * template pinned to the document, else the workspace default for
+     * its doc type, else the global default. A document without a
+     * template is markdown, which is the canonical representation of a
+     * LivingDocs document.
+     */
+    private OutputFormat resolveOutputFormat(UUID documentId) {
+        try {
+            DocTemplate template = templateResolver.resolveTemplateForDocument(
+                    documentRepository.findById(documentId).orElse(null));
+            if (template == null || template.getOutputFormat() == null) {
+                return OutputFormat.MARKDOWN;
+            }
+            return template.getOutputFormat();
+        } catch (Exception e) {
+            // A failure to resolve the template must not lose the
+            // generated document — fall back to markdown.
+            log.warn("Could not resolve the output format of document {}: {}",
+                    documentId, e.getMessage());
+            return OutputFormat.MARKDOWN;
         }
     }
 

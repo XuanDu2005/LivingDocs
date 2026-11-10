@@ -12,6 +12,7 @@ import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubClient.GithubRepositoryContent;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
 import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
@@ -66,6 +67,7 @@ public class DocSyncService {
     private final WorkspaceService workspaceService;
     private final DocUpdateRequestService docUpdateRequestService;
     private final PermissionService permissionService;
+    private final TemplateSchemaResolver schemaResolver;
 
     public DocSyncService(GithubClient githubClient,
                          AiServiceClient aiServiceClient,
@@ -73,7 +75,8 @@ public class DocSyncService {
                          RepositoryRepository repositoryRepository,
                          WorkspaceService workspaceService,
                          DocUpdateRequestService docUpdateRequestService,
-                         PermissionService permissionService) {
+                         PermissionService permissionService,
+                         TemplateSchemaResolver schemaResolver) {
         this.githubClient = githubClient;
         this.aiServiceClient = aiServiceClient;
         this.codeEntityRepository = codeEntityRepository;
@@ -81,6 +84,7 @@ public class DocSyncService {
         this.workspaceService = workspaceService;
         this.docUpdateRequestService = docUpdateRequestService;
         this.permissionService = permissionService;
+        this.schemaResolver = schemaResolver;
     }
 
     /**
@@ -791,13 +795,20 @@ public class DocSyncService {
         // "MODULE_GUIDE" is the built-in preset; passing a free-form
         // template string made the generator fall back to echoing it.
         //
+        // The template schema is resolved the same way every other AI
+        // entry point resolves it, so a workspace's own template also
+        // shapes this proposal. It may be null, in which case the AI
+        // service falls back to its built-in preset.
+        //
         // The language hint must stay null: the AI service applies the hint
         // to *every* source file, and no analyser exists for "markdown",
         // so every file was skipped and the generator returned its empty
         // response. Letting it infer the language from each file's
         // extension is what makes the sources parseable.
+        String docType = schemaResolver.resolveDocType(workspaceId, "MODULE_GUIDE");
+        String templateSchema = schemaResolver.resolveForDocType(workspaceId, docType);
         AiDtos.GenerateResponse response = aiServiceClient.generate(
-                workspaceId, files, "MODULE_GUIDE", focus, null);
+                workspaceId, files, docType, templateSchema, focus, null);
 
         if (response != null && response.markdown() != null && !response.markdown().isBlank()) {
             String proposed = response.markdown().strip();

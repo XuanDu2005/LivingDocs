@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.modules.drift.dto.DriftAlertResponse;
 import com.livingdocs.modules.drift.dto.IngestDriftAlertRequest;
 import com.livingdocs.modules.drift.dto.ResolveDriftAlertRequest;
@@ -28,6 +29,19 @@ import java.util.UUID;
  *
  * <p>Detection itself happens in the AI service; this service is the
  * persistent home for alerts and the gateway for human resolution actions.
+ *
+ * <h2>Who may do what</h2>
+ * <ul>
+ *   <li><b>Ingest</b> — any workspace member. The AI service and the
+ *       pull-request path file alerts on behalf of a member, so this
+ *       stays a member-level operation.</li>
+ *   <li><b>Read</b> — any workspace member. Everybody needs to see
+ *       that the documentation they rely on has drifted.</li>
+ *   <li><b>Resolve</b> — only the holders of {@code DRIFT_RESOLVE}
+ *       (the review tiers). Accepting, dismissing or marking a drift
+ *       alert fixed is a judgement about the content, not a routine
+ *       housekeeping act, so it must not be open to every member.</li>
+ * </ul>
  */
 @Service
 public class DriftAlertService {
@@ -39,6 +53,7 @@ public class DriftAlertService {
     private final PullRequestRepository pullRequestRepository;
     private final RepositoryRepository repositoryRepository;
     private final WorkspaceService workspaceService;
+    private final AuthorizationService authorizationService;
     private final ObjectMapper objectMapper;
 
     public DriftAlertService(DriftAlertRepository driftRepository,
@@ -46,12 +61,14 @@ public class DriftAlertService {
                              PullRequestRepository pullRequestRepository,
                              RepositoryRepository repositoryRepository,
                              WorkspaceService workspaceService,
+                             AuthorizationService authorizationService,
                              ObjectMapper objectMapper) {
         this.driftRepository = driftRepository;
         this.documentRepository = documentRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.repositoryRepository = repositoryRepository;
         this.workspaceService = workspaceService;
+        this.authorizationService = authorizationService;
         this.objectMapper = objectMapper;
     }
 
@@ -135,9 +152,18 @@ public class DriftAlertService {
         return DriftAlertResponse.from(alert);
     }
 
+    /**
+     * Resolve a drift alert.
+     *
+     * <p>Requires the {@code DRIFT_RESOLVE} capability on top of
+     * workspace membership: accepting, dismissing or marking an alert
+     * fixed is a judgement about the documentation, and it belongs to
+     * the review tiers — not to every member of the workspace.
+     */
     @Transactional
     public DriftAlertResponse resolve(UUID actorId, UUID alertId, ResolveDriftAlertRequest req) {
         DriftAlert alert = loadAndAuthorize(actorId, alertId);
+        authorizationService.requireDriftResolver(actorId, alert.getWorkspaceId());
         if (req.resolution() == DriftResolution.OPEN) {
             throw new BadRequestException("Resolution cannot be OPEN");
         }

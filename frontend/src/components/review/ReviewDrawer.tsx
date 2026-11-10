@@ -262,6 +262,11 @@ export default function ReviewDrawer({
   }
 
   const missingSections = compliance?.missingHeadings ?? [];
+  // The sections a strict template refuses a publication for. The
+  // reviewer needs to see these apart from the optional ones — they
+  // are the ones that have to be fixed before publishing.
+  const missingRequiredSections = compliance?.missingRequiredHeadings ?? [];
+  const outOfOrderSections = compliance?.outOfOrderHeadings ?? [];
 
   /**
    * The reviews that came from the other tier.
@@ -332,7 +337,37 @@ export default function ReviewDrawer({
                 <CardContent>
                   <div className="flex flex-wrap gap-1.5">
                     {missingSections.map((h) => (
-                      <Badge key={h} variant="destructive">{h}</Badge>
+                      <Badge
+                        key={h}
+                        variant={missingRequiredSections.includes(h) ? 'destructive' : 'muted'}
+                        title={
+                          missingRequiredSections.includes(h)
+                            ? t('reviews.drawer.missingRequiredHint', 'Required — blocks the publication')
+                            : t('reviews.drawer.missingOptionalHint', 'Optional — does not block the publication')
+                        }
+                      >
+                        {h}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Sections that are all there, but not in the order the
+                template asks for. This never blocks a publication —
+                it is a stylistic remark. */}
+            {outOfOrderSections.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">
+                    {t('reviews.drawer.outOfOrderSections', 'Sections out of order')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-1.5">
+                    {outOfOrderSections.map((h) => (
+                      <Badge key={h} variant="warning">{h}</Badge>
                     ))}
                   </div>
                 </CardContent>

@@ -8,8 +8,10 @@ import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -18,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +38,15 @@ class AuthorizationServiceTest {
     private WorkspaceMemberRepository memberRepository;
     private PermissionService permissionService;
 
+    /**
+     * The permission codes the user under test holds.
+     *
+     * <p>Both the boolean query and the void guard read from this set,
+     * so the two can never disagree — which is exactly how the
+     * production {@link PermissionService} behaves.
+     */
+    private final Set<String> granted = new HashSet<>();
+
     private UUID userId;
     private UUID workspaceId;
 
@@ -52,9 +63,36 @@ class AuthorizationServiceTest {
         when(roleRepository.findActiveRoleCodesByUserId(any())).thenReturn(List.of());
         when(memberRepository.existsByWorkspaceIdAndUserId(any(), any())).thenReturn(false);
         when(memberRepository.findByWorkspaceIdAndUserId(any(), any())).thenReturn(Optional.empty());
-        // No permission by default — a user holds nothing until the
-        // matrix says otherwise.
-        when(permissionService.hasAnyPermission(any(), any(String[].class))).thenReturn(false);
+
+        // The boolean query answers from the granted set.
+        when(permissionService.hasAnyPermission(any(), any(String[].class)))
+                .thenAnswer(inv -> {
+                    for (Object arg : inv.getArguments()) {
+                        if (arg instanceof String[] codes) {
+                            for (String code : codes) {
+                                if (granted.contains(code)) {
+                                    return true;
+                                }
+                            }
+                        } else if (arg instanceof String code && granted.contains(code)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+
+        // The void guard refuses exactly like the real one when the
+        // user holds none of the requested codes.
+        doAnswer(inv -> {
+            UUID actor = inv.getArgument(0);
+            String[] requested = inv.getArgument(1, String[].class);
+            if (permissionService.hasAnyPermission(actor, requested)) {
+                return null;
+            }
+            throw new ForbiddenException(
+                    "This action requires one of these permissions: "
+                            + String.join(", ", requested));
+        }).when(permissionService).requireAnyPermission(any(), any(String[].class));
     }
 
     // -----------------------------------------------------------------
@@ -153,6 +191,48 @@ class AuthorizationServiceTest {
     }
 
     // -----------------------------------------------------------------
+    // documentation governance
+    // -----------------------------------------------------------------
+
+    @Test
+    void documentationGovernanceAcceptsTheWorkspaceManager() {
+        givenPlatformRoles("DEVELOPER");
+        givenMembership(WorkspaceRole.MANAGER);
+
+        assertDoesNotThrow(() -> service.requireDocumentationGovernance(userId, workspaceId));
+    }
+
+    @Test
+    void documentationGovernanceAcceptsTheDocumentationOwner() {
+        givenPlatformRoles("DEVELOPER");
+        givenMembership(WorkspaceRole.DOCUMENTATION_OWNER);
+
+        assertDoesNotThrow(() -> service.requireDocumentationGovernance(userId, workspaceId));
+    }
+
+    @Test
+    void documentationGovernanceRefusesAPlainMember() {
+        givenPlatformRoles("ADMIN");
+        givenMembership(WorkspaceRole.MEMBER);
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireDocumentationGovernance(userId, workspaceId));
+    }
+
+    /**
+     * The documentation owner owns the documentation, not the workspace.
+     * It must never satisfy a workspace-manager requirement.
+     */
+    @Test
+    void documentationOwnerIsNotAWorkspaceManager() {
+        givenPlatformRoles("ADMIN");
+        givenMembership(WorkspaceRole.DOCUMENTATION_OWNER);
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireWorkspaceManager(userId, workspaceId));
+    }
+
+    // -----------------------------------------------------------------
     // capabilities
     // -----------------------------------------------------------------
 
@@ -198,6 +278,25 @@ class AuthorizationServiceTest {
         assertTrue(caps.canManagerApprove());
         assertFalse(caps.workspaceManager(),
                 "technical leadership does not imply workspace administration");
+        assertFalse(caps.documentationOwner(),
+                "technical leadership does not imply workspace documentation ownership");
+    }
+
+    /**
+     * The documentation owner is reported separately from the workspace
+     * manager: it owns the templates, the doc-type workflows and the
+     * governance settings, but it does not administer the membership.
+     */
+    @Test
+    void documentationOwnerIsReportedSeparatelyFromTheManager() {
+        givenPlatformRoles("DEVELOPER");
+        givenMembership(WorkspaceRole.DOCUMENTATION_OWNER);
+
+        var caps = service.capabilities(userId, workspaceId);
+
+        assertTrue(caps.member());
+        assertTrue(caps.documentationOwner());
+        assertFalse(caps.workspaceManager());
     }
 
     /**
@@ -238,6 +337,59 @@ class AuthorizationServiceTest {
     }
 
     // -----------------------------------------------------------------
+    // drift resolution
+    // -----------------------------------------------------------------
+
+    /**
+     * Resolving a drift alert is a content judgement, so it needs the
+     * {@code DRIFT_RESOLVE} capability from the matrix.
+     */
+    @Test
+    void driftResolutionFollowsThePermissionMatrix() {
+        givenPlatformRoles("STAFF");
+        givenMembership(WorkspaceRole.MEMBER);
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireDriftResolver(userId, workspaceId));
+    }
+
+    @Test
+    void aHolderOfTheCapabilityMayResolveDriftAlerts() {
+        givenPlatformRoles("STAFF");
+        givenMembership(WorkspaceRole.MEMBER);
+        givenPermissions(PermissionCodes.DRIFT_RESOLVE);
+
+        assertDoesNotThrow(() -> service.requireDriftResolver(userId, workspaceId));
+    }
+
+    /**
+     * The capability alone is not enough: the AND rule still applies, so
+     * a reviewer who is not a member of the workspace cannot resolve an
+     * alert in it.
+     */
+    @Test
+    void theDriftCapabilityDoesNotReplaceMembership() {
+        givenPlatformRoles("STAFF");
+        givenNoMembership();
+        givenPermissions(PermissionCodes.DRIFT_RESOLVE);
+
+        assertThrows(ForbiddenException.class,
+                () -> service.requireDriftResolver(userId, workspaceId));
+    }
+
+    /**
+     * ADMIN keeps its blanket bypass — an operator must never be locked
+     * out of the platform's own review surface.
+     */
+    @Test
+    void adminBypassesTheDriftCapability() {
+        givenPlatformRoles("ADMIN");
+        givenMembership(WorkspaceRole.MEMBER);
+
+        assertDoesNotThrow(() -> service.requireDriftResolver(userId, workspaceId));
+    }
+
+    // -----------------------------------------------------------------
     // helpers
     // -----------------------------------------------------------------
 
@@ -255,23 +407,8 @@ class AuthorizationServiceTest {
      * everything after the user id, whatever shape it arrives in.
      */
     private void givenPermissions(String... codes) {
-        when(permissionService.hasAnyPermission(eq(userId), any(String[].class)))
-                .thenAnswer(inv -> {
-                    for (int i = 1; i < inv.getArguments().length; i++) {
-                        Object arg = inv.getArguments()[i];
-                        String[] requested = arg instanceof String[] arr
-                                ? arr
-                                : new String[]{(String) arg};
-                        for (String code : requested) {
-                            for (String granted : codes) {
-                                if (code.equals(granted)) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                    return false;
-                });
+        granted.clear();
+        granted.addAll(List.of(codes));
     }
 
     private void givenMembership(WorkspaceRole role) {

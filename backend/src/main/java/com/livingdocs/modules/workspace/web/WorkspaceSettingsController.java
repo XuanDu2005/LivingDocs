@@ -34,7 +34,7 @@ public class WorkspaceSettingsController {
 
     @PutMapping
     @RequirePermission({"GOVERNANCE_MANAGE"})
-    @Operation(summary = "Update workspace settings (Manager role required)")
+    @Operation(summary = "Update workspace settings (workspace Manager or Documentation Owner required)")
     public ResponseEntity<WorkspaceSettingsResponse> updateSettings(
             @PathVariable UUID workspaceId,
             @Valid @RequestBody UpdateWorkspaceSettingsRequest req) {

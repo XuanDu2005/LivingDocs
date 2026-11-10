@@ -11,6 +11,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -127,6 +128,28 @@ public class GlobalExceptionHandler {
         log.warn("Missing request parameter '{}' on {}", ex.getParameterName(), req.getRequestURI());
         return build(HttpStatus.BAD_REQUEST,
                 "Required parameter '" + ex.getParameterName() + "' is missing", req);
+    }
+
+    /**
+     * The request body could not be read.
+     *
+     * <p>Jackson raises this when the body is not JSON at all, or is
+     * JSON of the wrong shape — a string where an object was expected,
+     * a number where a UUID was expected, a truncated document. The
+     * caller made a mistake, so the answer is 400 and a message that
+     * says the body is malformed.
+     *
+     * <p>Without this handler the exception fell through to the
+     * catch-all below and answered 500, which told the caller their
+     * server was broken when in fact their request was. It also wrote
+     * a full stack trace into the log for what is a routine client
+     * error, which buried the failures that actually needed attention.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex,
+                                                          HttpServletRequest req) {
+        log.warn("Malformed request body on {}: {}", req.getRequestURI(), ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, "Request body is malformed or unreadable", req);
     }
 
     /**

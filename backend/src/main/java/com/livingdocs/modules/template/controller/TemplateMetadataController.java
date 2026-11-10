@@ -80,6 +80,15 @@ public class TemplateMetadataController {
             StringBuilder out = new StringBuilder();
             String titleHint = root.has("titleHint") ? root.get("titleHint").asText() : templateName;
             out.append("# ").append(titleHint).append("\n\n");
+            // The template-wide formatting rules are part of what the AI
+            // is told, so show them in the preview too — otherwise the
+            // user cannot tell whether the block they typed was picked up.
+            if (root.has("instructions") && !root.get("instructions").isNull()) {
+                String instructions = root.get("instructions").asText("").trim();
+                if (!instructions.isEmpty()) {
+                    out.append("> ").append(instructions).append("\n\n");
+                }
+            }
             if (root.has("sections") && root.get("sections").isArray()) {
                 for (com.fasterxml.jackson.databind.JsonNode sec : root.get("sections")) {
                     int level = sec.has("level") ? sec.get("level").asInt(2) : 2;

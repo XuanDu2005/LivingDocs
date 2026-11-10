@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import com.livingdocs.modules.template.model.OutputFormat;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -48,6 +49,30 @@ public class DocumentVersion {
 
     @Column(name = "body_markdown", nullable = false, columnDefinition = "text")
     private String bodyMarkdown;
+
+    /**
+     * The body rendered into the format the template asked for.
+     *
+     * <p>{@code body_markdown} stays the canonical representation —
+     * the review workflow, the template compliance check and the diff
+     * view all reason about markdown headings. This column carries the
+     * converted content ({@link OutputFormat#HTML} today) so a consumer
+     * that needs the published shape does not have to convert it again.
+     */
+    @Column(name = "rendered_body", columnDefinition = "text")
+    private String renderedBody;
+
+    /**
+     * The format {@link #renderedBody} is in.
+     *
+     * <p>Stored on the version rather than looked up from the template
+     * because templates are versioned: the template may be edited
+     * after the version was generated, and the version has to keep the
+     * shape it was produced with.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "output_format", nullable = false, length = 16)
+    private OutputFormat outputFormat = OutputFormat.MARKDOWN;
 
     @Column(name = "change_summary", length = 500)
     private String changeSummary;
@@ -149,6 +174,10 @@ public class DocumentVersion {
     public UUID getDocumentId() { return documentId; }
     public Integer getVersionNumber() { return versionNumber; }
     public String getBodyMarkdown() { return bodyMarkdown; }
+    public String getRenderedBody() { return renderedBody; }
+    public OutputFormat getOutputFormat() { return outputFormat; }
+    public void setRenderedBody(String renderedBody) { this.renderedBody = renderedBody; }
+    public void setOutputFormat(OutputFormat outputFormat) { this.outputFormat = outputFormat; }
     public String getChangeSummary() { return changeSummary; }
     public ActorRole getActorRole() { return actorRole; }
     public UUID getActorUserId() { return actorUserId; }

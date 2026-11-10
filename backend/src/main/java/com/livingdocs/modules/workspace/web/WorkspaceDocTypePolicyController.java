@@ -30,9 +30,11 @@ import java.util.UUID;
  * that applies to every other workspace.
  *
  * <p>Reading the list requires {@code GOVERNANCE_VIEW}; changing a row
- * requires {@code GOVERNANCE_MANAGE} <em>and</em> the workspace
- * {@code MANAGER} role — the capability says "may administer the
- * governance policy", the workspace role says "of this workspace".
+ * requires {@code GOVERNANCE_MANAGE} <em>and</em> a workspace role that
+ * owns the documentation governance — the workspace {@code MANAGER} or
+ * the workspace {@code DOCUMENTATION_OWNER}. The capability says "may
+ * administer the governance policy", the workspace role says "of this
+ * workspace".
  */
 @RestController
 @RequestMapping("/api/v1/workspaces/{workspaceId}/doc-type-policies")
@@ -56,7 +58,7 @@ public class WorkspaceDocTypePolicyController {
 
     @PutMapping("/{docType}")
     @RequirePermission({"GOVERNANCE_MANAGE"})
-    @Operation(summary = "Set the workflow this workspace applies to one doc type (workspace Manager required)")
+    @Operation(summary = "Set the workflow this workspace applies to one doc type (workspace Manager or Documentation Owner required)")
     public ResponseEntity<WorkspaceDocTypePolicyResponse> upsert(
             @PathVariable UUID workspaceId,
             @PathVariable String docType,

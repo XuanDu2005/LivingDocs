@@ -21,6 +21,7 @@ import AdminRepositoriesPage from '../pages/AdminRepositoriesPage';
 import AdminAiUsagePage from '../pages/AdminAiUsagePage';
 import AiSettingsIndexPage from '../pages/AiSettingsIndexPage';
 import DashboardPage from '../pages/DashboardPage';
+import DependencyGraphPage from '../pages/DependencyGraphPage';
 import DocumentDetailPage from '../pages/DocumentDetailPage';
 import DocumentsListPage from '../pages/DocumentsListPage';
 import DocUpdateRequestsPage from '../pages/DocUpdateRequestsPage';
@@ -49,6 +50,7 @@ import WorkspaceIntegrationsPage from '../pages/WorkspaceIntegrationsPage';
 import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 import AdminNotificationsPage from '../pages/AdminNotificationsPage';
+import ChangeLogPage from '../pages/ChangeLogPage';
 
 /**
  * Centralised route table. New pages should be added here and only here.
@@ -217,6 +219,14 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="/workspaces/:workspaceId/dependency-graph"
+          element={
+            <ProtectedRoute requireAnyPermission={['DEPENDENCY_GRAPH_VIEW']}>
+              <DependencyGraphPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/workspaces/:workspaceId/reviews"
           element={
             <ProtectedRoute>
@@ -261,6 +271,19 @@ export function AppRoutes() {
           element={
             <ProtectedRoute requireAnyPermission={['AUDIT_LOG_VIEW']}>
               <WorkspaceAuditLogPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* The workspace-level change log: every change of every
+            document, filterable by role, document, repository and date
+            range. It is the workspace-scoped sibling of the per-document
+            timeline, and it is gated by the same capability as the audit
+            trail — reading it means reading who changed what. */}
+        <Route
+          path="/workspaces/:workspaceId/change-log"
+          element={
+            <ProtectedRoute requireAnyPermission={['AUDIT_LOG_VIEW']}>
+              <ChangeLogPage />
             </ProtectedRoute>
           }
         />

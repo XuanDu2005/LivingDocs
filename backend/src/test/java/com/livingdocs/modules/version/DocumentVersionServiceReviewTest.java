@@ -4,11 +4,17 @@ import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.PermissionService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.modules.audit.service.AuditLogService;
 import com.livingdocs.modules.document.model.Document;
 import com.livingdocs.modules.document.repository.DocumentRepository;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
+import com.livingdocs.modules.template.model.DocTemplate;
+import com.livingdocs.modules.template.service.TemplateComplianceEvaluator;
+import com.livingdocs.modules.template.service.TemplateSchema;
+import com.livingdocs.modules.template.service.TemplateSchemaResolver;
+import com.livingdocs.modules.template.service.TemplateRenderer;
 import com.livingdocs.modules.version.model.ActorRole;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.model.VersionStatus;
@@ -23,6 +29,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -40,6 +47,8 @@ class DocumentVersionServiceReviewTest {
     private AuthorizationService authorizationService;
     private PermissionService permissionService;
     private AuditLogService auditLogService;
+    private TemplateSchemaResolver templateResolver;
+    private TemplateComplianceEvaluator complianceEvaluator;
     private DocumentVersionService service;
 
     private UUID actorId;
@@ -54,6 +63,9 @@ class DocumentVersionServiceReviewTest {
         authorizationService = mock(AuthorizationService.class);
         permissionService = mock(PermissionService.class);
         auditLogService = mock(AuditLogService.class);
+        templateResolver = mock(TemplateSchemaResolver.class);
+        complianceEvaluator = new TemplateComplianceEvaluator(
+                new TemplateSchema(new ObjectMapper()), new ObjectMapper());
 
         service = new DocumentVersionService(
                 versionRepository,
@@ -63,7 +75,10 @@ class DocumentVersionServiceReviewTest {
                 mock(PullRequestRepository.class),
                 authorizationService,
                 permissionService,
-                auditLogService);
+                auditLogService,
+                templateResolver,
+                complianceEvaluator,
+                new TemplateRenderer());
 
         // The repository hands back whatever it was given.
         when(versionRepository.save(any(DocumentVersion.class)))
@@ -78,6 +93,11 @@ class DocumentVersionServiceReviewTest {
         when(document.getId()).thenReturn(documentId);
         when(document.getWorkspaceId()).thenReturn(workspaceId);
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+
+        // By default the document has no template, so the publish guard
+        // has nothing to check.
+        when(templateResolver.resolveTemplate(any(Document.class), any()))
+                .thenReturn(null);
     }
 
     private DocumentVersion givenVersion(VersionStatus status, UUID author, Integer number) {
@@ -268,6 +288,223 @@ class DocumentVersionServiceReviewTest {
                 org.mockito.ArgumentMatchers.eq(actorId),
                 org.mockito.ArgumentMatchers.eq("DEVELOPER"),
                 org.mockito.ArgumentMatchers.eq("document.version.created"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    // -----------------------------------------------------------------
+    // Template compliance on publish
+    // -----------------------------------------------------------------
+
+    /**
+     * A template with the given JSON body.
+     */
+    private DocTemplate templateWith(String bodyJson) {
+        return new DocTemplate(
+                workspaceId,
+                "API reference",
+                "api-reference",
+                null,
+                "API_REFERENCE",
+                1,
+                bodyJson,
+                false,
+                actorId);
+    }
+
+    /**
+     * Make the resolved template of the document the given one.
+     */
+    private void givenTemplate(DocTemplate template) {
+        when(templateResolver.resolveTemplate(any(Document.class), any()))
+                .thenReturn(template);
+    }
+
+    /**
+     * A version whose body is the given markdown.
+     */
+    private DocumentVersion givenVersionWithBody(VersionStatus status, Integer number, String body) {
+        DocumentVersion version = mock(DocumentVersion.class);
+        when(version.getId()).thenReturn(UUID.randomUUID());
+        when(version.getDocumentId()).thenReturn(documentId);
+        when(version.getStatus()).thenReturn(status);
+        when(version.getVersionNumber()).thenReturn(number);
+        when(version.getBodyMarkdown()).thenReturn(body);
+        when(versionRepository.findByDocumentIdAndVersionNumber(documentId, number))
+                .thenReturn(Optional.of(version));
+        return version;
+    }
+
+    /**
+     * The headline rule: a version that does not follow the template it
+     * was generated from cannot become the published head.
+     *
+     * <p>The template is strict and asks for three sections; the body
+     * only carries two of them.
+     */
+    @Test
+    void aVersionThatDoesNotFollowItsTemplateCannotBePublished() {
+        givenTemplate(templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "api-surface", "heading": "API surface", "required": true },
+                    { "id": "testing", "heading": "Testing", "required": true }
+                  ]
+                }
+                """));
+        givenVersionWithBody(VersionStatus.APPROVED, 3, """
+                # Overview
+
+                text
+
+                # API surface
+
+                text
+                """);
+
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> service.publishVersion(actorId, documentId, 3));
+
+        assertTrue(ex.getMessage().contains("Testing"),
+                "the message names the section that is missing: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("API reference"),
+                "the message names the template: " + ex.getMessage());
+    }
+
+    /**
+     * A version that follows the template is published as before — the
+     * guard must not get in the way of a well-formed document.
+     */
+    @Test
+    void aVersionThatFollowsItsTemplateCanBePublished() {
+        givenTemplate(templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "api-surface", "heading": "API surface", "required": true }
+                  ]
+                }
+                """));
+        givenVersionWithBody(VersionStatus.APPROVED, 3, """
+                # Overview
+
+                text
+
+                # API surface
+
+                text
+                """);
+
+        service.publishVersion(actorId, documentId, 3);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("document.version.published"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    /**
+     * A template that is not strict only produces a warning — the
+     * publication goes through, and the trail records that the
+     * template was not followed.
+     */
+    @Test
+    void aNonStrictTemplateDoesNotBlockThePublication() {
+        givenTemplate(templateWith("""
+                {
+                  "strict": false,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true }
+                  ]
+                }
+                """));
+        givenVersionWithBody(VersionStatus.APPROVED, 3, "# Something else\n\ntext\n");
+
+        service.publishVersion(actorId, documentId, 3);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("document.version.published_noncompliant"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    /**
+     * The wrong order of the sections is a stylistic matter — it never
+     * blocks a publication, not even in a strict template.
+     */
+    @Test
+    void sectionsInTheWrongOrderDoNotBlockThePublication() {
+        givenTemplate(templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "api-surface", "heading": "API surface", "required": true }
+                  ]
+                }
+                """));
+        givenVersionWithBody(VersionStatus.APPROVED, 3, """
+                # API surface
+
+                text
+
+                # Overview
+
+                text
+                """);
+
+        service.publishVersion(actorId, documentId, 3);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("document.version.published"),
+                org.mockito.ArgumentMatchers.eq("document_version"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(workspaceId),
+                org.mockito.ArgumentMatchers.eq(documentId),
+                org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    /**
+     * A strict template whose <em>optional</em> section is missing does
+     * not block the publication either — only the required sections do.
+     */
+    @Test
+    void aMissingOptionalSectionDoesNotBlockThePublication() {
+        givenTemplate(templateWith("""
+                {
+                  "strict": true,
+                  "sections": [
+                    { "id": "overview", "heading": "Overview", "required": true },
+                    { "id": "notes", "heading": "Notes", "required": false }
+                  ]
+                }
+                """));
+        givenVersionWithBody(VersionStatus.APPROVED, 3, "# Overview\n\ntext\n");
+
+        service.publishVersion(actorId, documentId, 3);
+
+        org.mockito.Mockito.verify(auditLogService).record(
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("document.version.published_noncompliant"),
                 org.mockito.ArgumentMatchers.eq("document_version"),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.eq(workspaceId),

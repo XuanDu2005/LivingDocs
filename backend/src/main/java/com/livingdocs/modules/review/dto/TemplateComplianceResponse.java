@@ -1,5 +1,7 @@
 package com.livingdocs.modules.review.dto;
 
+import com.livingdocs.modules.template.service.TemplateComplianceEvaluator;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -19,9 +21,26 @@ import java.util.UUID;
 public record TemplateComplianceResponse(
         UUID templateId,
         String templateName,
+        /**
+         * Whether the template asks for its structure to be enforced when
+         * a version is published.
+         *
+         * <p>Set by the workspace on the template body ({@code strict}).
+         * When it is {@code false}, a version that is missing a section
+         * can still be published — the publication is only refused when
+         * the template asks for it.
+         */
+        boolean strict,
         boolean compliant,
         List<SectionCompliance> sections,
         List<String> missingHeadings,
+        /**
+         * The subset of {@code missingHeadings} that the template marks
+         * as required.
+         *
+         * <p>Only these block a publication in strict mode.
+         */
+        List<String> missingRequiredHeadings,
         List<String> outOfOrderHeadings
 ) {
     /**
@@ -42,5 +61,23 @@ public record TemplateComplianceResponse(
             boolean empty,
             boolean required
     ) {
+    }
+
+    /**
+     * Adapt the result of the pure evaluator to the wire format.
+     */
+    public static TemplateComplianceResponse from(TemplateComplianceEvaluator.Result result) {
+        return new TemplateComplianceResponse(
+                result.templateId(),
+                result.templateName(),
+                result.strict(),
+                result.compliant(),
+                result.sections().stream()
+                        .map(s -> new SectionCompliance(
+                                s.id(), s.heading(), s.present(), s.inOrder(), s.empty(), s.required()))
+                        .toList(),
+                result.missingHeadings(),
+                result.missingRequiredHeadings(),
+                result.outOfOrderHeadings());
     }
 }

@@ -42,6 +42,7 @@ import { driftApi } from '../services/drift';
 import { docSyncApi, DocScanResult } from '../services/docSync';
 import { aiApi, BulkGenerationJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
+import ImpactPanel from '../components/DependencyImpactPanel';
 import { describeError } from '../services/auth';
 import { usePermission } from '../hooks/usePermission';
 import { PermissionCodes } from '../services/permissions';
@@ -64,6 +65,10 @@ export default function RepositoryPage() {
     PermissionCodes.REPOSITORY_AUTO_UPDATE_MANAGE,
     PermissionCodes.MODULE_AUTO_UPDATE_MANAGE,
   );
+  // The impact analysis of a code entity reads the dependency graph.
+  // It is a separate capability from the auto-update toggles, and it
+  // is only rendered for a reader who holds it.
+  const canViewImpact = usePermission(PermissionCodes.DEPENDENCY_GRAPH_VIEW);
 
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -1906,6 +1911,18 @@ export default function RepositoryPage() {
                   when: new Date(entityDetail.ingestedAt).toLocaleString(),
                 })}
               </div>
+              {/* The impact analysis: what a change to this entity
+                  would invalidate. The backend enforces the same
+                  capability, so the section is simply hidden for a
+                  reader who may not use it. */}
+              {canViewImpact && (
+                <div className="border-t pt-3">
+                  <ImpactPanel
+                    workspaceId={workspaceId!}
+                    entityId={entityDetail.id}
+                  />
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>

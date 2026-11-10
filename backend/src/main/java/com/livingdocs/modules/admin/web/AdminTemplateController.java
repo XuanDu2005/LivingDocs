@@ -143,6 +143,12 @@ public class AdminTemplateController {
                 .orElseThrow(() -> new NotFoundException("Template version not found"));
         UUID newId = UUID.randomUUID();
         UUID actor = CurrentUser.requireId();
+        if (historical.isDefault()) {
+            // The rolled-back version inherits the default flag. Every other
+            // global default for this doc type has to be demoted first, or
+            // the unique partial index from V49 rejects the insert.
+            templateService.clearOtherDefaults(null, current.getDocType(), null);
+        }
         jdbc.update("INSERT INTO doc_templates (" +
                         "id, workspace_id, name, slug, description, doc_type, " +
                         "version, body, output_format, " +
@@ -198,10 +204,11 @@ public class AdminTemplateController {
         if (target.getWorkspaceId() != null) {
             throw new NotFoundException("Template is workspace-scoped, not global");
         }
-        // Clear any other default for the same docType.
-        jdbc.update("UPDATE doc_templates SET is_default = FALSE " +
-                        "WHERE workspace_id IS NULL AND doc_type = ? AND id <> ?",
-                target.getDocType(), templateId);
+        // Clear any other default for the same docType. The shared helper
+        // applies the same rule the workspace endpoint uses, so the
+        // "at most one default per (workspace, docType)" invariant also
+        // holds for the global rows.
+        templateService.clearOtherDefaults(null, target.getDocType(), templateId);
         // Promote the target.
         jdbc.update("UPDATE doc_templates SET is_default = TRUE, " +
                         "updated_at = NOW() WHERE id = ?", templateId);
@@ -224,6 +231,26 @@ public class AdminTemplateController {
             throw new BadRequestException("Template body is not valid JSON: " + e.getMessage());
         }
         schema.validate(normalisedBody);
+
+        // The global library applies the same output-format rule as the
+        // workspace templates: PDF is reserved for a future renderer and
+        // is rejected rather than silently stored.
+        templateService.requireSupportedOutputFormat(req.outputFormat() == null
+                ? current.getOutputFormat() : req.outputFormat());
+
+        if (req.isDefault()) {
+            // The new version becomes the platform default for this doc
+            // type. Demote every other global default first (the previous
+            // version of this same template included), otherwise the
+            // unique partial index from V49 rejects the insert.
+            templateService.clearOtherDefaults(null, current.getDocType(), null);
+        } else if (current.isDefault()) {
+            // The flag was switched off — the previous version must not
+            // keep it, or the template would silently stay the default.
+            jdbc.update("UPDATE doc_templates SET is_default = FALSE, updated_at = NOW() "
+                    + "WHERE slug = ? AND is_default = TRUE", current.getSlug());
+        }
+        em.clear();
 
         jdbc.update("INSERT INTO doc_templates (" +
                         "id, workspace_id, name, slug, description, doc_type, " +

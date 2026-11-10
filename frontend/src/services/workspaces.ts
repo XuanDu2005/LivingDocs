@@ -1,6 +1,14 @@
 import apiClient from './api';
 
-export type WorkspaceRole = 'MANAGER' | 'MEMBER';
+/**
+ * The role a member holds inside a workspace.
+ *
+ * <p>`DOCUMENTATION_OWNER` owns the documentation governance of the
+ * workspace (the templates, the doc-type workflows, the governance
+ * settings) without administering the membership. It grants nothing on
+ * its own — the `GOVERNANCE_MANAGE` capability still has to agree.
+ */
+export type WorkspaceRole = 'MANAGER' | 'DOCUMENTATION_OWNER' | 'MEMBER';
 
 export interface Workspace {
   id: string;

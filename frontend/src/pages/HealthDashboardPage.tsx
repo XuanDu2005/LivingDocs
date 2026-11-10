@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, FileText, ShieldAlert, TrendingUp, Server, Database, Cpu,
-  MemoryStick, CheckCircle2, XCircle, AlertCircle, Activity,
+  MemoryStick, CheckCircle2, XCircle, AlertCircle, Activity, Download,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -22,6 +22,11 @@ import { documentsApi, DocumentStatus } from '../services/documents';
 import { driftApi, DriftAlert, DriftSeverity } from '../services/drift';
 import { githubApi } from '../services/github';
 import { describeError } from '../services/auth';
+import {
+  exportComplianceReport,
+  exportHealthReport,
+  HealthExportFormat,
+} from '../services/healthExport';
 import { format } from 'date-fns';
 import apiClient from '../services/api';
 
@@ -85,6 +90,8 @@ export default function HealthDashboardPage() {
   const [healthLoading, setHealthLoading] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -161,6 +168,31 @@ export default function HealthDashboardPage() {
       .sort((a, b) => b.count - a.count).slice(0, 5);
   }, [drifts, repos]);
 
+  /**
+   * Download the health report (or the compliance report) of this
+   * workspace.
+   *
+   * <p>The export goes through the authenticated API client rather than
+   * `window.open`: the endpoint is behind the JWT, and a plain new tab
+   * would come back as a 401 page instead of the report.
+   */
+  async function runExport(kind: 'health' | 'compliance', format: HealthExportFormat) {
+    if (!workspaceId) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      if (kind === 'compliance') {
+        await exportComplianceReport(workspaceId, format);
+      } else {
+        await exportHealthReport(workspaceId, format);
+      }
+    } catch (err) {
+      setExportError(describeError(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (!workspaceId) return <EmptyState title={t('common.back')} />;
   if (loading) return <LoadingState message={t('health.loading')} />;
   if (error) return <ErrorState message={error} />;
@@ -191,10 +223,45 @@ export default function HealthDashboardPage() {
         </Link>
       </Button>
 
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t('health.title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('health.subtitle')}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{t('health.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('health.subtitle')}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={exporting}
+            onClick={() => void runExport('health', 'csv')}
+          >
+            <Download className="mr-1 h-3 w-3" />
+            {t('health.exportReportCsv', { defaultValue: 'Export report (CSV)' })}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={exporting}
+            onClick={() => void runExport('health', 'json')}
+          >
+            <Download className="mr-1 h-3 w-3" />
+            {t('health.exportReportJson', { defaultValue: 'Export JSON' })}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={exporting}
+            onClick={() => void runExport('compliance', 'csv')}
+          >
+            <Download className="mr-1 h-3 w-3" />
+            {t('health.exportComplianceCsv', { defaultValue: 'Export compliance (CSV)' })}
+          </Button>
+        </div>
       </div>
+
+      {exportError && (
+        <p className="text-sm text-destructive">{exportError}</p>
+      )}
 
       {/* System Health Section */}
       {systemHealth && (

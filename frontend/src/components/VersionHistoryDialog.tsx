@@ -17,10 +17,17 @@ interface VersionHistoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRollback?: () => void;
+  /**
+   * Whether the caller may change the template library of this
+   * workspace (workspace MANAGER or DOCUMENTATION_OWNER). When it is
+   * false, the dialog shows the history read-only — no rollback, no
+   * clone — because the API would refuse both anyway.
+   */
+  canEdit?: boolean;
 }
 
 export function VersionHistoryDialog({
-  workspaceId, templateId, open, onOpenChange, onRollback,
+  workspaceId, templateId, open, onOpenChange, onRollback, canEdit = false,
 }: VersionHistoryDialogProps) {
   const { t } = useTranslation();
   const [versions, setVersions] = useState<DocTemplate[]>([]);
@@ -110,7 +117,7 @@ export function VersionHistoryDialog({
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  {v.id !== templateId && (
+                  {canEdit && v.id !== templateId && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -126,11 +133,13 @@ export function VersionHistoryDialog({
           </div>
         )}
 
-        <div className="flex justify-end pt-2 border-t">
-          <Button variant="outline" onClick={() => void cloneTemplate()} disabled={busy === -1}>
-            <Copy className="mr-1 h-3 w-3" /> {t('versionHistory.cloneTemplate')}
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex justify-end pt-2 border-t">
+            <Button variant="outline" onClick={() => void cloneTemplate()} disabled={busy === -1}>
+              <Copy className="mr-1 h-3 w-3" /> {t('versionHistory.cloneTemplate')}
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

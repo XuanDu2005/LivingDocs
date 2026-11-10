@@ -25,6 +25,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springdoc.version>2.6.0</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <commonmark.version>0.22.0</commonmark.version>
     </properties>
 
     <dependencies>
@@ -131,6 +132,28 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- Markdown → HTML rendering.
+             The template's output_format is a live setting: a template can
+             ask for HTML and the generated document is converted before it
+             is stored. commonmark-java is the reference implementation of
+             the CommonMark spec; the GFM extensions add the tables and
+             struck-through text the AI writes regularly. -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>${commonmark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>${commonmark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-strikethrough</artifactId>
+            <version>${commonmark.version}</version>
         </dependency>
 
         <!-- OpenAPI / Swagger UI -->

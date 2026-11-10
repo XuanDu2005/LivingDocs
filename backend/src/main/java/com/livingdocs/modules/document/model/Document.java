@@ -141,4 +141,5 @@ public class Document {
     public void setPublishedAt(OffsetDateTime publishedAt) { this.publishedAt = publishedAt; }
     public void setRepositoryId(UUID repositoryId) { this.repositoryId = repositoryId; }
     public void setTemplateId(UUID templateId) { this.templateId = templateId; }
+    public void setOwnerId(UUID ownerId) { this.ownerId = ownerId; }
 }

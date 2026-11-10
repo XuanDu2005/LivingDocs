@@ -155,7 +155,24 @@ _TEMPLATE_EXTRAS = {
            "Consequences, Alternatives.",
     "ONBOARDING_GUIDE": "Write a guide for new engineers: architecture, how to run, "
                         "where things are, common workflows.",
+    "ARCHITECTURE": "Describe the components, their responsibilities, the data flow "
+                    "between them and the trust boundaries.",
 }
+
+
+def _normalise_template_key(template: str) -> str:
+    """Normalise a template identifier into a preset key.
+
+    The frontend sends a template *slug* (``default-api-reference``) while
+    the backend uses a canonical doc type (``API_REFERENCE``). Both have to
+    land on the same preset key, otherwise every workspace template
+    silently fell back to ``MODULE_GUIDE``.
+    """
+
+    key = (template or "MODULE_GUIDE").upper().replace("-", "_").strip()
+    if key.startswith("DEFAULT_"):
+        key = key[len("DEFAULT_"):]
+    return key or "MODULE_GUIDE"
 
 
 def _system_prompt_for_template(template: str,
@@ -169,51 +186,90 @@ def _system_prompt_for_template(template: str,
 
     if template_schema:
         return _system_prompt_from_schema(template, template_schema)
-    template = (template or "MODULE_GUIDE").upper()
-    return _BASE_SYSTEM_PROMPT + "\n\n" + _TEMPLATE_EXTRAS.get(
-        template, _TEMPLATE_EXTRAS["MODULE_GUIDE"])
+    preset = _TEMPLATE_EXTRAS.get(
+        _normalise_template_key(template), _TEMPLATE_EXTRAS["MODULE_GUIDE"])
+    return _BASE_SYSTEM_PROMPT + "\n\n" + preset
 
 
 def _system_prompt_from_schema(template: str,
-                                schema: dict[str, Any]) -> str:
+                               schema: dict[str, Any]) -> str:
     """Render a canonical template schema into a system prompt.
 
-    The schema is a JSON object with (at least) a ``name`` and a list of
-    ``sections``; each section has a ``heading`` and a
-    ``placeholder``/``instructions`` pair. Unknown keys are ignored so a
-    newer backend can add fields without breaking this service.
+    The canonical shape produced by the backend is::
+
+        {
+          "name": "API Reference",
+          "instructions": "Formatting rules ...",
+          "variables": [{"key": "moduleName", ...}],
+          "sections": [
+            {"id": "endpoints", "heading": "Endpoints", "level": 2,
+             "placeholders": [
+               {"key": "endpoints", "prompt": "List every public endpoint…",
+                "required": true, "maxWords": 80, "binding": "code.route"}
+             ]}
+          ]
+        }
+
+    The prompt of a placeholder lives on the *placeholder* — not on the
+    section — so that is where the guidance is read from. Reading it from
+    the section level (as an earlier revision did) silently produced an
+    empty guidance and the wrong ``required`` flag, which is exactly the
+    "template is passed but ignored" bug this renderer exists to fix.
+
+    Unknown keys are ignored so a newer backend can add fields without
+    breaking this service.
     """
 
-    name = str(schema.get("name") or template or "DOCUMENT")
+    name = str(schema.get("name") or schema.get("titleHint") or template or "DOCUMENT")
     sections = schema.get("sections") or []
-    instructions = schema.get("instructions") or ""
+    instructions = str(schema.get("instructions") or "").strip()
+    variables = schema.get("variables") or []
 
     parts = [
         _BASE_SYSTEM_PROMPT,
         "",
-        f"Follow the '{name}' documentation template exactly. "
+        f"Follow the '{name}' documentation template exactly.",
         "Emit one Markdown section per entry below, in the given order, "
         "using the heading text verbatim.",
     ]
     if instructions:
-        parts.append("")
-        parts.append(f"Template instructions: {instructions}")
+        parts += ["", f"Template instructions (formatting rules): {instructions}"]
+
+    variable_keys = [str(v.get("key")) for v in variables
+                     if isinstance(v, dict) and v.get("key")]
+    if variable_keys:
+        parts += ["", "Template variables to substitute in the title: "
+                  + ", ".join(variable_keys)]
 
     if sections:
-        parts.append("")
-        parts.append("## Required sections")
+        parts += ["", "## Required sections"]
         for idx, section in enumerate(sections, start=1):
             if not isinstance(section, dict):
                 continue
             heading = str(section.get("heading") or section.get("title") or f"Section {idx}")
-            placeholder = str(section.get("placeholder") or section.get("prompt") or "").strip()
-            required = section.get("required", True)
-            line = f"{idx}. ## {heading}"
-            if not required:
-                line += " (optional — omit when the source has nothing to say)"
-            parts.append(line)
-            if placeholder:
-                parts.append(f"   Guidance: {placeholder}")
+            level = int(section.get("level") or 2)
+            parts.append(f"{idx}. {'#' * max(1, min(6, level))} {heading}")
+            # The prompt of a placeholder lives on the placeholder itself.
+            placeholders = section.get("placeholders") or []
+            for ph in placeholders:
+                if not isinstance(ph, dict):
+                    continue
+                key = str(ph.get("key") or "")
+                prompt = str(ph.get("prompt") or "").strip()
+                required = bool(ph.get("required", False))
+                max_words = ph.get("maxWords")
+                binding = ph.get("binding")
+                bits = []
+                if required:
+                    bits.append("REQUIRED")
+                if max_words:
+                    bits.append(f"max {max_words} words")
+                if binding:
+                    bits.append(f"ground it in the code entity of type '{binding}'")
+                suffix = f" ({', '.join(bits)})" if bits else ""
+                parts.append(f"   - {key}{suffix}")
+                if prompt:
+                    parts.append(f"     Guidance: {prompt}")
     return "\n".join(parts)
 
 

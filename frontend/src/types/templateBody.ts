@@ -13,6 +13,13 @@ export interface Section {
   id: string;
   heading: string;
   level: 1 | 2 | 3 | 4 | 5 | 6;
+  /**
+   * Whether the section has to be present in the document.
+   *
+   * <p>Defaults to true. In a strict template, a missing required
+   * section blocks the publication of a version.
+   */
+  required?: boolean;
   placeholders: Placeholder[];
 }
 
@@ -25,6 +32,22 @@ export interface TemplateVariable {
 export interface TemplateBody {
   version: 1;
   titleHint?: string;
+  /**
+   * Free-form formatting rules applied to the whole document. The AI
+   * service pastes this verbatim into the system prompt, so it is the
+   * place for rules that span every section (tone, table style, ...).
+   */
+  instructions?: string;
+  /**
+   * Whether the template's structure is enforced when a version is
+   * published.
+   *
+   * <p>When true, a version that is missing one of the template's
+   * required sections cannot be published. When false (the default),
+   * such a version can still be published — the publication is only
+   * recorded as non-compliant.
+   */
+  strict?: boolean;
   sections: Section[];
   variables?: TemplateVariable[];
 }
@@ -51,6 +74,8 @@ export interface TemplateSchemaResponse {
 export const EMPTY_BODY: TemplateBody = {
   version: 1,
   titleHint: '',
+  instructions: '',
+  strict: false,
   sections: [],
   variables: [],
 };
@@ -66,11 +91,15 @@ export function jsonToBody(s: string): TemplateBody {
   return {
     version: 1,
     titleHint: typeof parsed.titleHint === 'string' ? parsed.titleHint : '',
+    instructions:
+      typeof parsed.instructions === 'string' ? parsed.instructions : '',
+    strict: typeof parsed.strict === 'boolean' ? parsed.strict : false,
     sections: Array.isArray(parsed.sections)
       ? parsed.sections.map((sec: any) => ({
           id: String(sec.id ?? ''),
           heading: String(sec.heading ?? ''),
           level: Number(sec.level ?? 2) as Section['level'],
+          required: sec.required === undefined ? true : Boolean(sec.required),
           placeholders: Array.isArray(sec.placeholders)
             ? sec.placeholders.map((p: any) => ({
                 key: String(p.key ?? ''),

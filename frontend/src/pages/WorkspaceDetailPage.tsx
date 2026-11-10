@@ -163,9 +163,11 @@ export default function WorkspaceDetailPage() {
       setName(ws.name);
       setDescription(ws.description ?? '');
 
-      // Load settings if user is manager of this workspace
+      // Load settings if the user manages the documentation governance
+      // of this workspace (workspace MANAGER or DOCUMENTATION_OWNER).
       const isWsManager = memberList.some(
-        (m) => m.userId === user?.id && m.role === 'MANAGER'
+        (m) => m.userId === user?.id
+          && (m.role === 'MANAGER' || m.role === 'DOCUMENTATION_OWNER')
       );
       if (isWsManager || (ws.ownerId && ws.ownerId === user?.id)) {
         try {
@@ -195,6 +197,17 @@ export default function WorkspaceDetailPage() {
   const isOwner = workspace && user && workspace.ownerId === user.id;
   const isManager = members.some((m) => m.userId === user?.id && m.role === 'MANAGER');
   const canManage = !!isManager || !!isOwner;
+  // The documentation owner owns the shape of the documentation of this
+  // workspace — the templates, the doc-type workflows and the governance
+  // settings — without administering the membership. It is not a
+  // workspace manager, so it does not get the member administration.
+  const isDocumentationOwner = members.some(
+    (m) => m.userId === user?.id && m.role === 'DOCUMENTATION_OWNER',
+  );
+  // Whether the caller may change the governance knobs of this
+  // workspace: the workspace role has to own the documentation
+  // governance, and the capability has to allow it.
+  const canManageDocumentation = canManage || isDocumentationOwner;
   // Connecting a repository only requires workspace membership on the
   // backend, so every member may do it. It used to be hidden behind
   // `canManage`, which made the workspace page refuse what the
@@ -375,9 +388,10 @@ export default function WorkspaceDetailPage() {
         </Card>
       )}
 
-      {/* Governance Settings Card - shown only to Managers who may also
-          change the governance knobs (GOVERNANCE_MANAGE). */}
-      {isManager && settings && canManageGovernance && (
+      {/* Governance Settings Card - shown to whoever owns the
+          documentation governance of this workspace and may also change
+          the governance knobs (GOVERNANCE_MANAGE). */}
+      {canManageDocumentation && settings && canManageGovernance && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Governance settings</CardTitle>
@@ -566,8 +580,13 @@ export default function WorkspaceDetailPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="MEMBER">Member</SelectItem>
-                            <SelectItem value="MANAGER">Manager</SelectItem>
+                            <SelectItem value="MEMBER">{t('workspaceDetail.roleMember')}</SelectItem>
+                            <SelectItem value="DOCUMENTATION_OWNER">
+                              {t('workspaceDetail.roleDocumentationOwner')}
+                            </SelectItem>
+                            <SelectItem value="MANAGER">
+                              {t('workspaceDetail.roleManager')}
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <Button
@@ -608,8 +627,11 @@ export default function WorkspaceDetailPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="MEMBER">Member</SelectItem>
-                    <SelectItem value="MANAGER">Manager</SelectItem>
+                    <SelectItem value="MEMBER">{t('workspaceDetail.roleMember')}</SelectItem>
+                    <SelectItem value="DOCUMENTATION_OWNER">
+                      {t('workspaceDetail.roleDocumentationOwner')}
+                    </SelectItem>
+                    <SelectItem value="MANAGER">{t('workspaceDetail.roleManager')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button type="submit" disabled={addingMember}>

@@ -16,6 +16,11 @@ export const PermissionCodes = {
   HEALTH_DASHBOARD_VIEW: 'HEALTH_DASHBOARD_VIEW',
   ANALYTICS_VIEW: 'ANALYTICS_VIEW',
   AUDIT_LOG_VIEW: 'AUDIT_LOG_VIEW',
+  /**
+   * Read the documentation-to-code dependency graph and the impact
+   * analysis of a code entity.
+   */
+  DEPENDENCY_GRAPH_VIEW: 'DEPENDENCY_GRAPH_VIEW',
 
   // ---- governance ----------------------------------------------------
   GOVERNANCE_VIEW: 'GOVERNANCE_VIEW',
@@ -53,6 +58,13 @@ export const PermissionCodes = {
   MODULE_AUTO_UPDATE_MANAGE: 'MODULE_AUTO_UPDATE_MANAGE',
   /** Run a drift detection pass. */
   DRIFT_DETECT_RUN: 'DRIFT_DETECT_RUN',
+  /**
+   * Resolve a drift alert — accept it, dismiss it or mark it fixed.
+   *
+   * <p>Distinct from `DRIFT_DETECT_RUN`: detecting drift is a machine
+   * action, resolving one is a judgement about the documentation.
+   */
+  DRIFT_RESOLVE: 'DRIFT_RESOLVE',
   /** Review the repository access scopes of the GitHub connection. */
   GITHUB_SCOPE_VIEW: 'GITHUB_SCOPE_VIEW',
   /** Change the repository access scopes of the GitHub connection. */

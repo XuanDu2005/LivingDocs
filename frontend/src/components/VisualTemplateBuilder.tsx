@@ -52,7 +52,7 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
         ...b,
         sections: [
           ...b.sections,
-          { id, heading: 'New section', level: 2, placeholders: [] },
+          { id, heading: 'New section', level: 2, required: true, placeholders: [] },
         ],
       };
     });
@@ -111,6 +111,52 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
           placeholder={t('templates.builder.titleHintPlaceholder', 'e.g. Module Guide — {{moduleName}}')}
         />
       </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="builder-instructions">
+          {t('templates.builder.instructionsLabel', 'AI formatting instructions')}
+        </Label>
+        <textarea
+          id="builder-instructions"
+          value={body.instructions ?? ''}
+          onChange={(e) => update((b) => ({ ...b, instructions: e.target.value }))}
+          rows={3}
+          maxLength={2000}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          placeholder={t(
+            'templates.builder.instructionsHint',
+            'Rules applied to the whole document, e.g. "Use tables for parameter lists and British English."',
+          )}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            'templates.builder.instructionsHint',
+            'Rules applied to the whole document, e.g. "Use tables for parameter lists and British English."',
+          )}
+        </p>
+      </div>
+
+      {/* Strictness. The workspace decides whether the template's
+          structure is a hard rule at publish time or only a hint. */}
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={!!body.strict}
+          onChange={(e) => update((b) => ({ ...b, strict: e.target.checked }))}
+          className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+        />
+        <span>
+          <span className="font-medium">
+            {t('templates.builder.strictLabel', 'Enforce structure on publish')}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {t(
+              'templates.builder.strictHint',
+              'A version that is missing a required section of this template cannot be published. When off, such a version can still be published and is only recorded as non-compliant.',
+            )}
+          </span>
+        </span>
+      </label>
 
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Sections ({body.sections.length})</h3>
@@ -183,6 +229,19 @@ export function VisualTemplateBuilder({ body, onChange }: VisualTemplateBuilderP
                     </select>
                   </div>
                 </div>
+
+                {/* A required section has to be in the document. In a
+                    strict template, a version that misses it cannot be
+                    published. */}
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={section.required !== false}
+                    onChange={(e) => patchSection(sIdx, { required: e.target.checked })}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {t('templates.builder.sectionRequiredLabel', 'Required section')}
+                </label>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">

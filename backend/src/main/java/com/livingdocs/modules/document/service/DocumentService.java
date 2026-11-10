@@ -206,10 +206,29 @@ public class DocumentService {
         String previousSummary = d.getSummary();
         UUID previousRepositoryId = d.getRepositoryId();
         UUID previousTemplateId = d.getTemplateId();
+        UUID previousOwnerId = d.getOwnerId();
         boolean previousAutoUpdate = d.isAutoUpdateEnabled();
 
         d.setTitle(req.title());
-        d.setSummary(req.summary());
+        // The summary follows the same rule as the repository and the
+        // template: a null means "leave it alone". It used to be
+        // written on every update, which meant a caller that only
+        // wanted to change the title silently erased the summary —
+        // the field was indistinguishable from the ones that were
+        // never sent.
+        //
+        // Clearing it is still possible, and it is done explicitly: an
+        // empty string means "there is no summary". A blank string is
+        // normalised to null so the column does not carry an empty
+        // string that reads as a summary everywhere else.
+        boolean summaryChanged = false;
+        if (req.summary() != null) {
+            String newSummary = req.summary().isBlank() ? null : req.summary();
+            if (!Objects.equals(previousSummary, newSummary)) {
+                d.setSummary(newSummary);
+                summaryChanged = true;
+            }
+        }
         if (req.repositoryId() != null) {
             d.setRepositoryId(req.repositoryId());
         }
@@ -217,6 +236,25 @@ public class DocumentService {
             d.setTemplateId(req.templateId());
         }
         d.setAutoUpdateEnabled(req.autoUpdateEnabled());
+
+        // Reassigning the owner is a separate act from editing the
+        // document, and it is guarded more strictly: only a workspace
+        // manager may do it. The owner themselves may edit the
+        // document, but handing it to somebody else is a management
+        // decision — otherwise any member could pass the document on
+        // and shed the responsibility that comes with it.
+        //
+        // The new owner has to be a member of the workspace. A
+        // document owned by somebody outside the workspace could
+        // never be edited by anybody, because the ownership rule
+        // above only lets the owner or a manager through.
+        boolean ownerChanged = false;
+        if (req.ownerId() != null && !req.ownerId().equals(previousOwnerId)) {
+            workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+            workspaceService.requireMember(req.ownerId(), workspaceId);
+            d.setOwnerId(req.ownerId());
+            ownerChanged = true;
+        }
 
         // The metadata of a document is part of what the Manager reviews,
         // so a change to it belongs in the trail. Only the fields that
@@ -227,7 +265,7 @@ public class DocumentService {
         if (!Objects.equals(previousTitle, req.title())) {
             changes.put("titleChanged", true);
         }
-        if (!Objects.equals(previousSummary, req.summary())) {
+        if (summaryChanged) {
             changes.put("summaryChanged", true);
         }
         if (req.repositoryId() != null && !req.repositoryId().equals(previousRepositoryId)) {
@@ -238,6 +276,15 @@ public class DocumentService {
         }
         if (previousAutoUpdate != req.autoUpdateEnabled()) {
             changes.put("autoUpdateEnabled", req.autoUpdateEnabled());
+        }
+        // A change of owner names both the old and the new owner. Only
+        // the new one would leave the trail ambiguous — the old owner
+        // is the person who lost the responsibility, and the trail has
+        // to say who it was.
+        if (ownerChanged) {
+            changes.put("ownerIdChanged", true);
+            changes.put("previousOwnerId", previousOwnerId.toString());
+            changes.put("ownerId", d.getOwnerId().toString());
         }
         auditLogService.record(actorId, actorRoleFor(actorId).name(),
                 "document.updated", "document", documentId.toString(),

@@ -46,7 +46,12 @@ public class WorkspaceSettingsService {
     @Transactional
     public WorkspaceSettingsResponse updateSettings(UUID workspaceId, UUID actorId,
                                                      UpdateWorkspaceSettingsRequest req) {
-        workspaceService.requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        // The workspace role says "of this workspace"; the
+        // GOVERNANCE_MANAGE capability on the endpoint says "may
+        // administer the governance policy at all". A workspace
+        // DOCUMENTATION_OWNER passes the first one, a workspace MANAGER
+        // passes both.
+        workspaceService.requireDocumentationGovernance(actorId, workspaceId);
 
         if (!VALID_DRIFT_THRESHOLDS.contains(req.driftSeverityThreshold())) {
             throw new IllegalArgumentException(
