@@ -120,7 +120,29 @@ public class WorkspaceService {
     @Transactional
     public WorkspaceMember addMember(UUID actorId, UUID workspaceId, AddMemberRequest req) {
         requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        return addMemberInternal(workspaceId, req);
+    }
 
+    /**
+     * Add a member to a workspace <em>without</em> the workspace-role
+     * guard.
+     *
+     * <p>This is the cross-tenant variant used by the platform
+     * administrator, who is not (and need not be) a member of the
+     * workspace they are administering. The domain rules are the
+     * ones of {@link #addMember}: the user has to exist, and the
+     * user must not already be a member. Only the
+     * {@code MANAGER}-of-this-workspace requirement is dropped, and
+     * that requirement is a workspace-level one — the platform level
+     * is enforced separately by the {@code ADMIN} guard on the
+     * endpoint.
+     */
+    @Transactional
+    public WorkspaceMember addMemberAsAdmin(UUID workspaceId, AddMemberRequest req) {
+        return addMemberInternal(workspaceId, req);
+    }
+
+    private WorkspaceMember addMemberInternal(UUID workspaceId, AddMemberRequest req) {
         String normalized = req.email().toLowerCase(Locale.ROOT);
         User user = userRepository.findByEmailIgnoreCase(normalized)
                 .orElseThrow(() -> new NotFoundException("No user with that email"));
@@ -139,10 +161,45 @@ public class WorkspaceService {
         return memberRepository.findAllByWorkspaceId(workspaceId);
     }
 
+    /**
+     * List the members of a workspace <em>without</em> the membership
+     * guard.
+     *
+     * <p>Cross-tenant variant for the platform administrator: the
+     * administrator may not be a member of the workspace they are
+     * inspecting, and that must not stop them from seeing who is.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<WorkspaceMember> listMembersAsAdmin(UUID workspaceId) {
+        return memberRepository.findAllByWorkspaceId(workspaceId);
+    }
+
     @Transactional
     public WorkspaceMember updateMemberRole(UUID actorId, UUID workspaceId, UUID userId,
                                              com.livingdocs.modules.workspace.dto.UpdateMemberRoleRequest req) {
         requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        return updateMemberRoleInternal(workspaceId, userId, req);
+    }
+
+    /**
+     * Change a member's workspace role <em>without</em> the
+     * workspace-role guard.
+     *
+     * <p>Cross-tenant variant for the platform administrator. The
+     * invariant that protects the workspace owner is kept: the owner
+     * cannot be demoted below {@code MANAGER}, because the owner is
+     * the account the {@code workspaces.owner_id} foreign key points
+     * at and demoting it would silently strip the workspace of the
+     * only administrator it is guaranteed to have.
+     */
+    @Transactional
+    public WorkspaceMember updateMemberRoleAsAdmin(UUID workspaceId, UUID userId,
+                                                     com.livingdocs.modules.workspace.dto.UpdateMemberRoleRequest req) {
+        return updateMemberRoleInternal(workspaceId, userId, req);
+    }
+
+    private WorkspaceMember updateMemberRoleInternal(UUID workspaceId, UUID userId,
+                                                      com.livingdocs.modules.workspace.dto.UpdateMemberRoleRequest req) {
         WorkspaceMember member = memberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
                 .orElseThrow(() -> new NotFoundException("Member not found"));
 
@@ -158,6 +215,23 @@ public class WorkspaceService {
     @Transactional
     public void removeMember(UUID actorId, UUID workspaceId, UUID userId) {
         requireRole(actorId, workspaceId, WorkspaceRole.MANAGER);
+        removeMemberInternal(workspaceId, userId);
+    }
+
+    /**
+     * Remove a member from a workspace <em>without</em> the
+     * workspace-role guard.
+     *
+     * <p>Cross-tenant variant for the platform administrator. The
+     * owner is still protected: removing them would leave the
+     * workspace pointing at a membership row that no longer exists.
+     */
+    @Transactional
+    public void removeMemberAsAdmin(UUID workspaceId, UUID userId) {
+        removeMemberInternal(workspaceId, userId);
+    }
+
+    private void removeMemberInternal(UUID workspaceId, UUID userId) {
         WorkspaceMember member = memberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
                 .orElseThrow(() -> new NotFoundException("Member not found"));
 

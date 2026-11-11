@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkspaceServiceTest {
@@ -130,6 +131,144 @@ class WorkspaceServiceTest {
         assertThrows(NotFoundException.class,
                 () -> service.addMember(alice, wsId,
                         new AddMemberRequest("nobody@example.com", WorkspaceRole.MEMBER)));
+    }
+
+    // -----------------------------------------------------------------
+    // The administrator's cross-tenant variants
+    //
+    // These drop the "you must be a MANAGER of this workspace"
+    // requirement — a platform administrator may not be a member of the
+    // workspace they administer — but keep every domain rule.
+    // -----------------------------------------------------------------
+
+    /**
+     * The admin variant adds a member even though the actor is not a
+     * member of the workspace at all.
+     */
+    @Test
+    void addMemberAsAdmin_doesNotRequireWorkspaceMembership() {
+        UUID wsId = UUID.randomUUID();
+        Workspace ws = newWorkspace(wsId, alice);
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(ws));
+        when(memberRepo.existsByWorkspaceIdAndUserId(wsId, bob)).thenReturn(false);
+        when(memberRepo.save(any(WorkspaceMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        WorkspaceMember member = service.addMemberAsAdmin(wsId,
+                new AddMemberRequest("bob@example.com", WorkspaceRole.MEMBER));
+
+        assertEquals(bob, member.getUserId());
+        assertEquals(WorkspaceRole.MEMBER, member.getRole());
+    }
+
+    /**
+     * The domain rule survives: the user has to exist.
+     */
+    @Test
+    void addMemberAsAdmin_unknownEmailThrowsNotFound() {
+        UUID wsId = UUID.randomUUID();
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(newWorkspace(wsId, alice)));
+        when(userRepo.findByEmailIgnoreCase("nobody@example.com")).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class,
+                () -> service.addMemberAsAdmin(wsId,
+                        new AddMemberRequest("nobody@example.com", WorkspaceRole.MEMBER)));
+    }
+
+    /**
+     * The domain rule survives: a user cannot be a member twice.
+     */
+    @Test
+    void addMemberAsAdmin_duplicateMembershipThrowsConflict() {
+        UUID wsId = UUID.randomUUID();
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(newWorkspace(wsId, alice)));
+        when(memberRepo.existsByWorkspaceIdAndUserId(wsId, bob)).thenReturn(true);
+
+        assertThrows(ConflictException.class,
+                () -> service.addMemberAsAdmin(wsId,
+                        new AddMemberRequest("bob@example.com", WorkspaceRole.MEMBER)));
+    }
+
+    /**
+     * The members are listed without the membership check.
+     */
+    @Test
+    void listMembersAsAdmin_doesNotRequireWorkspaceMembership() {
+        UUID wsId = UUID.randomUUID();
+        when(memberRepo.findAllByWorkspaceId(wsId)).thenReturn(List.of(
+                member(wsId, alice, WorkspaceRole.MANAGER),
+                member(wsId, bob, WorkspaceRole.MEMBER)));
+
+        List<WorkspaceMember> members = service.listMembersAsAdmin(wsId);
+
+        assertEquals(2, members.size());
+    }
+
+    /**
+     * The role change goes through without the workspace-manager
+     * requirement.
+     */
+    @Test
+    void updateMemberRoleAsAdmin_doesNotRequireWorkspaceMembership() {
+        UUID wsId = UUID.randomUUID();
+        Workspace ws = newWorkspace(wsId, alice);
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(ws));
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, bob))
+                .thenReturn(Optional.of(member(wsId, bob, WorkspaceRole.MEMBER)));
+
+        WorkspaceMember promoted = service.updateMemberRoleAsAdmin(wsId, bob,
+                new UpdateMemberRoleRequest(WorkspaceRole.MANAGER));
+
+        assertEquals(WorkspaceRole.MANAGER, promoted.getRole());
+    }
+
+    /**
+     * The owner is protected: it cannot be demoted below MANAGER, not
+     * even by the administrator.
+     */
+    @Test
+    void updateMemberRoleAsAdmin_cannotDemoteTheOwner() {
+        UUID wsId = UUID.randomUUID();
+        Workspace ws = newWorkspace(wsId, alice);
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(ws));
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.MANAGER)));
+
+        assertThrows(BadRequestException.class,
+                () -> service.updateMemberRoleAsAdmin(wsId, alice,
+                        new UpdateMemberRoleRequest(WorkspaceRole.MEMBER)));
+    }
+
+    /**
+     * The owner is protected: it cannot be removed, not even by the
+     * administrator.
+     */
+    @Test
+    void removeMemberAsAdmin_cannotRemoveTheOwner() {
+        UUID wsId = UUID.randomUUID();
+        Workspace ws = newWorkspace(wsId, alice);
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(ws));
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, alice))
+                .thenReturn(Optional.of(member(wsId, alice, WorkspaceRole.MANAGER)));
+
+        assertThrows(BadRequestException.class,
+                () -> service.removeMemberAsAdmin(wsId, alice));
+    }
+
+    /**
+     * A plain member is removed without the workspace-manager
+     * requirement.
+     */
+    @Test
+    void removeMemberAsAdmin_removesAPlainMember() {
+        UUID wsId = UUID.randomUUID();
+        Workspace ws = newWorkspace(wsId, alice);
+        WorkspaceMember victim = member(wsId, bob, WorkspaceRole.MEMBER);
+        when(workspaceRepo.findById(wsId)).thenReturn(Optional.of(ws));
+        when(memberRepo.findByWorkspaceIdAndUserId(wsId, bob)).thenReturn(Optional.of(victim));
+
+        service.removeMemberAsAdmin(wsId, bob);
+
+        verify(memberRepo).delete(victim);
     }
 
     @Test

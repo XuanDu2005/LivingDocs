@@ -1,5 +1,7 @@
 // Domain types shared across the admin feature.
 
+import { WorkspaceRole } from '../services/workspaces';
+
 export interface Role {
   id: string;
   code: string;
@@ -46,6 +48,19 @@ export interface RolePermissionMatrix {
 
 export interface UpdateRolePermissionsPayload {
   grantedPermissionIds: string[];
+}
+
+/**
+ * The editable presentation of a platform role.
+ *
+ * <p>The `code` is deliberately absent: it is the identifier that
+ * JWTs, audit payloads and permission grants refer to, so it is
+ * immutable from the API.
+ */
+export interface UpdateRoleMetadataPayload {
+  name?: string;
+  description?: string | null;
+  displayOrder?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,4 +221,22 @@ export interface AdminWorkspace {
   managerCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A member of a workspace, seen from the administrator's side.
+ *
+ * <p>`owner` marks the account the `workspaces.owner_id` foreign key
+ * points at. The owner cannot be demoted below `MANAGER` nor removed,
+ * so the UI disables those two actions on that row.
+ */
+export interface AdminWorkspaceMember {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  userEmail: string | null;
+  displayName: string | null;
+  role: WorkspaceRole;
+  owner: boolean;
+  joinedAt: string;
 }

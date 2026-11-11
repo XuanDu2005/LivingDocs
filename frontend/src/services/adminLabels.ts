@@ -14,6 +14,32 @@ export function roleName(code: string, fallback: string, t: TFunction): string {
   return t(`roleLabels.${code}.name`, { defaultValue: fallback });
 }
 
+/**
+ * Whether a role's stored presentation has been customised by an
+ * administrator.
+ *
+ * <p>The `roleLabels.*` i18n namespace carries the seeded,
+ * translated name of every built-in role. Once an administrator
+ * edits a role through the admin console, the stored value diverges
+ * from the seed — and the i18n label would then silently mask the
+ * edit, showing the administrator the old name for a role they just
+ * renamed.
+ *
+ * <p>Comparing the two is enough to detect that: the seeded name is
+ * the one the translation was written for, so a difference means the
+ * stored value was changed.
+ */
+export function isRoleCustomised(
+  code: string,
+  storedName: string | null | undefined,
+  t: TFunction,
+): boolean {
+  if (!storedName) return false;
+  const localised = t(`roleLabels.${code}.name`, { defaultValue: '' });
+  if (!localised) return false;
+  return localised !== storedName;
+}
+
 export function roleDescription(
   code: string,
   fallback: string | null | undefined,

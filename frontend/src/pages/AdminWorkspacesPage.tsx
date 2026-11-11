@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, ExternalLink, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, RefreshCw, Search, Trash2, Users } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
@@ -11,7 +11,11 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
+import AdminWorkspaceMembersCard from '../components/admin/AdminWorkspaceMembersCard';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
 import { AdminWorkspace } from '../types/admin';
@@ -31,6 +35,9 @@ export default function AdminWorkspacesPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('');
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // The workspace whose membership panel is open.
+  const [membersOf, setMembersOf] = useState<AdminWorkspace | null>(null);
 
   async function load() {
     setLoading(true);
@@ -143,7 +150,7 @@ export default function AdminWorkspacesPage() {
                     {t('adminWorkspaces.colManagers')}
                   </TableHead>
                   <TableHead>{t('adminWorkspaces.colCreated')}</TableHead>
-                  <TableHead className="w-[140px] text-right">
+                  <TableHead className="w-[200px] text-right">
                     {t('adminWorkspaces.colActions')}
                   </TableHead>
                 </TableRow>
@@ -172,6 +179,14 @@ export default function AdminWorkspacesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setMembersOf(w)}
+                        >
+                          <Users className="mr-1 h-4 w-4" />
+                          {t('adminWorkspaces.manageMembers')}
+                        </Button>
                         <Button size="sm" variant="ghost" asChild>
                           <Link to={`/workspaces/${w.id}`}>
                             <ExternalLink className="mr-1 h-4 w-4" />
@@ -197,6 +212,33 @@ export default function AdminWorkspacesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Membership panel for the selected workspace. */}
+      <Dialog
+        open={membersOf !== null}
+        onOpenChange={(open) => { if (!open) setMembersOf(null); }}
+      >
+        <DialogContent className="max-w-3xl">
+          {membersOf && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {t('adminWorkspaces.membersTitle')} · {membersOf.name}
+                </DialogTitle>
+                <DialogDescription>
+                  {t('adminWorkspaces.membersDesc')}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[70vh] overflow-y-auto pr-1">
+                <AdminWorkspaceMembersCard
+                  workspace={membersOf}
+                  onChanged={() => void load()}
+                />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
