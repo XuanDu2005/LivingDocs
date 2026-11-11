@@ -91,7 +91,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+pytest-report.xml
 *.egg-info/
 .tox/
 .venv/

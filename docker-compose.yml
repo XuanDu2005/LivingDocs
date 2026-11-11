@@ -77,14 +77,28 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
+      # `kafka-topics --list` has to open a broker connection and read the
+      # metadata log, which routinely takes longer than 10s on a cold or
+      # busy broker. A 10s timeout made the container report "unhealthy"
+      # even though the broker was serving perfectly well — `docker compose
+      # ps` then showed a false negative and `depends_on: service_healthy`
+      # could block the backend from starting.
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 40s
     networks:
       - livingdocs-net
 
   backend:
+    # The image reference is built from IMAGE_REPOSITORY + IMAGE_TAG so the
+    # same compose file runs the locally-built image (no variables set) and
+    # the published one (set by the deploy pipeline).
+    #
+    # IMAGE_REPOSITORY is the full prefix, e.g. `ghcr.io/acme/livingdocs`
+    # in a deployment and `livingdocs` for a local build.
+    image: ${IMAGE_REPOSITORY:-livingdocs}/backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -171,6 +185,7 @@ services:
       - livingdocs-net
 
   ai-service:
+    image: ${IMAGE_REPOSITORY:-livingdocs}/ai-service:${IMAGE_TAG:-latest}
     build:
       context: ./ai-service
       dockerfile: Dockerfile
@@ -204,6 +219,7 @@ services:
       - livingdocs-net
 
   frontend:
+    image: ${IMAGE_REPOSITORY:-livingdocs}/frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile

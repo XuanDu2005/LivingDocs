@@ -51,16 +51,24 @@ class KnowledgeBase:
         return len(chunks)
 
     def remove_document(self, document_id: str) -> int:
-        removed = 0
-        for key in list(self.store._docs.keys()):
-            if key.startswith(f"{document_id}:"):
-                self.store.delete(key)
-                removed += 1
-        return removed
+        """Remove every chunk of a document from the vector store.
+
+        <p>The store is backed by PostgreSQL + pgvector, so the chunks are
+        deleted with a single prefix query. It used to walk an in-memory
+        ``_docs`` dictionary that the store no longer has — every call
+        raised ``AttributeError``, which surfaced as a 500 on the
+        ``DELETE /knowledge/index/{id}`` endpoint and left stale chunks
+        in the index forever.
+        """
+        return self.store.delete_document(document_id)
 
     def search(self, *, query: str, workspace_id: Optional[str] = None,
                top_k: int = 5) -> List[RetrievalHit]:
-        results = self.store.search(query, top_k=top_k)
+        # The workspace scope is pushed down into SQL. Filtering in Python
+        # after the LIMIT would take the globally closest chunks first and
+        # then discard the ones from other workspaces — leaking another
+        # tenant's content whenever the top-k is shared between them.
+        results = self.store.search(query, top_k=top_k, workspace_id=workspace_id)
         hits: List[RetrievalHit] = []
         for doc, score in results:
             if workspace_id and doc.metadata.get("workspace_id") != workspace_id:

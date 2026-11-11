@@ -37,6 +37,10 @@ repo:
 > governance rules that gate automated publishing, and the operations that
 > keep secrets safe.
 
+> **See [docs/ci-cd.md](./docs/ci-cd.md)** for how the platform is built,
+> tested and deployed: the CI jobs, the Flyway migration check, and the
+> configuration a deployment needs.
+
 ---
 
 ## Architecture

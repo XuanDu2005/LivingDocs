@@ -23,6 +23,28 @@ def _hash_token(token: str, dim: int) -> int:
     return int.from_bytes(h[:4], "big") % dim
 
 
+def _as_uuid(value: object) -> str | None:
+    """Return ``value`` as a UUID string, or ``None`` when it is not one.
+
+    <p>The ``workspace_id`` and ``document_id`` columns of
+    ``knowledge_chunks`` are typed ``UUID``. A caller may hand over a
+    free-form label (the platform's own tests use ``"doc-1"``), and
+    Postgres rejects such a value with an "invalid input syntax for type
+    uuid" error that aborts the whole statement. Dropping the value is
+    safe: the label is preserved in the JSON ``metadata`` column, which
+    is where the search reads the workspace scope from.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(uuid.UUID(text))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 @dataclass
 class EmbeddingVector:
     values: List[float]
@@ -90,44 +112,85 @@ class VectorStore:
     def upsert(self, *, text: str, metadata: dict | None = None, doc_id: str | None = None) -> StoredDocument:
         did = doc_id or str(uuid.uuid4())
         embedding = self.embedder.embed(text)
-        
+
         workspace_id = metadata.get("workspace_id") if metadata else None
         document_id = metadata.get("document_id") if metadata else None
-        
+
+        # `workspace_id` and `document_id` are typed UUID columns. A caller that
+        # indexes a document outside the platform (the AI service's own tests, the
+        # health probe) may pass a non-UUID label such as "doc-1"; inserting that
+        # verbatim aborts the whole statement with an "invalid input syntax for
+        # type uuid" error. The labels are kept in the JSON metadata, which is
+        # where the search actually reads them from, so dropping them from the
+        # typed columns loses nothing.
+        workspace_id = _as_uuid(workspace_id)
+        document_id = _as_uuid(document_id)
+
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO knowledge_chunks (id, workspace_id, document_id, content, embedding, metadata)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO UPDATE 
-                    SET content = EXCLUDED.content, 
-                        embedding = EXCLUDED.embedding, 
+                    ON CONFLICT (id) DO UPDATE
+                    SET content = EXCLUDED.content,
+                        embedding = EXCLUDED.embedding,
                         metadata = EXCLUDED.metadata;
                 """, (did, workspace_id, document_id, text, embedding.values, Json(metadata or {})))
             conn.commit()
-            
+
         return StoredDocument(id=did, text=text, embedding=embedding, metadata=dict(metadata or {}))
 
     def delete(self, doc_id: str) -> None:
+        """Delete every chunk that belongs to the given document.
+
+        <p>Chunk ids are written as ``"{document_id}:{chunk_index}"`` by
+        :meth:`upsert`, so a prefix match removes exactly the chunks of
+        one document and never touches another one.
+        """
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                # Delete all chunks that belong to the document (assuming chunk IDs are prefixed with the document ID)
                 cur.execute("DELETE FROM knowledge_chunks WHERE id LIKE %s", (f"{doc_id}:%",))
             conn.commit()
 
-    def search(self, query: str, *, top_k: int = 5) -> List[tuple[StoredDocument, float]]:
-        qvec = self.embedder.embed(query)
-        
+    def delete_document(self, document_id: str) -> int:
+        """Delete all chunks of a document and report how many were removed.
+
+        <p>The number is the row count of the delete, which lets the
+        caller distinguish "the document was not indexed" (0) from
+        "the document was indexed and has now been removed" (> 0).
+        """
         with self._get_connection() as conn:
             with conn.cursor() as cur:
-                # Use the pgvector operator `<=>` for cosine distance and order by it to get the most similar chunks
+                cur.execute(
+                    "DELETE FROM knowledge_chunks WHERE id LIKE %s", (f"{document_id}:%",))
+                removed = cur.rowcount or 0
+            conn.commit()
+        return removed
+
+    def search(self, query: str, *, top_k: int = 5,
+               workspace_id: str | None = None) -> List[tuple[StoredDocument, float]]:
+        qvec = self.embedder.embed(query)
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                # Use the pgvector operator `<=>` for cosine distance and order by it to get the most similar chunks.
+                #
+                # The workspace filter is applied in SQL, not in Python. Filtering after the
+                # LIMIT would take the globally closest chunks first and then throw away
+                # the ones belonging to other workspaces — which leaks the existence and the
+                # content of another tenant's documents whenever the top-k is shared.
+                # The filter reads `metadata->>'workspace_id'` rather than the typed
+                # `workspace_id` column because the value arrives as a string and the
+                # column is a UUID: a malformed value would make Postgres abort the whole
+                # query with an "invalid input syntax for type uuid" error.
                 cur.execute("""
                     SELECT id, content, metadata, (embedding <=> %s::vector) AS distance
                     FROM knowledge_chunks
+                    WHERE (%s::text IS NULL) OR (metadata->>'workspace_id' = %s::text)
                     ORDER BY distance ASC
                     LIMIT %s;
-                """, (qvec.values, top_k))
-                
+                """, (qvec.values, workspace_id, workspace_id, top_k))
+
                 results = []
                 for row in cur.fetchall():
                     doc = StoredDocument(id=row[0], text=row[1], embedding=EmbeddingVector([]), metadata=row[2])

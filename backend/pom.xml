@@ -26,6 +26,7 @@
         <springdoc.version>2.6.0</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
         <commonmark.version>0.22.0</commonmark.version>
+        <flyway.version>10.10.0</flyway.version>
     </properties>
 
     <dependencies>
@@ -194,6 +195,31 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Flyway plugin — lets CI validate the migrations without
+                 booting the whole application.
+
+                 `mvn flyway:validate` checks that every migration file
+                 has a valid checksum and that the migrations are applied
+                 in the right order. `mvn flyway:info` prints the schema
+                 version and the pending migrations. Both are used by the
+                 CI workflow to fail a build that ships a broken or
+                 conflicting migration, before the application is even
+                 started. -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <configuration>
+                    <url>${env.SPRING_DATASOURCE_URL}</url>
+                    <user>${env.SPRING_DATASOURCE_USERNAME}</user>
+                    <password>${env.SPRING_DATASOURCE_PASSWORD}</password>
+                    <locations>
+                        <location>filesystem:${project.basedir}/src/main/resources/db/migration</location>
+                    </locations>
+                    <baselineOnMigrate>true</baselineOnMigrate>
                 </configuration>
             </plugin>
         </plugins>

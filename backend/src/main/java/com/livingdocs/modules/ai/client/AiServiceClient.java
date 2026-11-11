@@ -138,6 +138,7 @@ public class AiServiceClient {
                     documentId, title, body, docType, workspaceId, metadata);
             return restClient.post()
                     .uri(props.getApiPrefix() + "/knowledge/index")
+                    .headers(this::applyInternalToken)
                     .body(req)
                     .retrieve()
                     .body(AiDtos.IndexResponse.class);
@@ -153,6 +154,7 @@ public class AiServiceClient {
             restClient.delete()
                     .uri(UriComponentsBuilder.fromPath(props.getApiPrefix() + "/knowledge/index/{id}")
                             .buildAndExpand(documentId).toUri())
+                    .headers(this::applyInternalToken)
                     .retrieve()
                     .toBodilessEntity();
             return true;
@@ -168,6 +170,7 @@ public class AiServiceClient {
             AiDtos.SearchRequest req = new AiDtos.SearchRequest(query, workspaceId, topK);
             return restClient.post()
                     .uri(props.getApiPrefix() + "/knowledge/search")
+                    .headers(this::applyInternalToken)
                     .body(req)
                     .retrieve()
                     .body(AiDtos.SearchResponse.class);
@@ -184,6 +187,24 @@ public class AiServiceClient {
     // ------------------------------------------------------------------
     // headers
     // ------------------------------------------------------------------
+
+    /**
+     * Present the shared secret to the AI service.
+     *
+     * <p>The knowledge and AST endpoints of the AI service carry a
+     * workspace's indexed content and source code, so they are guarded by
+     * the same internal token as {@code /generate} and {@code /drift}. The
+     * token is presented on its own — these calls do not need the
+     * per-workspace provider configuration, because the knowledge base
+     * uses the platform's embedding provider rather than a workspace's
+     * LLM.
+     */
+    private void applyInternalToken(HttpHeaders headers) {
+        String internalToken = props.getInternalToken();
+        if (internalToken != null && !internalToken.isBlank()) {
+            headers.set("X-Ai-Internal-Token", internalToken);
+        }
+    }
 
     /**
      * Propagate the workspace's AI configuration to the AI service.

@@ -1,0 +1,303 @@
+name: Deploy
+
+# ============================================================================
+# LivingDocs — deploy.
+#
+# The deploy pipeline is deliberately separate from the build pipeline:
+# CI runs on every push and must stay fast and free of credentials, while
+# a deploy runs rarely and touches a real environment.
+#
+# Two deployment targets are supported:
+#
+#   staging   — on a push to `main`. Deploys the images built by CI and
+#               runs the smoke tests against the deployed stack.
+#   production— on a release (`workflow_dispatch` with the `production`
+#               flag, or a pushed version tag). Same pipeline, but the
+#               images are tagged with the release version and the
+#               smoke test failures block the rollout.
+#
+# The environment (staging / production) holds the secrets. They are
+# never stored in this file and never printed by the jobs.
+# ============================================================================
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, production]
+      production:
+        description: "Confirm the production rollout"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+  deployments: write
+
+concurrency:
+  # A production rollout must never run at the same time as another one.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  # The full image prefix the compose file resolves. It must match the
+  # tag the build-and-push job publishes, so the deployment host can
+  # `docker compose pull` the images it is about to run.
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Resolve what is being deployed
+  # ---------------------------------------------------------------------
+  resolve:
+    name: Resolve the target
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      is_production: ${{ steps.resolve.outputs.is_production }}
+
+    steps:
+      - name: Work out the environment and the image tag
+        id: resolve
+        env:
+          DISPATCH_ENVIRONMENT: ${{ inputs.environment }}
+          DISPATCH_PRODUCTION: ${{ inputs.production }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$REF" = "refs/heads/main" ]; then
+            ENVIRONMENT="staging"
+            TAG="staging-$SHA"
+            IS_PRODUCTION="false"
+          elif [[ "$REF" == refs/tags/v* ]]; then
+            ENVIRONMENT="production"
+            TAG="${REF#refs/tags/}"
+            IS_PRODUCTION="true"
+          else
+            ENVIRONMENT="${DISPATCH_ENVIRONMENT:-staging}"
+            TAG="$SHA"
+            IS_PRODUCTION="false"
+          fi
+
+          # A manual production rollout has to be confirmed explicitly.
+          if [ "$DISPATCH_ENVIRONMENT" = "production" ] || [ "$DISPATCH_PRODUCTION" = "true" ]; then
+            ENVIRONMENT="production"
+            IS_PRODUCTION="true"
+            if [ -n "${DISPATCH_ENVIRONMENT:-}" ] && [ "$DISPATCH_PRODUCTION" != "true" ]; then
+              echo "::error::A production rollout needs the 'production' confirmation flag."
+              exit 1
+            fi
+          fi
+
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PRODUCTION" >> "$GITHUB_OUTPUT"
+          echo "Deploying to $ENVIRONMENT with tag $TAG"
+
+  # ---------------------------------------------------------------------
+  # Build and push the images
+  # ---------------------------------------------------------------------
+  build-and-push:
+    name: Build & push images
+    needs: resolve
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+          - image: ai-service
+            context: ./ai-service
+            dockerfile: ./ai-service/Dockerfile
+          - image: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.resolve.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:latest
+          labels: |
+            org.opencontainers.image.title=LivingDocs ${{ matrix.image }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # ---------------------------------------------------------------------
+  # Deploy and smoke-test
+  # ---------------------------------------------------------------------
+  deploy:
+    name: Deploy to ${{ needs.resolve.outputs.environment }}
+    needs: [resolve, build-and-push]
+    runs-on: ubuntu-latest
+    # The environment holds the deployment secrets and the protection
+    # rules (required reviewers for production, branch restrictions).
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+      url: ${{ vars.DEPLOY_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The deployment target is a Docker host. The workflow reaches it
+      # over SSH and drives the compose file that is already on the
+      # machine, so the deployed stack is the same one the developers run
+      # locally — one compose file, two places.
+      - name: Set up SSH access to the deployment host
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          echo "DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
+          echo "DEPLOY_USER=$DEPLOY_USER" >> "$GITHUB_ENV"
+          echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
+
+      # The compose file on the host resolves the image reference from
+      # IMAGE_REPOSITORY + IMAGE_TAG. The file is copied over so the
+      # deployed stack always runs the same compose definition as the
+      # repository — there is no second copy to drift out of sync.
+      - name: Copy the compose file to the deployment host
+        run: |
+          set -euo pipefail
+          scp docker-compose.yml "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/docker-compose.yml"
+
+      - name: Deploy the stack
+        env:
+          IMAGE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          export IMAGE_TAG="$IMAGE_TAG"
+          export IMAGE_REPOSITORY="$IMAGE_REPOSITORY"
+          # Pull first: a failed pull must abort the rollout before the
+          # running containers are touched.
+          docker compose pull
+          docker compose up -d --remove-orphans
+          REMOTE
+
+      - name: Wait for the stack to become healthy
+        env:
+          WAIT_SECONDS: "180"
+        run: |
+          set -euo pipefail
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          deadline=$(( $(date +%s) + 180 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            unhealthy=$(docker compose ps --format '{{.Service}} {{.Health}}' \
+              | awk '$2 != "" && $2 != "healthy" { print $1 }' || true)
+            if [ -z "$unhealthy" ]; then
+              echo "All services are healthy."
+              docker compose ps
+              exit 0
+            fi
+            echo "Waiting for: $unhealthy"
+            sleep 5
+          done
+          echo "::error::The stack did not become healthy in time."
+          docker compose ps
+          docker compose logs --tail 100
+          exit 1
+          REMOTE
+
+      - name: Smoke test
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          set -euo pipefail
+
+          check() {
+            local name="$1" url="$2" expected="$3"
+            local status
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo "000")
+            if [ "$status" != "$expected" ]; then
+              echo "::error::$name returned $status (expected $expected) at $url"
+              return 1
+            fi
+            echo "$name -> $status"
+          }
+
+          check "Backend health"    "$BACKEND_URL/api/v1/health" "200"
+          check "AI service health" "$AI_SERVICE_URL/api/v1/health" "200"
+          check "Frontend"          "$FRONTEND_URL/" "200"
+
+          # The OpenAPI document must be reachable — it is the contract
+          # third parties consume.
+          check "OpenAPI" "$BACKEND_URL/v3/api-docs" "200"
+
+      - name: Report the deployment
+        if: always()
+        env:
+          IS_PRODUCTION: ${{ needs.resolve.outputs.is_production }}
+        run: |
+          {
+            echo "### Deployment"
+            echo ""
+            echo "- Environment: \`${{ needs.resolve.outputs.environment }}\`"
+            echo "- Tag: \`${{ needs.resolve.outputs.tag }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Production: \`${{ needs.resolve.outputs.is_production }}\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

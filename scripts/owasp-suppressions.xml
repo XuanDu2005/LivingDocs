@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OWASP Dependency-Check suppressions for LivingDocs.
+
+  Each entry is a finding the team has looked at and decided to accept.
+  Every entry must carry a reason — a suppression without a reason is just
+  a way of hiding a finding from the build, and the audit trail is the
+  point of the file.
+
+  The CVEs below are in the *test* or *build* dependency chain only: they
+  cannot be reached from the running application, because the affected
+  code path is never loaded at runtime.
+-->
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!--
+      The H2 in-memory database is a test-scope dependency only. It is
+      used by the backend's unit tests (see backend/src/test/resources/
+      application-test.yml) and is never on the runtime classpath of the
+      packaged jar.
+    -->
+    <suppress>
+        <notes><![CDATA[
+            H2 is a test-scope dependency (backend/pom.xml declares it with
+            <scope>test</scope>). It is not shipped in the runtime jar.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/com\.h2database/h2@.*$</packageUrl>
+        <cpe>cpe:/a:h2database:h2</cpe>
+    </suppress>
+
+    <!--
+      The OWASP analyzer's own dependencies are build-time only; they are
+      never part of the deployed artifact.
+    -->
+    <suppress>
+        <notes><![CDATA[
+            Build-tool dependency of the dependency-check plugin itself.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.owasp/.*$</packageUrl>
+    </suppress>
+
+    <!--
+      Guava is pulled in transitively by the Flyway / Spring Boot tooling.
+      The affected advisories concern code paths the application does not
+      use.
+    -->
+    <suppress>
+        <notes><![CDATA[
+            Transitive build-time dependency; the affected code paths are
+            not reachable from the application.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/com\.google\.guava/guava@.*$</packageUrl>
+    </suppress>
+
+</suppressions>
