@@ -3,8 +3,7 @@ import { Route, Routes as RRoutes } from 'react-router-dom';
 import { GuestRoute, ProtectedRoute, AuthCallbackRoute } from '../components/ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import AboutPage from '../pages/AboutPage';
-import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';
-import AdminAnalyticsPage from '../pages/AdminAnalyticsPage';
+import AdminAiSettingsPage from '../pages/AdminAiSettingsPage';import AdminAnalyticsPage from '../pages/AdminAnalyticsPage';
 import AdminAuditRetentionPage from '../pages/AdminAuditRetentionPage';
 import AdminAuditLogPage from '../pages/AdminAuditLogPage';
 import AdminAutoUpdatePage from '../pages/AdminAutoUpdatePage';
@@ -51,6 +50,7 @@ import WorkspacesPage from '../pages/WorkspacesPage';
 import AdminWorkspacesPage from '../pages/AdminWorkspacesPage';
 import AdminNotificationsPage from '../pages/AdminNotificationsPage';
 import ChangeLogPage from '../pages/ChangeLogPage';
+import ChangePasswordPage from '../pages/ChangePasswordPage';
 
 /**
  * Centralised route table. New pages should be added here and only here.
@@ -135,6 +135,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <NotificationPreferencesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile/change-password"
+          element={
+            <ProtectedRoute>
+              <ChangePasswordPage />
             </ProtectedRoute>
           }
         />

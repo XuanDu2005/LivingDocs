@@ -41,6 +41,15 @@ public record UserResponse(
         String avatarUrl,
         boolean enabled,
         boolean emailVerified,
+        /**
+         * Whether the account still has to replace a temporary
+         * password.
+         *
+         * <p>The front-end uses it to send the account owner straight
+         * to the password-change screen instead of letting them wander
+         * into a part of the application the API would refuse.
+         */
+        boolean mustChangePassword,
         OffsetDateTime createdAt,
         List<String> roles,
         List<String> permissions,
@@ -91,6 +100,7 @@ public record UserResponse(
                 avatarUrl,
                 user.isEnabled(),
                 user.isEmailVerified(),
+                user.isMustChangePassword(),
                 user.getCreatedAt(),
                 roles == null ? List.of() : List.copyOf(roles),
                 permissions == null ? List.of() : List.copyOf(permissions),

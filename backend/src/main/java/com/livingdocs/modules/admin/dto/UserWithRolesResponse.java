@@ -10,6 +10,11 @@ import java.util.UUID;
  * <p>{@code avatarUrl} is the public URL of the user's profile picture
  * (or {@code null} when they have not uploaded one) so the admin user
  * table can render the avatar without a second round-trip.
+ *
+ * <p>{@code mustChangePassword} marks an account that still carries a
+ * temporary credential: it has to replace it before it can use anything
+ * but its own profile. The admin table shows it so the administrator
+ * knows why an account cannot be used yet.
  */
 public record UserWithRolesResponse(
         UUID id,
@@ -17,6 +22,7 @@ public record UserWithRolesResponse(
         String displayName,
         String avatarUrl,
         boolean enabled,
+        boolean mustChangePassword,
         OffsetDateTime createdAt,
         List<String> roles
 ) {}

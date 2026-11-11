@@ -137,23 +137,29 @@ public class SecurityConfig {
     }
 
     /**
-     * Register the {@link PlatformRoleInterceptor} and the
-     * {@link PermissionInterceptor} so that controllers annotated with
-     * {@link RequirePlatformRole} / {@link RequirePermission} are
-     * protected.
+     * Register the {@link PlatformRoleInterceptor}, the
+     * {@link PermissionInterceptor} and the
+     * {@link PasswordChangeRequiredInterceptor} so that controllers
+     * annotated with {@link RequirePlatformRole} / {@link
+     * RequirePermission} are protected, and so an account with a
+     * temporary password is confined to the password-change screen.
      *
-     * <p>Both are registered in a single configurer so their order is
-     * deterministic: the role guard runs first, so a role-guard failure
-     * reports the role requirement rather than a permission code.
+     * <p>All three are registered in a single configurer so their order
+     * is deterministic: the role guard runs first, so a role-guard
+     * failure reports the role requirement rather than a permission
+     * code; the password-change guard runs last, so it only sees
+     * requests that were otherwise allowed.
      */
     @Bean
     public WebMvcConfigurer authorizationMvcConfigurer(PlatformRoleInterceptor roleInterceptor,
-                                                       PermissionInterceptor permissionInterceptor) {
+                                                       PermissionInterceptor permissionInterceptor,
+                                                       PasswordChangeRequiredInterceptor passwordChangeInterceptor) {
         return new WebMvcConfigurer() {
             @Override
             public void addInterceptors(InterceptorRegistry registry) {
                 registry.addInterceptor(roleInterceptor);
                 registry.addInterceptor(permissionInterceptor);
+                registry.addInterceptor(passwordChangeInterceptor);
             }
         };
     }

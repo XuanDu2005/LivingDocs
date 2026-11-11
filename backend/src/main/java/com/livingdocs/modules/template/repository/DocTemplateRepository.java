@@ -33,6 +33,16 @@ public interface DocTemplateRepository extends JpaRepository<DocTemplate, UUID> 
     List<DocTemplate> findAllBySlugOrderByVersionDesc(String slug);
 
     /**
+     * How many templates this user created.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code doc_templates.created_by} foreign key is {@code ON DELETE
+     * RESTRICT}, so an account that still created a template cannot be
+     * deleted.
+     */
+    long countByCreatedBy(UUID createdBy);
+
+    /**
      * Update the JSONB {@code body} column with an explicit cast so
      * Postgres accepts the {@code String} value. Hibernate's default
      * binding sends {@code varchar}, which the server refuses to coerce.

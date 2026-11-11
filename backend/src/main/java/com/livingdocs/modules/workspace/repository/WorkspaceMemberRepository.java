@@ -23,4 +23,7 @@ public interface WorkspaceMemberRepository extends JpaRepository<WorkspaceMember
     long countByWorkspaceId(UUID workspaceId);
 
     long countByWorkspaceIdAndRole(UUID workspaceId, WorkspaceRole role);
+
+    /** How many workspaces this user is a member of. */
+    long countByUserId(UUID userId);
 }

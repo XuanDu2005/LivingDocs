@@ -46,6 +46,14 @@ export function NotificationBell({ compact = false }: NotificationBellProps) {
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
+    // An account that still holds a temporary password is refused by
+    // the API for everything except its own profile, so asking for
+    // notifications would only produce a 403 every ten seconds.
+    if (authStorage.getUser()?.mustChangePassword) {
+      setItems([]);
+      setCount(0);
+      return;
+    }
     try {
       const [list, unread] = await Promise.all([
         notificationsApi.list(false),
@@ -76,6 +84,14 @@ export function NotificationBell({ compact = false }: NotificationBellProps) {
   // is re-established automatically with exponential-ish backoff on
   // error so it survives transient network drops.
   useEffect(() => {
+    // The stream is refused while the account still holds a temporary
+    // password, and the reconnect loop would keep trying for as long
+    // as the account stayed in that state. There is nothing to
+    // receive anyway: the person cannot act on a notification until
+    // they have replaced the password.
+    if (authStorage.getUser()?.mustChangePassword) {
+      return;
+    }
     const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)
       ?? 'http://localhost:8080/api/v1';
     const baseUrl = apiBase.replace(/\/api\/v1\/?$/, '');

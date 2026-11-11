@@ -7,8 +7,10 @@ import {
   AdminWorkspace,
   AssignRolesPayload,
   AuditRetentionPolicy,
+  CreateUserPayload,
   DailyUsagePoint,
   Permission,
+  ResetUserPasswordPayload,
   Role,
   RolePermissionMatrix,
   UpdateAdminLimitsPayload,
@@ -65,6 +67,43 @@ export const adminApi = {
   // Enable / disable user
   setUserEnabled: async (userId: string, enabled: boolean): Promise<void> => {
     await apiClient.put(`/admin/users/${userId}/enabled`, { enabled });
+  },
+
+  // ---- user lifecycle ----
+
+  /**
+   * Create a platform account with a temporary password.
+   *
+   * <p>The account lands in the "must change password" state: the
+   * temporary credential only gets the new user to the login screen.
+   */
+  createUser: async (payload: CreateUserPayload): Promise<UserWithRoles> => {
+    const { data } = await apiClient.post<UserWithRoles>('/admin/users', payload);
+    return data;
+  },
+
+  /**
+   * Replace a user's password with one the administrator chose.
+   *
+   * <p>The account's other sessions are revoked and it is flagged as
+   * needing a password change, so the owner replaces the credential.
+   */
+  resetUserPassword: async (
+    userId: string,
+    payload: ResetUserPasswordPayload,
+  ): Promise<UserWithRoles> => {
+    const { data } = await apiClient.post<UserWithRoles>(
+      `/admin/users/${userId}/reset-password`,
+      payload,
+    );
+    return data;
+  },
+
+  /**
+   * Delete a platform account.
+   */
+  deleteUser: async (userId: string): Promise<void> => {
+    await apiClient.delete(`/admin/users/${userId}`);
   },
 
   // Audit retention

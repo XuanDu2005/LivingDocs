@@ -36,4 +36,14 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
     long countByWorkspaceId(UUID workspaceId);
 
     long countByWorkspaceIdAndStatus(UUID workspaceId, DocumentStatus status);
+
+    /**
+     * How many documents this user owns.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code documents.owner_id} foreign key is {@code ON DELETE
+     * RESTRICT}, so an account that still owns a document cannot be
+     * deleted until the ownership is transferred.
+     */
+    long countByOwnerId(UUID ownerId);
 }

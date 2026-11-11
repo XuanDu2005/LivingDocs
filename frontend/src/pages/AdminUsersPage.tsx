@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ShieldCheck, ShieldOff, UserCog, Users, Search, X,
+  KeyRound, ShieldCheck, ShieldOff, Trash2, UserCog, UserPlus, Users, Search, X,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from '../components/ui/card';
@@ -19,6 +20,7 @@ import {
 import {
   Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
+import { PasswordInput } from '../components/ui/password-input';
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { UserAvatar } from '../components/user/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +30,14 @@ import { roleName } from '../services/adminLabels';
 import { Role, UserWithRoles } from '../types/admin';
 import { format } from 'date-fns';
 
+/**
+ * The platform user administration surface.
+ *
+ * <p>Beyond listing users and toggling their roles, an administrator
+ * can run the full account lifecycle here: create an account with a
+ * temporary password, reset a password that was lost, and delete an
+ * account that is no longer needed.
+ */
 export default function AdminUsersPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { user } = useAuth();
@@ -179,6 +189,7 @@ export default function AdminUsersPage() {
                 </SelectContent>
               </Select>
             </div>
+            <CreateUserDialog roles={roles} onCreated={load} />
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -228,9 +239,16 @@ export default function AdminUsersPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={u.enabled ? 'success' : 'destructive'}>
-                      {u.enabled ? t('adminUsers.active') : t('adminUsers.disabled')}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge variant={u.enabled ? 'success' : 'destructive'}>
+                        {u.enabled ? t('adminUsers.active') : t('adminUsers.disabled')}
+                      </Badge>
+                      {u.mustChangePassword && (
+                        <Badge variant="warning" className="text-[10px]">
+                          <KeyRound className="mr-1 h-3 w-3" /> {t('adminUsers.mustChangePassword')}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                     {u.createdAt ? format(new Date(u.createdAt), 'MMM d, yyyy') : '—'}
@@ -303,6 +321,8 @@ export default function AdminUsersPage() {
                         </DialogContent>
                       </Dialog>
 
+                      <ResetPasswordDialog target={u} onDone={load} />
+
                       <Button
                         size="sm"
                         variant={u.enabled ? 'outline' : 'default'}
@@ -315,6 +335,8 @@ export default function AdminUsersPage() {
                           ? <><ShieldOff className="mr-1 h-3 w-3" /> {t('adminUsers.disable')}</>
                           : <><ShieldCheck className="mr-1 h-3 w-3" /> {t('adminUsers.enable')}</>}
                       </Button>
+
+                      <DeleteUserDialog target={u} onDone={load} />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -338,5 +360,355 @@ export default function AdminUsersPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Create a platform account.
+ *
+ * <p>The password entered here is temporary: the account owner has to
+ * replace it before they can use the account, so the credential the
+ * administrator hands over never becomes the permanent one.
+ */
+function CreateUserDialog({
+  roles,
+  onCreated,
+}: {
+  roles: Role[];
+  onCreated: () => Promise<void> | void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+
+  function reset() {
+    setEmail('');
+    setDisplayName('');
+    setPassword('');
+    setConfirm('');
+    setSelectedRoles([]);
+    setError(null);
+  }
+
+  function toggleRole(code: string) {
+    setSelectedRoles((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  }
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (password.length < 12) {
+      setError(t('adminUsers.passwordTooShort'));
+      return;
+    }
+    if (password !== confirm) {
+      setError(t('adminUsers.passwordMismatch'));
+      return;
+    }
+    if (selectedRoles.length === 0) {
+      setError(t('adminUsers.needAtLeastOneRole'));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await adminApi.createUser({
+        email: email.trim(),
+        displayName: displayName.trim(),
+        temporaryPassword: password,
+        roles: selectedRoles,
+      });
+      await onCreated();
+      setOpen(false);
+      reset();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" className="h-9">
+          <UserPlus className="mr-1 h-4 w-4" /> {t('adminUsers.createUser')}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('adminUsers.createUser')}</DialogTitle>
+          <DialogDescription>{t('adminUsers.createUserDesc')}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-user-email">{t('adminUsers.email')}</Label>
+            <Input
+              id="create-user-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              maxLength={255}
+              placeholder={t('adminUsers.emailPlaceholder')}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="create-user-name">{t('adminUsers.displayName')}</Label>
+            <Input
+              id="create-user-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              maxLength={120}
+            />
+          </div>
+          <PasswordInput
+            id="create-user-password"
+            label={t('adminUsers.temporaryPassword')}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={12}
+            maxLength={72}
+            showStrength
+          />
+          <PasswordInput
+            id="create-user-password-confirm"
+            label={t('adminUsers.confirmPassword')}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            minLength={12}
+            maxLength={72}
+          />
+          <div className="space-y-1.5">
+            <Label>{t('adminUsers.roles')}</Label>
+            <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+              {roles.map((r) => (
+                <label
+                  key={r.id}
+                  className="flex items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/40 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-border"
+                    checked={selectedRoles.includes(r.code)}
+                    onChange={() => toggleRole(r.code)}
+                  />
+                  <span className="font-medium">{r.code}</span>
+                  <span className="text-xs text-muted-foreground">{r.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          {error && <ErrorState message={error} />}
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
+            <Button type="submit" disabled={busy}>
+              {busy ? t('common.actions.saving') : t('adminUsers.createUser')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Replace a user's password with one the administrator chooses.
+ *
+ * <p>Used when a person lost access to their mailbox and the
+ * self-service "forgot password" flow cannot help. The new credential
+ * is still temporary — the owner has to replace it too.
+ */
+function ResetPasswordDialog({
+  target,
+  onDone,
+}: {
+  target: UserWithRoles;
+  onDone: () => Promise<void> | void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+
+  function reset() {
+    setPassword('');
+    setConfirm('');
+    setError(null);
+  }
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (password.length < 12) {
+      setError(t('adminUsers.passwordTooShort'));
+      return;
+    }
+    if (password !== confirm) {
+      setError(t('adminUsers.passwordMismatch'));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await adminApi.resetUserPassword(target.id, { newPassword: password });
+      await onDone();
+      setOpen(false);
+      reset();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-7 text-xs">
+          <KeyRound className="mr-1 h-3 w-3" /> {t('adminUsers.resetPassword')}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('adminUsers.resetPassword')}</DialogTitle>
+          <DialogDescription>
+            {t('adminUsers.resetPasswordDesc', { email: target.email })}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <PasswordInput
+            id={`reset-password-${target.id}`}
+            label={t('adminUsers.newPassword')}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={12}
+            maxLength={72}
+            showStrength
+          />
+          <PasswordInput
+            id={`reset-password-confirm-${target.id}`}
+            label={t('adminUsers.confirmPassword')}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            minLength={12}
+            maxLength={72}
+          />
+          {error && <ErrorState message={error} />}
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
+            <Button type="submit" disabled={busy}>
+              {busy ? t('common.actions.saving') : t('adminUsers.resetPassword')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Delete a platform account.
+ *
+ * <p>Destructive and irreversible, so it asks for the email address
+ * back. The API refuses the deletion when the account still owns
+ * content — the dialog surfaces that refusal rather than hiding it.
+ */
+function DeleteUserDialog({
+  target,
+  onDone,
+}: {
+  target: UserWithRoles;
+  onDone: () => Promise<void> | void;
+}) {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+
+  const isSelf = target.id === user?.id;
+  const confirmed = confirmation.trim().toLowerCase() === target.email.toLowerCase();
+
+  function reset() {
+    setConfirmation('');
+    setError(null);
+  }
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!confirmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await adminApi.deleteUser(target.id);
+      await onDone();
+      setOpen(false);
+      reset();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={isSelf}
+          title={isSelf ? t('adminUsers.cannotDeleteSelf') : ''}
+        >
+          <Trash2 className="mr-1 h-3 w-3" /> {t('adminUsers.delete')}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('adminUsers.deleteUser')}</DialogTitle>
+          <DialogDescription>
+            {t('adminUsers.deleteUserDesc', { email: target.email })}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor={`delete-confirm-${target.id}`}>
+              {t('adminUsers.confirmDelete', { email: target.email })}
+            </Label>
+            <Input
+              id={`delete-confirm-${target.id}`}
+              type="email"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              placeholder={target.email}
+              autoComplete="off"
+            />
+          </div>
+          {error && <ErrorState message={error} />}
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline">{t('common.cancel')}</Button></DialogClose>
+            <Button type="submit" variant="destructive" disabled={busy || !confirmed}>
+              {busy ? t('common.actions.saving') : t('adminUsers.deleteUser')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

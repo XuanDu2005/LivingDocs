@@ -29,6 +29,17 @@ export interface AuthenticatedUser {
   avatarUrl?: string | null;
   enabled: boolean;
   emailVerified?: boolean;
+  /**
+   * Whether the account still has to replace a temporary password.
+   *
+   * <p>Set when an administrator created the account or reset its
+   * password. The API refuses every request other than "read your
+   * profile" and "change your password" until the flag is cleared, so
+   * the front-end uses this to send the owner straight to the
+   * password-change screen instead of letting them click into a page
+   * that would come back with a 403.
+   */
+  mustChangePassword?: boolean;
   createdAt: string;
   /**
    * Active platform role codes (e.g. ADMIN, MANAGER, STAFF,

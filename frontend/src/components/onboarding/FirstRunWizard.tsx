@@ -114,10 +114,14 @@ export function FirstRunWizard() {
   // wizard, the `done` flag is set and it never reappears.
   useEffect(() => {
     if (!isAuthenticated) return;
+    // An account with a temporary password is confined to the
+    // password-change screen; the wizard would fail on its first
+    // call, and it would consume one of the two displays.
+    if (user?.mustChangePassword) return;
     if (readCount() >= MAX_DISPLAYS) return;
     setOpen(true);
     incrementCount();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.mustChangePassword]);
 
   function close(reason: 'dismiss' | 'finish' = 'dismiss') {
     setOpen(false);
@@ -140,7 +144,12 @@ export function FirstRunWizard() {
 
   // Don't show the wizard for admins — they have their own flow.
   const isAdmin = (user?.roles ?? []).includes('ADMIN');
-  const shouldShow = isAuthenticated && !isAdmin && open;
+  // An account that still holds a temporary password cannot use the
+  // product yet: every request it makes would be refused until the
+  // password is replaced. The wizard would open and then fail on its
+  // first call.
+  const mustChangePassword = user?.mustChangePassword === true;
+  const shouldShow = isAuthenticated && !isAdmin && !mustChangePassword && open;
 
   return (
     <Dialog

@@ -13,4 +13,14 @@ public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
     Optional<Workspace> findBySlug(String slug);
 
     boolean existsBySlug(String slug);
+
+    /**
+     * How many workspaces this user owns.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code workspaces.owner_id} foreign key is {@code ON DELETE
+     * RESTRICT}, so an account that still owns a workspace cannot be
+     * deleted until the ownership is transferred.
+     */
+    long countByOwnerId(UUID ownerId);
 }
