@@ -58,9 +58,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UUID userId = UUID.fromString(claims.getSubject());
                 String email = claims.get(AppConstants.JWT_CLAIM_EMAIL, String.class);
 
-                boolean enabled = userRepository.findById(userId)
-                        .map(u -> u.isEnabled())
-                        .orElse(true);
+                // The account row is read on every request anyway (the
+                // enabled flag decides whether the principal may act at
+                // all), so the "must replace a temporary password" flag
+                // is read from the same row.
+                //
+                // Reading it here rather than from a JWT claim is what
+                // makes a password reset take effect immediately: a token
+                // issued before the reset would otherwise keep the old
+                // "account is in good standing" assumption for its whole
+                // lifetime.
+                var account = userRepository.findById(userId);
+                boolean enabled = account.map(u -> u.isEnabled()).orElse(true);
+                boolean mustChangePassword = account
+                        .map(u -> u.isMustChangePassword())
+                        .orElse(false);
                 // The active role codes are always read from the database,
                 // never from the token's `roles` claim.
                 //
@@ -76,7 +88,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 List<String> roleCodes =
                         roleAssignmentRepository.findActiveRoleCodesByUserId(userId);
 
-                AuthenticatedUser principal = new AuthenticatedUser(userId, email, "", enabled, roleCodes);
+                AuthenticatedUser principal = new AuthenticatedUser(
+                        userId, email, "", enabled, roleCodes, mustChangePassword);
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         principal, null, principal.getAuthorities());
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

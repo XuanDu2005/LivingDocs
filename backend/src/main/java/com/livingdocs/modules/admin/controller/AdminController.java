@@ -2,17 +2,25 @@ package com.livingdocs.modules.admin.controller;
 
 import com.livingdocs.common.security.CurrentUser;
 import com.livingdocs.common.security.RequirePlatformRole;
+import com.livingdocs.modules.admin.dto.CreateUserRequest;
+import com.livingdocs.modules.admin.dto.ResetUserPasswordRequest;
 import com.livingdocs.modules.admin.dto.SetUserEnabledRequest;
 import com.livingdocs.modules.admin.dto.UpdateUserRoleRequest;
+import com.livingdocs.modules.admin.dto.UserWithRolesResponse;
 import com.livingdocs.modules.admin.service.AdminService;
+import com.livingdocs.modules.admin.service.AdminUserService;
 import com.livingdocs.modules.user.dto.UserResponse;
 import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.service.UserResponseMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,10 +44,14 @@ import java.util.UUID;
 public class AdminController {
 
     private final AdminService adminService;
+    private final AdminUserService adminUserService;
     private final UserResponseMapper userResponseMapper;
 
-    public AdminController(AdminService adminService, UserResponseMapper userResponseMapper) {
+    public AdminController(AdminService adminService,
+                           AdminUserService adminUserService,
+                           UserResponseMapper userResponseMapper) {
         this.adminService = adminService;
+        this.adminUserService = adminUserService;
         this.userResponseMapper = userResponseMapper;
     }
 
@@ -69,5 +81,32 @@ public class AdminController {
                                    @Valid @RequestBody SetUserEnabledRequest req) {
         User u = adminService.setEnabled(CurrentUser.requireId(), userId, req.enabled());
         return userResponseMapper.toResponse(u);
+    }
+
+    // -----------------------------------------------------------------
+    // Lifecycle
+    // -----------------------------------------------------------------
+
+    @PostMapping("/admin/users")
+    @Operation(summary = "Create a platform user with a temporary password")
+    public ResponseEntity<UserWithRolesResponse> createUser(
+            @Valid @RequestBody CreateUserRequest req) {
+        UserWithRolesResponse created =
+                adminUserService.create(CurrentUser.requireId(), req);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @PostMapping("/admin/users/{userId}/reset-password")
+    @Operation(summary = "Replace a user's password with one chosen by the administrator")
+    public UserWithRolesResponse resetPassword(@PathVariable UUID userId,
+                                               @Valid @RequestBody ResetUserPasswordRequest req) {
+        return adminUserService.resetPassword(CurrentUser.requireId(), userId, req);
+    }
+
+    @DeleteMapping("/admin/users/{userId}")
+    @Operation(summary = "Delete a platform user")
+    public ResponseEntity<Void> deleteUser(@PathVariable UUID userId) {
+        adminUserService.delete(CurrentUser.requireId(), userId);
+        return ResponseEntity.noContent().build();
     }
 }

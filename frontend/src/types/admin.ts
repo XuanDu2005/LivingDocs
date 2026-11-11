@@ -144,6 +144,11 @@ export interface UserWithRoles {
   /** Public URL of the user's profile picture, or `null` when unset. */
   avatarUrl?: string | null;
   enabled: boolean;
+  /**
+   * `true` when the account still carries a temporary credential and
+   * has to replace it before it can be used.
+   */
+  mustChangePassword?: boolean;
   createdAt: string | null;
   roles: string[];
 }
@@ -172,6 +177,23 @@ export interface UpdateRetentionPolicyPayload {
 
 export interface AssignRolesPayload {
   roles: string[];
+}
+
+export interface CreateUserPayload {
+  email: string;
+  displayName: string;
+  /**
+   * The password the account is created with. It is temporary: the
+   * account owner has to replace it before they can use the account.
+   */
+  temporaryPassword: string;
+  roles: string[];
+  emailVerified?: boolean;
+  enabled?: boolean;
+}
+
+export interface ResetUserPasswordPayload {
+  newPassword: string;
 }
 
 export interface AdminWorkspace {

@@ -1,13 +1,16 @@
 package com.livingdocs.modules.user.controller;
 
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.modules.user.dto.ChangePasswordRequest;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
 import com.livingdocs.modules.user.dto.UserNotificationPreferenceDto;
 import com.livingdocs.modules.user.dto.UserResponse;
+import com.livingdocs.modules.user.model.User;
 import com.livingdocs.modules.user.service.UserNotificationPreferenceService;
 import com.livingdocs.modules.user.service.UserResponseMapper;
 import com.livingdocs.modules.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -52,6 +55,16 @@ public class UserController {
     public ResponseEntity<UserResponse> updateMe(@Valid @RequestBody UpdateProfileRequest req) {
         UUID id = CurrentUser.requireId();
         return ResponseEntity.ok(userResponseMapper.toResponse(userService.updateProfile(id, req)));
+    }
+
+    @PutMapping("/me/password")
+    @Operation(summary = "Replace the currently authenticated user's password")
+    @ApiResponse(responseCode = "200", description = "Password replaced")
+    @ApiResponse(responseCode = "401", description = "The current password is incorrect")
+    public ResponseEntity<UserResponse> changeMyPassword(@Valid @RequestBody ChangePasswordRequest req) {
+        UUID id = CurrentUser.requireId();
+        User user = userService.changeOwnPassword(id, req.currentPassword(), req.newPassword());
+        return ResponseEntity.ok(userResponseMapper.toResponse(user));
     }
 
     @GetMapping("/me/notification-preferences")

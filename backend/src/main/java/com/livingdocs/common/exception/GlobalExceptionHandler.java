@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -11,6 +12,8 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -77,8 +80,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ForbiddenException.class)
-    public ResponseEntity<ApiError> handleForbidden(ForbiddenException ex, HttpServletRequest req) {
-        return build(HttpStatus.FORBIDDEN, ex.getMessage(), req);
+    public ResponseEntity<?> handleForbidden(ForbiddenException ex, HttpServletRequest req) {
+        return negotiate(HttpStatus.FORBIDDEN, ex.getMessage(), req);
     }
 
     @ExceptionHandler(TooManyRequestsException.class)
@@ -231,6 +234,48 @@ public class GlobalExceptionHandler {
                 "'" + ex.getName() + "' has an invalid value", req);
     }
 
+    /**
+     * The caller asked for a representation the endpoint cannot produce.
+     *
+     * <p>The notification stream declares
+     * {@code produces = text/event-stream}, so a caller that asks for
+     * {@code application/json} matches no handler at all. Spring raises
+     * this during handler mapping — before any controller or
+     * interceptor runs — and without a handler for it the request fell
+     * through to the catch-all and answered 500, which told the caller
+     * their server had broken when in fact they had asked for
+     * something impossible.
+     *
+     * <p>406 is the honest answer: the resource exists, the
+     * representation does not.
+     */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<?> handleNotAcceptable(HttpMediaTypeNotAcceptableException ex,
+                                                  HttpServletRequest req) {
+        log.warn("Not acceptable media type on {}: {}", req.getRequestURI(), ex.getMessage());
+        String message = "This endpoint cannot produce the requested representation";
+        String accept = req.getHeader("Accept");
+        if (accept == null || accept.isBlank()
+                || accept.contains(MediaType.APPLICATION_JSON_VALUE)
+                || accept.contains("*/*")) {
+            return build(HttpStatus.NOT_ACCEPTABLE, message, req);
+        }
+        return buildText(HttpStatus.NOT_ACCEPTABLE, message, req);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<?> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
+                                                         HttpServletRequest req) {
+        log.warn("Unsupported media type on {}: {}", req.getRequestURI(), ex.getMessage());
+        String message = "This endpoint does not accept that content type";
+        String contentType = req.getContentType();
+        if (contentType == null || contentType.isBlank()
+                || contentType.contains(MediaType.APPLICATION_JSON_VALUE)) {
+            return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, message, req);
+        }
+        return buildText(HttpStatus.UNSUPPORTED_MEDIA_TYPE, message, req);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleAny(Exception ex, HttpServletRequest req) {
         log.error("Unhandled exception on {}: {}", req.getRequestURI(), ex.toString(), ex);
@@ -244,5 +289,52 @@ public class GlobalExceptionHandler {
     private ResponseEntity<ApiError> build(HttpStatus status, String message, HttpServletRequest req) {
         ApiError body = ApiError.of(status.value(), status.getReasonPhrase(), message, req.getRequestURI());
         return ResponseEntity.status(status).body(body);
+    }
+
+    /**
+     * Write the error as JSON when the caller accepts JSON, and as
+     * plain text when it does not.
+     *
+     * <p>The two callers that do not accept JSON are the notification
+     * stream ({@code text/event-stream}, opened by the browser's
+     * {@code EventSource}) and a plain navigation ({@code text/html}).
+     * Both are perfectly capable of reading a one-line plain-text
+     * error, and both would otherwise turn a clean 403 into a 406
+     * that the exception handler itself fails to render.
+     *
+     * <p>When the caller sends no {@code Accept} header at all, JSON
+     * is used: that is what every API client means, and it is what
+     * the contract in {@link ApiError} describes.
+     */
+    private ResponseEntity<?> negotiate(HttpStatus status, String message, HttpServletRequest req) {
+        String accept = req.getHeader("Accept");
+        if (accept == null || accept.isBlank()
+                || accept.contains(MediaType.APPLICATION_JSON_VALUE)
+                || accept.contains("*/*")) {
+            return build(status, message, req);
+        }
+        return buildText(status, message, req);
+    }
+
+    /**
+     * The same as {@link #build}, but for a caller that does not accept
+     * JSON.
+     *
+     * <p>The browser's {@code EventSource} sends
+     * {@code Accept: text/event-stream}. When the notification stream
+     * refused a request — a temporary-password account reaching the
+     * stream is the common case — Spring could not find a converter
+     * that could write the JSON error body into a
+     * {@code text/event-stream} response. It answered 406, and because
+     * the exception handler itself failed, the caller saw a 500
+     * instead of the 403 that actually happened.
+     *
+     * <p>Writing the body as plain text keeps the status code
+     * honest: the caller is told it was refused, and it can read why.
+     */
+    private ResponseEntity<String> buildText(HttpStatus status, String message, HttpServletRequest req) {
+        return ResponseEntity.status(status)
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(status.value() + " " + status.getReasonPhrase() + ": " + message);
     }
 }

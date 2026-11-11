@@ -64,4 +64,14 @@ public interface IndexJobRepository extends JpaRepository<IndexJob, UUID> {
      * Admin: list all jobs across all workspaces, newest first.
      */
     Page<IndexJob> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /**
+     * How many indexing jobs this user enqueued.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code indexing_jobs.created_by} foreign key has no
+     * {@code ON DELETE} clause, so it defaults to {@code NO ACTION} and
+     * would refuse the deletion of the account.
+     */
+    long countByCreatedBy(UUID createdBy);
 }

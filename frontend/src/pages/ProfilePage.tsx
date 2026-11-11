@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, Check, LogOut, User } from 'lucide-react';
+import { Bell, Check, KeyRound, LogOut, User } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -129,6 +129,26 @@ export default function ProfilePage() {
               {submitting ? t('common.actions.saving') : t('profile.saveChanges')}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium flex items-center gap-2">
+                <KeyRound className="h-4 w-4" /> {t('profile.changePassword', 'Change password')}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t('profile.changePasswordDesc', 'Replace the password of your own account.')}
+              </div>
+            </div>
+            <Button variant="outline" asChild>
+              <Link to="/profile/change-password">
+                {t('common.manage', 'Manage')}
+              </Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

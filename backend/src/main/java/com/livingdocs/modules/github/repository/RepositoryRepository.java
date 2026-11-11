@@ -30,4 +30,14 @@ public interface RepositoryRepository extends JpaRepository<Repository, UUID> {
      * Aggregated status counts for the admin overview header.
      */
     long countByStatus(Status status);
+
+    /**
+     * How many repositories this user connected.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code repositories.connected_by} foreign key is {@code ON DELETE
+     * RESTRICT}, so an account that still connected a repository
+     * cannot be deleted.
+     */
+    long countByConnectedBy(UUID connectedBy);
 }

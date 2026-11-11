@@ -197,6 +197,7 @@ public class RoleService {
                         u.getDisplayName(),
                         avatarStorageService.publicUrl(u.getAvatarUrl()),
                         u.isEnabled(),
+                        u.isMustChangePassword(),
                         u.getCreatedAt(),
                         assignmentRepository.findActiveRoleCodesByUserId(u.getId())
                 ))

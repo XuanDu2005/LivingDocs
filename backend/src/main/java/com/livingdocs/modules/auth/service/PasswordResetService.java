@@ -103,6 +103,13 @@ public class PasswordResetService {
         codeRepository.save(match);
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        // The owner picked this password themselves, so the account is
+        // no longer holding a credential somebody else chose. The flag
+        // has to be cleared here — otherwise an account that an
+        // administrator reset would stay confined to the password
+        // screen even after the owner reset it through the
+        // self-service flow.
+        user.clearMustChangePassword();
         userRepository.save(user);
         log.info("Password reset for user {}", user.getEmail());
     }

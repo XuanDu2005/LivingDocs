@@ -48,4 +48,14 @@ public interface DocumentReviewRepository extends JpaRepository<DocumentReview, 
             java.util.Collection<UUID> documentVersionIds);
 
     long countByDocumentVersionIdAndDecision(UUID documentVersionId, ReviewDecision decision);
+
+    /**
+     * How many reviews this user wrote.
+     *
+     * <p>Used by the administrator's "delete user" pre-check: the
+     * {@code document_reviews.reviewer_user_id} foreign key is
+     * {@code ON DELETE RESTRICT}, so an account that still has a
+     * review on record cannot be deleted.
+     */
+    long countByReviewerUserId(UUID reviewerUserId);
 }

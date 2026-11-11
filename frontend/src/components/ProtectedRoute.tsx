@@ -25,6 +25,16 @@ interface ProtectedRouteProps {
   requireAnyPermission?: string[];
 }
 
+/**
+ * The route an account with a temporary password is sent to.
+ *
+ * <p>The API refuses every request other than "read your profile" and
+ * "change your password" while the flag is set, so the front-end has
+ * to route the account owner there rather than let them click into a
+ * page that would come back with a 403.
+ */
+export const CHANGE_PASSWORD_PATH = '/profile/change-password';
+
 export function ProtectedRoute({
   children,
   requireAnyRole,
@@ -40,6 +50,13 @@ export function ProtectedRoute({
   if (!isAuthenticated) {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
+  }
+
+  // An account that still holds a temporary password can only change
+  // it. Sending it anywhere else would be a page that fails on every
+  // request, so it is redirected to the one screen it can use.
+  if (user?.mustChangePassword && location.pathname !== CHANGE_PASSWORD_PATH) {
+    return <Navigate to={CHANGE_PASSWORD_PATH} replace />;
   }
 
   if (requireAnyRole && requireAnyRole.length > 0) {

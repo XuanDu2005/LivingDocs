@@ -6,6 +6,11 @@ export interface UpdateProfilePayload {
   email?: string;
 }
 
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export async function fetchCurrentUser(): Promise<AuthenticatedUser> {
   const { data } = await apiClient.get<AuthenticatedUser>('/users/me');
   return data;
@@ -15,6 +20,21 @@ export async function updateCurrentUser(
   payload: UpdateProfilePayload,
 ): Promise<AuthenticatedUser> {
   const { data } = await apiClient.put<AuthenticatedUser>('/users/me', payload);
+  return data;
+}
+
+/**
+ * Replace the signed-in user's own password.
+ *
+ * <p>The current password has to be supplied: a bearer token alone must
+ * not be enough to take the account over, because a token can leak
+ * (it sits in localStorage) while a password is only known to the
+ * person.
+ */
+export async function changeOwnPassword(
+  payload: ChangePasswordPayload,
+): Promise<AuthenticatedUser> {
+  const { data } = await apiClient.put<AuthenticatedUser>('/users/me/password', payload);
   return data;
 }
 

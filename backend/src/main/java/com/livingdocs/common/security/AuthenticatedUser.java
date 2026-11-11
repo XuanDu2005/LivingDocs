@@ -27,21 +27,39 @@ public class AuthenticatedUser implements UserDetails {
     private final String passwordHash;
     private final boolean enabled;
     private final List<String> roleCodes;
+    private final boolean mustChangePassword;
 
     public AuthenticatedUser(UUID id, String email, String passwordHash, boolean enabled) {
-        this(id, email, passwordHash, enabled, List.of());
+        this(id, email, passwordHash, enabled, List.of(), false);
     }
 
     public AuthenticatedUser(UUID id, String email, String passwordHash, boolean enabled, List<String> roleCodes) {
+        this(id, email, passwordHash, enabled, roleCodes, false);
+    }
+
+    public AuthenticatedUser(UUID id, String email, String passwordHash, boolean enabled,
+                             List<String> roleCodes, boolean mustChangePassword) {
         this.id = id;
         this.email = email;
         this.passwordHash = passwordHash;
         this.enabled = enabled;
         this.roleCodes = roleCodes == null ? Collections.emptyList() : List.copyOf(roleCodes);
+        this.mustChangePassword = mustChangePassword;
     }
 
     public UUID getId() {
         return id;
+    }
+
+    /**
+     * Does the account still have to replace a temporary password?
+     *
+     * <p>When this is true the account may only reach the endpoints
+     * that let it change its password and read its own profile — see
+     * {@link com.livingdocs.common.security.PasswordChangeRequiredInterceptor}.
+     */
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
     }
 
     /**

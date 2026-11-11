@@ -2,8 +2,7 @@ package com.livingdocs.modules.user.service;
 
 import com.livingdocs.common.exception.ConflictException;
 import com.livingdocs.common.exception.NotFoundException;
-import com.livingdocs.common.exception.UnauthorizedException;
-import com.livingdocs.common.security.AuthenticatedUser;
+import com.livingdocs.common.exception.UnauthorizedException;import com.livingdocs.common.security.AuthenticatedUser;
 import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.dto.RegisterRequest;
 import com.livingdocs.modules.user.dto.UpdateProfileRequest;
@@ -94,6 +93,38 @@ public class UserService implements UserDetailsService {
      */
     @Transactional
     public User save(User user) {
+        return userRepository.save(user);
+    }
+
+    /**
+     * Replace the caller's own password.
+     *
+     * <p>The current password has to be supplied: a bearer token alone
+     * must not be enough to take the account over, because a token can
+     * leak (it sits in {@code localStorage}) while a password is only
+     * known to the person.
+     *
+     * <p>Clearing the {@code mustChangePassword} flag is the point of
+     * this method — it is what releases an account that an
+     * administrator created with a temporary password.
+     *
+     * <p>Every other session of the account is revoked. The sessions
+     * were established with the old credential; leaving them alive would
+     * mean a password change does not actually lock out whoever had
+     * the old one. The caller's own session survives, because the
+     * client is about to use it.
+     */
+    @Transactional
+    public User changeOwnPassword(UUID userId, String currentPassword, String newPassword) {
+        User user = getById(userId);
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new ConflictException("The new password must be different from the current one");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.clearMustChangePassword();
         return userRepository.save(user);
     }
 
