@@ -24,12 +24,3 @@ export function usePermission(...codes: PermissionCode[]): boolean {
     [user, key],
   );
 }
-
-/**
- * Same as {@link usePermission} but for a list that is built at
- * runtime (e.g. a filtered nav array).
- */
-export function usePermissionCheck(): (...codes: string[]) => boolean {
-  const { user } = useAuth();
-  return useMemo(() => (...codes: string[]) => hasPermission(user, ...codes), [user]);
-}

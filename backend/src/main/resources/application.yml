@@ -222,6 +222,10 @@ github:
     timeout-ms: ${GITHUB_API_TIMEOUT_MS:15000}
     # User-Agent header (GitHub requires it).
     user-agent: ${GITHUB_API_USER_AGENT:livingdocs-backend}
+    # Max size of a GitHub response body buffered in memory (bytes).
+    # The Spring default of 262144 is too small for a page of pull requests
+    # and makes the "Nạp tất cả" action fail with DataBufferLimitException.
+    max-in-memory-bytes: ${GITHUB_API_MAX_IN_MEMORY_BYTES:16777216}
   webhook:
     # Shared secret used to compute the X-Hub-Signature-256 header.
     secret: ${GITHUB_WEBHOOK_SECRET:dev_webhook_secret}

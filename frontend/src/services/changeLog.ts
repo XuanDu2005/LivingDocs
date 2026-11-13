@@ -101,7 +101,3 @@ export async function listChangeLog(
   );
   return data;
 }
-
-export const changeLogApi = {
-  list: listChangeLog,
-};

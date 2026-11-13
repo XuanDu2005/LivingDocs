@@ -55,6 +55,19 @@ public class GithubProperties {
         private String baseUrl = "https://api.github.com";
         private int timeoutMs = 15_000;
         private String userAgent = "livingdocs-backend";
+        /**
+         * Maximum size (in bytes) of a GitHub response body that may be
+         * buffered in memory by the reactive {@code WebClient}.
+         *
+         * <p>The Spring default is 256&nbsp;KB, which is far too small for
+         * listing pull requests: a single page of 50 PRs for a busy
+         * repository easily exceeds that and the request then fails with
+         * {@code DataBufferLimitException} ("Exceeded limit on max bytes to
+         * buffer : 262144"), which surfaces to the user as an error and
+         * no data at all. 16&nbsp;MB leaves plenty of headroom while still
+         * bounding the memory a single request can consume.
+         */
+        private int maxInMemoryBytes = 16 * 1024 * 1024;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
@@ -64,6 +77,9 @@ public class GithubProperties {
 
         public String getUserAgent() { return userAgent; }
         public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+
+        public int getMaxInMemoryBytes() { return maxInMemoryBytes; }
+        public void setMaxInMemoryBytes(int maxInMemoryBytes) { this.maxInMemoryBytes = maxInMemoryBytes; }
     }
 
     public static class Webhook {

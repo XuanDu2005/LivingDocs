@@ -1895,6 +1895,7 @@
     "disconnected": "Disconnected {{name}}.",
     "recentPRs": "Recent pull requests · {{name}}",
     "ingestAll": "Ingest all",
+    "ingestAllDone": "Ingested {{count}} pull request(s) from {{name}}.",
     "loadingPRs": "Loading pull requests…",
     "noPRs": "No pull requests ingested yet. Click \"Ingest all\" to fetch them from GitHub.",
     "colPRTitle": "Title",

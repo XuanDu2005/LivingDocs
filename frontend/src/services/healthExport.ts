@@ -83,8 +83,3 @@ export async function exportComplianceReport(
     format,
   );
 }
-
-export const healthExportApi = {
-  exportHealthReport,
-  exportComplianceReport,
-};

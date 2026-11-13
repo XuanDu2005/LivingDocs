@@ -1895,6 +1895,7 @@
     "disconnected": "Đã ngắt kết nối {{name}}.",
     "recentPRs": "Pull request gần đây · {{name}}",
     "ingestAll": "Nạp tất cả",
+    "ingestAllDone": "Đã nạp {{count}} pull request từ {{name}}.",
     "fetchFromGithub": "Lấy từ GitHub",
     "loadingPRs": "Đang tải pull request…",
     "loadingCommits": "Đang tải commit…",

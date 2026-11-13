@@ -1246,13 +1246,26 @@ export default function RepositoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => githubApi
-                      .ingestPullRequests(workspaceId, selected.id, 'all')
-                      .then(() => loadDetails(selected))
-                      .catch((err) => setError(describeError(err)))}
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        setError(null);
+                        const prs = await githubApi.ingestPullRequests(workspaceId, selected.id, 'all');
+                        setInfo(t('repository.ingestAllDone', {
+                          count: prs.length,
+                          name: selected.fullName,
+                        }));
+                        await loadDetails(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
                     disabled={busy}
                   >
-                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
+                    {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                    {t('repository.ingestAll')}
                   </Button>
                 )}
                 {activeTab === 'commits' && (

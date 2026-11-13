@@ -82,28 +82,3 @@ export const adminNotificationsApi = {
       .then((r) => r.data);
   },
 };
-
-export interface AuditLog {
-  id: string;
-  actorUserId: string | null;
-  /** The resolved display name of the actor, when the backend could resolve it. */
-  actorName?: string | null;
-  actorRole: string | null;
-  action: string;
-  resourceType: string;
-  resourceId: string | null;
-  workspaceId: string | null;
-  payload: string;
-  createdAt: string;
-}
-
-export const auditApi = {
-  list(workspaceId: string) {
-    return apiClient
-      .get<AuditLog[] | { items: AuditLog[] }>(
-        `/workspaces/${workspaceId}/audit-logs`,
-        { params: { page: 0, size: 200 } },
-      )
-      .then((r) => (Array.isArray(r.data) ? r.data : (r.data.items ?? [])));
-  },
-};

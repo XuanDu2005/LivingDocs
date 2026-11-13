@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -51,6 +52,14 @@ public class RestGithubClient implements GithubClient {
                 .baseUrl(properties.getApi().getBaseUrl())
                 .defaultHeader(HttpHeaders.USER_AGENT, properties.getApi().getUserAgent())
                 .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                // The default 256 KB in-memory limit is too small for a page
+                // of pull requests: the response then fails with
+                // DataBufferLimitException and the "load all" action appears
+                // to do nothing at all.
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs()
+                                .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
+                        .build())
                 .build();
     }
 
