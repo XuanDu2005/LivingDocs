@@ -64,6 +64,23 @@ public interface GithubClient {
                                                      long number);
 
     /**
+     * Downloads the whole repository at the given ref as a gzipped tar
+     * archive.
+     *
+     * <p>This is the cheapest way to read a repository: one request
+     * returns every file, whereas the contents API needs one request per
+     * directory. The bytes are the raw archive — the caller decodes it
+     * with {@link RepositoryArchive}.
+     *
+     * @param accessToken GitHub access token
+     * @param owner       repository owner
+     * @param repo        repository name
+     * @param ref         branch, tag or commit SHA
+     * @return the archive bytes, or an empty array when the download failed
+     */
+    byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref);
+
+    /**
      * Fetches full metadata for a single repository (refreshes description,
      * default branch, visibility, etc.). Used by the real re-sync.
      */

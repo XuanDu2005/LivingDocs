@@ -15,6 +15,8 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -44,6 +46,7 @@ public class RestGithubClient implements GithubClient {
     private final GithubProperties properties;
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private final WebClient downloadClient;
 
     public RestGithubClient(GithubProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
@@ -60,6 +63,23 @@ public class RestGithubClient implements GithubClient {
                         .codecs(configurer -> configurer.defaultCodecs()
                                 .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
                         .build())
+                .build();
+
+        // The repository archive lives behind a redirect: GitHub answers
+        // `/tarball/{ref}` with a 302 to `codeload.github.com`, and the
+        // response body of a redirect is empty. Reactor Netty does not
+        // follow redirects unless the client is told to, so without this
+        // the archive download would silently yield zero bytes.
+        this.downloadClient = WebClient.builder()
+                .baseUrl(properties.getApi().getBaseUrl())
+                .defaultHeader(HttpHeaders.USER_AGENT, properties.getApi().getUserAgent())
+                .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs()
+                                .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
+                        .build())
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.create().followRedirect(true)))
                 .build();
     }
 
@@ -285,6 +305,33 @@ public class RestGithubClient implements GithubClient {
                     owner, repo, base, head, ex.getMessage());
             throw new GithubClientException(
                     "Could not compare " + base + " with " + head + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref) {
+        try {
+            byte[] archive = downloadClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/tarball/{ref}")
+                            .build(owner, repo, ref))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(byte[].class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            return Mono.error(new com.livingdocs.modules.github.exception
+                                    .GithubTokenInvalidException());
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(120));
+            return archive == null ? new byte[0] : archive;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception ex) {
+            log.warn("downloadRepositoryArchive failed for {}/{}@{}: {}",
+                    owner, repo, ref, ex.getMessage());
+            return new byte[0];
         }
     }
 

@@ -258,6 +258,12 @@ public class SandboxGithubClient implements GithubClient {
     }
 
     @Override
+    public byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref) {
+        log.info("Sandbox: downloadRepositoryArchive {}/{}/{}", owner, repo, ref);
+        return new byte[0];
+    }
+
+    @Override
     public List<GithubPullRequestFile> listPullRequestFiles(String accessToken, String owner, String repo,
                                                             long number) {
         log.info("Sandbox: listPullRequestFiles {}/{}#{}", owner, repo, number);

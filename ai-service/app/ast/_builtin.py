@@ -384,20 +384,55 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
     lines = source.splitlines()
 
     import_re = re.compile(r"^\s*import\s+(?:.+?\s+from\s+)?['\"]([^'\"]+)['\"]")
-    class_re = re.compile(r"(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+\w+)?(?:\s+implements\s+[\w,\s]+)?\s*\{")
+    class_re = re.compile(
+        r"(?:export\s+)?(?:abstract\s+)?class\s+(?P<name>\w+)"
+        r"(?P<generic>\s*<[^<>()]*>)?"
+        r"(?:\s+extends\s+\w+)?(?:\s+implements\s+[\w,\s]+)?\s*\{"
+    )
     # Interface regex - handles: export interface Foo { ... }
     interface_re = re.compile(r"(?:export\s+)?interface\s+(\w+)(?:\s*<\w+>)?\s*(?:extends\s+[\w,\s]+)?\s*\{")
     # Type alias regex - handles: export type Foo = ...
     type_re = re.compile(r"(?:export\s+)?type\s+(\w+)(?:\s*<\w+>)?\s*=\s*")
     # Enum regex - handles: export enum Foo { ... }
     enum_re = re.compile(r"(?:export\s+)?enum\s+(\w+)\s*\{")
+    # A generic parameter list may sit between the name and the argument
+    # list: `function useDebounce<T>(value: T)`. Without this the whole
+    # declaration is invisible to the analyser and the file contributes
+    # no entities at all — the AI is then asked to document code it was
+    # never shown. The parameter list may itself be split over several
+    # lines, so the name/generic and the arguments are matched
+    # separately and joined later.
     fn_re = re.compile(
-        r"(?:export\s+)?(?:async\s+)?function\s+(?P<name>\w+)\s*\((?P<params>[^)]*)\)"
+        r"(?:export\s+)?(?:async\s+)?function\s+(?P<name>\w+)"
+        r"(?P<generic>\s*<[^<>()]*>)?\s*\((?P<params>[^)]*)\)"
         r"(?:\s*:\s*(?P<ret>[^{=]+))?\s*\{"
     )
     method_re = re.compile(
         r"^\s+(?P<mods>public|private|protected|static|readonly|async)?\s*"
-        r"(?P<name>\w+)\s*\((?P<params>[^)]*)\)\s*:\s*(?P<ret>[^;{]+)\s*\{"
+        r"(?P<name>\w+)(?P<generic>\s*<[^<>()]*>)?\s*\((?P<params>[^)]*)\)"
+        r"\s*:\s*(?P<ret>[^;{]+)\s*\{"
+    )
+    # Arrow functions assigned to a binding: `export const foo = (a) => {…}`.
+    # The backend's Java extractor already recognises this shape, so the
+    # AI service must too — otherwise the two sides disagree about what
+    # an entity is, and a file that the backend indexed produces no
+    # source for the model when the AI service parses it.
+    #
+    # The parameter list is optional because a single-parameter arrow may
+    # omit the parentheses: `const double = (n: number) => n * 2` keeps
+    # them, but `const identity = x => x` does not. A type annotation
+    # between the name and the `=` is allowed too
+    # (`const foo: Foo = …`).
+    #
+    # A generic arrow puts its parameter list *after* the `=`
+    # (`const identity = <T,>(value: T) => value`), so the generic is
+    # matched there and not before the `=`.
+    arrow_re = re.compile(
+        r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<name>\w+)"
+        r"\s*(?::\s*[^=]+)?=\s*"
+        r"(?:async\s+)?(?:<[^<>()]*>\s*)?"
+        r"(?:\((?P<params>[^)]*)\)|(?P<single>[A-Za-z_$][\w$]*))\s*"
+        r"(?::\s*(?P<ret>[^=]+?))?\s*=>"
     )
     decorator_re = re.compile(r"^\s*@([\w.]+)\s*$")
 
@@ -460,7 +495,7 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
             continue
 
         if m := class_re.search(line):
-            name = m.group(1)
+            name = m.group("name")
             end_line = _find_brace_end(lines, idx)
             parsed.entities.append(CodeEntity(
                 qualified_name=name,
@@ -487,6 +522,26 @@ def analyse_ts_js(file_path: str, source: str) -> ParsedFile:
                 end_line=_find_brace_end(lines, idx),
                 signature=line.strip(),
                 parameters=params,
+                return_type=(m.group("ret") or "").strip() or None,
+            ))
+            continue
+
+        if m := arrow_re.search(line):
+            # An arrow without parentheses has a single, unparenthesised
+            # parameter; the parenthesised form leaves the group empty.
+            raw_params = m.group("params")
+            if raw_params is None:
+                raw_params = m.group("single") or ""
+            parsed.entities.append(CodeEntity(
+                qualified_name=m.group("name"),
+                simple_name=m.group("name"),
+                kind=CodeEntityKind.FUNCTION,
+                file_path=file_path,
+                language=language,
+                start_line=idx,
+                end_line=_find_brace_end(lines, idx),
+                signature=line.strip(),
+                parameters=_parse_ts_params(raw_params),
                 return_type=(m.group("ret") or "").strip() or None,
             ))
             continue
