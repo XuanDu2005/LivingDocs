@@ -1,10 +1,12 @@
 import apiClient from './api';
+import { AddMemberPayload, WorkspaceRole } from './workspaces';
 import {
   AdminAiPlatformSummary,
   AdminAiUsageRow,
   AdminRepository,
   AdminRepositoryReindexResponse,
   AdminWorkspace,
+  AdminWorkspaceMember,
   AssignRolesPayload,
   AuditRetentionPolicy,
   CreateUserPayload,
@@ -15,6 +17,7 @@ import {
   RolePermissionMatrix,
   UpdateAdminLimitsPayload,
   UpdateRetentionPolicyPayload,
+  UpdateRoleMetadataPayload,
   UpdateRolePermissionsPayload,
   UserWithRoles,
 } from '../types/admin';
@@ -62,6 +65,21 @@ export const adminApi = {
       payload,
     );
     return data.roles;
+  },
+
+  /**
+   * Edit the presentation of a platform role: its display name, its
+   * description and where it sits in the role picker.
+   *
+   * <p>The role's `code` is not editable — it is the identifier that
+   * JWTs, audit payloads and permission grants refer to.
+   */
+  updateRoleMetadata: async (
+    roleId: string,
+    payload: UpdateRoleMetadataPayload,
+  ): Promise<Role> => {
+    const { data } = await apiClient.put<Role>(`/admin/roles/${roleId}`, payload);
+    return data;
   },
 
   // Enable / disable user
@@ -146,6 +164,51 @@ export const adminApi = {
 
   deleteWorkspace: async (workspaceId: string): Promise<void> => {
     await apiClient.delete(`/admin/workspaces/${workspaceId}`);
+  },
+
+  /**
+   * Cross-tenant membership management.
+   *
+   * <p>These bypass the `MANAGER`-of-this-workspace requirement that
+   * the regular `/workspaces/{id}/members` endpoints enforce: the
+   * administrator may not be a member of the workspace they are
+   * administering.
+   */
+  listWorkspaceMembers: async (workspaceId: string): Promise<AdminWorkspaceMember[]> => {
+    const { data } = await apiClient.get<AdminWorkspaceMember[]>(
+      `/admin/workspaces/${workspaceId}/members`,
+    );
+    return data;
+  },
+
+  addWorkspaceMember: async (
+    workspaceId: string,
+    payload: AddMemberPayload,
+  ): Promise<AdminWorkspaceMember> => {
+    const { data } = await apiClient.post<AdminWorkspaceMember>(
+      `/admin/workspaces/${workspaceId}/members`,
+      payload,
+    );
+    return data;
+  },
+
+  updateWorkspaceMemberRole: async (
+    workspaceId: string,
+    userId: string,
+    role: WorkspaceRole,
+  ): Promise<AdminWorkspaceMember> => {
+    const { data } = await apiClient.patch<AdminWorkspaceMember>(
+      `/admin/workspaces/${workspaceId}/members/${userId}`,
+      { role },
+    );
+    return data;
+  },
+
+  removeWorkspaceMember: async (
+    workspaceId: string,
+    userId: string,
+  ): Promise<void> => {
+    await apiClient.delete(`/admin/workspaces/${workspaceId}/members/${userId}`);
   },
 
   // Cross-tenant repository browser

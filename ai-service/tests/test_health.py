@@ -1,7 +1,9 @@
 """Test suite for the AI service."""
 
 import json
+import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -120,7 +122,7 @@ def test_drift_endpoint_detects_referential_drift() -> None:
 
 def test_knowledge_search_after_index() -> None:
     index = client.post("/api/v1/knowledge/index", json={
-        "document_id": "doc-1",
+        "document_id": str(uuid.uuid4()),
         "title": "Calculator",
         "body": "# Calculator\n\nUse the `add` function to sum two integers.",
     })
@@ -132,3 +134,43 @@ def test_knowledge_search_after_index() -> None:
     assert search.status_code == 200
     body = search.json()
     assert body["hits"]
+
+
+# ---------------------------------------------------------------------------
+# Internal-token guard
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_endpoints_require_the_internal_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The knowledge base holds another tenant's content — it must be guarded.
+
+    The knowledge and AST endpoints used to be the only ones without the
+    shared-secret guard: anybody who could reach the AI service could read
+    the indexed documentation of every workspace.
+    """
+    monkeypatch.setenv("AI_SERVICE_INTERNAL_TOKEN", "s3cret")
+
+    search = client.post("/api/v1/knowledge/search", json={"query": "anything"})
+    assert search.status_code == 401
+
+    index = client.post("/api/v1/knowledge/index", json={
+        "document_id": str(uuid.uuid4()),
+        "title": "Calculator",
+        "body": "# Calculator",
+    })
+    assert index.status_code == 401
+
+    parse = client.post("/api/v1/ast/parse", json={"path": "a.py", "content": "x = 1"})
+    assert parse.status_code == 401
+
+
+def test_knowledge_endpoints_accept_the_internal_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the right token the knowledge endpoints must work again."""
+    monkeypatch.setenv("AI_SERVICE_INTERNAL_TOKEN", "s3cret")
+
+    response = client.post(
+        "/api/v1/knowledge/search",
+        json={"query": "anything"},
+        headers={"X-Ai-Internal-Token": "s3cret"},
+    )
+    assert response.status_code == 200

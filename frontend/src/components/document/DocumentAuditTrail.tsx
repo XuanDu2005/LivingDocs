@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronLeft, ChevronRight, History, Loader2, ScrollText,
+  ChevronLeft, ChevronRight, ScrollText,
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -264,12 +264,3 @@ export default function DocumentAuditTrail({
     </Card>
   );
 }
-
-/**
- * The icon used next to the audit trail in the document header.
- */
-export function AuditTrailIcon() {
-  return <History className="h-4 w-4" />;
-}
-
-export { Loader2 };

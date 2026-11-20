@@ -65,12 +65,20 @@ public class RoleService {
     }
 
     @Transactional
-    public RoleResponse updateRoleMetadata(UUID roleId,
+    public RoleResponse updateRoleMetadata(UUID actorId,
+                                           UUID roleId,
                                            String name,
                                            String description,
                                            Integer displayOrder) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new NotFoundException("Role not found"));
+
+        // Snapshot the previous presentation so the audit entry can say
+        // what actually changed.
+        String previousName = role.getName();
+        String previousDescription = role.getDescription();
+        int previousOrder = role.getDisplayOrder();
+
         if (name != null && !name.isBlank()) {
             role.setName(name.trim());
         }
@@ -80,6 +88,20 @@ public class RoleService {
         if (displayOrder != null) {
             role.setDisplayOrder(displayOrder);
         }
+        roleRepository.save(role);
+
+        auditLogService.record(actorId, "ADMIN", "role.metadata.update",
+                "role", roleId.toString(), null,
+                Map.of(
+                        "code", role.getCode(),
+                        "previousName", previousName,
+                        "name", role.getName(),
+                        "previousDescription", previousDescription == null ? "" : previousDescription,
+                        "description", role.getDescription() == null ? "" : role.getDescription(),
+                        "previousDisplayOrder", previousOrder,
+                        "displayOrder", role.getDisplayOrder()
+                ));
+
         return toResponse(role);
     }
 

@@ -22,6 +22,7 @@ import {
   BookOpen,
   AlertTriangle,
   Boxes,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -37,15 +38,28 @@ import {
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
 import { githubApi, Repository, PullRequest, Commit, RepositoryModule } from '../services/github';
 import { codeApi, CodeEntity } from '../services/knowledge';
-import { documentsApi } from '../services/documents';
-import { driftApi } from '../services/drift';
 import { docSyncApi, DocScanResult } from '../services/docSync';
-import { aiApi, BulkGenerationJobStatus } from '../services/ai';
+import { aiApi, BulkGenerationJobStatus, RepositoryAnalysisJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import ImpactPanel from '../components/DependencyImpactPanel';
 import { describeError } from '../services/auth';
 import { usePermission } from '../hooks/usePermission';
 import { PermissionCodes } from '../services/permissions';
+
+/**
+ * The document types a repository-level analysis can produce.
+ *
+ * <p>These are the overview documents a repository actually needs:
+ * what it is, how it is put together, how to work on it, and what it
+ * exposes. Each one costs one LLM call, so the user picks which ones
+ * they want.
+ */
+const REPOSITORY_ANALYSIS_DOC_TYPES = [
+  'README',
+  'ARCHITECTURE',
+  'ONBOARDING_GUIDE',
+  'API_REFERENCE',
+] as const;
 
 /**
  * Per-workspace repository browser.
@@ -114,6 +128,23 @@ export default function RepositoryPage() {
   // Generate all docs state
   const [generatingAll, setGeneratingAll] = useState<boolean>(false);
   const [generateResult, setGenerateResult] = useState<string | null>(null);
+
+  // Repository-level analysis state
+  const [analyzingRepo, setAnalyzingRepo] = useState<boolean>(false);
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [analysisDocuments, setAnalysisDocuments] = useState<
+    NonNullable<RepositoryAnalysisJobStatus['documents']>
+  >([]);
+  const [analysisDocTypes, setAnalysisDocTypes] = useState<string[]>([
+    'README',
+    'ARCHITECTURE',
+    'ONBOARDING_GUIDE',
+    'API_REFERENCE',
+  ]);
+  // The advanced panel that narrows the set of overview documents. It
+  // stays closed by default: the analysis is meant to run on the whole
+  // repository without the user having to pick anything.
+  const [showAnalysisOptions, setShowAnalysisOptions] = useState<boolean>(false);
 
   // Doc sync state
   const [docScanResult, setDocScanResult] = useState<DocScanResult | null>(null);
@@ -620,35 +651,151 @@ export default function RepositoryPage() {
     void loadEntities(selected!);
   }
 
+  /**
+   * Analyse the whole selected repository and write overview documents
+   * for it.
+   *
+   * <p>This is the repository-level counterpart of "generate all docs":
+   * instead of one document per code entity it produces a README, an
+   * architecture guide, an onboarding guide and an API reference that
+   * describe the project as a whole.
+   */
+  async function handleAnalyzeRepository() {
+    if (!workspaceId || !selected) return;
+    setAnalyzingRepo(true);
+    setAnalysisResult(null);
+    setAnalysisDocuments([]);
+    try {
+      // No document type is asked for. The whole point of the
+      // repository-level analysis is that the user picks a repository,
+      // not a document — the run decides which overview documents the
+      // repository needs. `analysisDocTypes` is only sent when the user
+      // has explicitly narrowed it in the advanced panel.
+      const queued = await aiApi.analyzeRepository(
+        workspaceId,
+        selected.id,
+        analysisDocTypes.length === 0 ||
+          analysisDocTypes.length === REPOSITORY_ANALYSIS_DOC_TYPES.length
+          ? undefined
+          : analysisDocTypes,
+      );
+
+      const final = await pollRepositoryAnalysis(workspaceId, queued.jobId);
+      renderAnalysisResult(final);
+    } catch (err) {
+      setAnalysisResult(describeError(err));
+    } finally {
+      setAnalyzingRepo(false);
+    }
+  }
+
+  /**
+   * Follow a repository analysis run until it finishes.
+   *
+   * <p>The run walks the repository tree and then makes one LLM call
+   * per document type, so it takes noticeably longer than the bulk
+   * entity run. The poll loop is generous about the timeout but always
+   * ends — a stuck run must not hang the page forever.
+   */
+  async function pollRepositoryAnalysis(wsId: string, jobId: string) {
+    const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    // ~10 minutes worth of polls.
+    const maxAttempts = 300;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const job = await aiApi.repositoryAnalysisStatus(wsId, jobId);
+      if (terminal.has(job.status)) {
+        return job;
+      }
+      setAnalysisResult(
+        t('repository.analysisProgress', {
+          processed: job.processedDocuments,
+          total: job.docTypes?.length ?? analysisDocTypes.length,
+        }),
+      );
+    }
+
+    throw new Error(t('repository.analysisTimeout'));
+  }
+
+  function renderAnalysisResult(job: RepositoryAnalysisJobStatus) {
+    setAnalysisDocuments(job.documents ?? []);
+
+    if (job.status === 'FAILED' && job.generated === 0) {
+      setAnalysisResult(
+        t('repository.analysisFailed', {
+          message: job.errorMessage ?? 'unknown error',
+        }),
+      );
+      return;
+    }
+
+    let message = t('repository.analysisSucceeded', {
+      count: job.generated,
+      repo: selected?.fullName ?? '',
+    });
+    if (job.failed > 0) {
+      message += ` ${t('repository.analysisFailedCount', { count: job.failed })}`;
+      if (job.errors && job.errors.length > 0) {
+        message += `\n${job.errors.slice(0, 3).join(', ')}`;
+      }
+    }
+    setAnalysisResult(message);
+  }
+
+  /**
+   * Scan the whole selected repository for documentation drift.
+   *
+   * <p>The scan is repository-wide: the backend walks every document of
+   * the repository and compares each one against the code. It runs in
+   * the background (one LLM call per document), so the button queues a
+   * job and the poll loop follows it to the end.
+   */
   async function handleScanDriftForRepo() {
     if (!workspaceId || !selected) return;
     setGeneratingAll(true);
     setGenerateResult(null);
     try {
-      // Get all documents
-      const docs = await documentsApi.list(workspaceId).catch(() => []);
-      const docsForRepo = docs.filter((d) => !d.repositoryId || d.repositoryId === selected.id);
+      const queued = await aiApi.scanRepositoryForDrift(workspaceId, selected.id);
+      const final = await pollDriftScan(workspaceId, queued.jobId);
 
-      let alerts = 0;
-      for (const doc of docsForRepo) {
-        try {
-          const result = await driftApi.detect(workspaceId, {
-            repositoryId: selected.id,
-            documentId: doc.id,
-            filesBefore: [],
-            filesAfter: [],
-          });
-          alerts += result.ingested;
-        } catch {
-          // continue
-        }
+      if (final.status === 'FAILED' && final.alertsCreated === 0) {
+        setGenerateResult(
+          `Drift scan failed: ${final.errorMessage ?? 'unknown error'}`,
+        );
+        return;
       }
-      setGenerateResult(`Drift scan complete. ${alerts} new alert(s) detected.`);
+      setGenerateResult(
+        `Drift scan complete. ${final.alertsCreated} new alert(s) detected across ${final.scannedDocuments} document(s).`,
+      );
     } catch (err) {
       setGenerateResult(describeError(err));
     } finally {
       setGeneratingAll(false);
     }
+  }
+
+  /**
+   * Follow a repository drift scan until it finishes.
+   */
+  async function pollDriftScan(wsId: string, jobId: string) {
+    const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    // ~10 minutes worth of polls.
+    const maxAttempts = 300;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const job = await aiApi.repositoryDriftScanStatus(wsId, jobId);
+      if (terminal.has(job.status)) {
+        return job;
+      }
+      setGenerateResult(
+        `Scanning for drift… ${job.scannedDocuments}/${job.totalDocuments} documents compared.`,
+      );
+    }
+
+    throw new Error('The drift scan is taking longer than expected. Check back shortly.');
   }
 
   async function handleScanDocs() {
@@ -1012,6 +1159,72 @@ export default function RepositoryPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
+              {/* The analysis runs on the whole repository — the user
+                  picks a repository, not a document. Narrowing the set
+                  of overview documents is an advanced, optional tweak,
+                  so it stays out of the way until it is asked for. */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => void handleAnalyzeRepository()}
+                disabled={analyzingRepo}
+              >
+                <Boxes className={`mr-2 h-4 w-4 ${analyzingRepo ? 'animate-pulse' : ''}`} />
+                {analyzingRepo ? t('repository.analysisRunning') : t('repository.actionAnalyzeRepo')}
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowAnalysisOptions((v) => !v)}
+                disabled={analyzingRepo}
+                className="flex w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${showAnalysisOptions ? 'rotate-180' : ''}`}
+                />
+                {t('repository.analysisOptions')}
+              </button>
+              {showAnalysisOptions && (
+                <div className="space-y-1 rounded-md border border-dashed p-2">
+                  <Label className="text-xs text-muted-foreground">
+                    {t('repository.analysisDocTypes')}
+                  </Label>
+                  <div className="flex flex-wrap gap-1">
+                    {REPOSITORY_ANALYSIS_DOC_TYPES.map((docType) => {
+                      const active = analysisDocTypes.includes(docType);
+                      return (
+                        <button
+                          key={docType}
+                          type="button"
+                          disabled={analyzingRepo}
+                          onClick={() =>
+                            setAnalysisDocTypes((current) =>
+                              active
+                                ? current.filter((d) => d !== docType)
+                                : [...current, docType],
+                            )
+                          }
+                          className={`text-[11px] px-2 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                            active
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-transparent hover:bg-muted'
+                          }`}
+                          title={
+                            active && analysisDocTypes.length === 1
+                              ? t('repository.analysisKeepOne')
+                              : undefined
+                          }
+                        >
+                          {docType}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {t('repository.analysisDocTypesHint')}
+                  </p>
+                </div>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -1049,6 +1262,53 @@ export default function RepositoryPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Repository-level analysis results */}
+          {(analysisResult || analysisDocuments.length > 0) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Boxes className="h-4 w-4" /> {t('repository.analysisResults')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {analysisResult && (
+                  <div
+                    className={`text-xs p-2 rounded ${
+                      analysisDocuments.length > 0
+                        ? 'bg-green-500/10 text-green-700'
+                        : 'bg-destructive/10 text-destructive'
+                    }`}
+                  >
+                    {analysisResult}
+                  </div>
+                )}
+                {analysisDocuments.length > 0 && (
+                  <div className="space-y-1">
+                    {analysisDocuments.map((doc) => (
+                      <div
+                        key={doc.documentId}
+                        className="flex items-center justify-between gap-2 text-xs bg-muted/50 rounded p-2"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <Badge variant="secondary" className="shrink-0">
+                            {doc.docType}
+                          </Badge>
+                          <span className="truncate">{doc.title}</span>
+                        </span>
+                        <Link
+                          to={`/workspaces/${workspaceId}/documents/${doc.documentId}`}
+                          className="shrink-0 text-primary hover:underline"
+                        >
+                          {t('repository.analysisOpen')}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Doc Scan Results */}
           {docScanResult && (
@@ -1246,13 +1506,26 @@ export default function RepositoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => githubApi
-                      .ingestPullRequests(workspaceId, selected.id, 'all')
-                      .then(() => loadDetails(selected))
-                      .catch((err) => setError(describeError(err)))}
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        setError(null);
+                        const prs = await githubApi.ingestPullRequests(workspaceId, selected.id, 'all');
+                        setInfo(t('repository.ingestAllDone', {
+                          count: prs.length,
+                          name: selected.fullName,
+                        }));
+                        await loadDetails(selected);
+                      } catch (err) {
+                        setError(describeError(err));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
                     disabled={busy}
                   >
-                    <RefreshCw className="mr-1 h-3 w-3" /> {t('repository.ingestAll')}
+                    {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
+                    {t('repository.ingestAll')}
                   </Button>
                 )}
                 {activeTab === 'commits' && (

@@ -1,6 +1,8 @@
-"""Tests for the in-memory knowledge base / vector store."""
+"""Tests for the knowledge base / vector store."""
 
 from __future__ import annotations
+
+import uuid
 
 from app.rag import EmbeddingProvider, VectorStore, chunk_markdown
 from app.services import KnowledgeBase
@@ -23,7 +25,7 @@ def test_chunk_markdown_splits_by_sections() -> None:
 def test_knowledge_base_index_and_search() -> None:
     kb = KnowledgeBase()
     chunks = kb.index_document(
-        document_id="doc-1",
+        document_id=str(uuid.uuid4()),
         title="Calc",
         body="# Calculator\n\nUse the `add` function to sum two integers.\n\n## Edge cases\n\nDon't pass None.",
     )
@@ -33,6 +35,30 @@ def test_knowledge_base_index_and_search() -> None:
     # the top hit should mention the relevant chunk
     texts = " ".join(h.text for h in hits)
     assert "add" in texts or "sum" in texts
+
+
+def test_knowledge_base_remove_document_reports_the_removed_count() -> None:
+    """Removing a document must work and report what it removed.
+
+    The store is backed by PostgreSQL, so the removal used to walk an
+    in-memory dictionary the store no longer had and raise an
+    ``AttributeError`` — every removal failed, and the chunks stayed in
+    the index forever.
+    """
+    kb = KnowledgeBase()
+    document_id = str(uuid.uuid4())
+    kb.index_document(
+        document_id=document_id,
+        title="Calc",
+        body="# Calculator\n\nUse the `add` function to sum two integers.",
+    )
+
+    removed = kb.remove_document(document_id)
+    assert removed >= 1
+
+    # The document must be gone from the index: a second removal has
+    # nothing left to delete.
+    assert kb.remove_document(document_id) == 0
 
 
 # local approx because we don't want pytest as a hard dependency for this file

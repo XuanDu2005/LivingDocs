@@ -1,7 +1,8 @@
 """Knowledge-base endpoints (index + search)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ...core.auth import require_internal_token
 from ...services import KnowledgeBase
 from .schemas import (
     IndexDocumentRequest,
@@ -11,7 +12,12 @@ from .schemas import (
     KnowledgeSearchResponse,
 )
 
-router = APIRouter()
+# The knowledge base holds the indexed content of every workspace, and the
+# search request can carry a workspace API key through to the provider. Both
+# the index and the search therefore require the internal token, exactly like
+# /generate and /drift do — otherwise anybody who can reach the AI service
+# could read another tenant's documentation.
+router = APIRouter(dependencies=[Depends(require_internal_token)])
 
 _kb: KnowledgeBase | None = None
 

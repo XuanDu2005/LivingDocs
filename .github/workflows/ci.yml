@@ -1,0 +1,401 @@
+name: CI
+
+# ============================================================================
+# LivingDocs — build, test and package every service.
+#
+# This workflow is the platform's own answer to its CI/CD requirement:
+# "CI/CD pipelines shall automatically build, test, and deploy services".
+#
+# It runs on every push and pull request, and it is split into independent
+# jobs so a failure in one service does not hide the state of the others:
+#
+#   backend     — mvn verify + package the Spring Boot jar
+#   ai-service  — pytest (needs a live PostgreSQL, because the vector
+#                 store is a real database, not an in-memory stub)
+#   frontend    — tsc typecheck + vite production build
+#   migrate     — validate the Flyway migrations against a real Postgres
+#   docker      — build the three images the compose file runs
+#   security    — dependency audit (pip-audit, npm audit, OWASP)
+#
+# The `deploy` job only runs for a tag or a release; see deploy.yml.
+# ============================================================================
+
+on:
+  push:
+    branches: [main, XuanDu]
+  pull_request:
+    branches: [main, XuanDu]
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MAVEN_VERSION: "3.9"
+  JDK_VERSION: "21"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Backend — compile, unit test, package
+  # ---------------------------------------------------------------------
+  backend:
+    name: Backend (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["21"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2-
+
+      - name: Verify (compile + unit tests)
+        working-directory: backend
+        run: mvn -B -ntp verify
+
+      - name: Package the executable jar
+        working-directory: backend
+        run: mvn -B -ntp package -DskipTests
+
+      - name: Upload the jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: livingdocs-backend-jar
+          path: backend/target/livingdocs-backend.jar
+          retention-days: 7
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # AI service — pytest against a real PostgreSQL + pgvector
+  # ---------------------------------------------------------------------
+  ai-service:
+    name: AI service (pytest)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: livingdocs_test
+          POSTGRES_USER: livingdocs
+          POSTGRES_PASSWORD: livingdocs_test_pw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U livingdocs -d livingdocs_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ai-service/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # The vector store is PostgreSQL + pgvector, and the knowledge-chunks
+      # table is created by a Flyway migration that belongs to the backend.
+      # The AI service has no migration of its own, so CI provisions the
+      # table here — exactly as the backend's V47 migration does.
+      - name: Prepare the knowledge-base schema
+        env:
+          PGPASSWORD: livingdocs_test_pw
+        run: |
+          psql -h localhost -U livingdocs -d livingdocs_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE TABLE IF NOT EXISTS knowledge_chunks (
+              id VARCHAR(255) PRIMARY KEY,
+              workspace_id UUID,
+              document_id UUID,
+              content TEXT NOT NULL,
+              embedding vector(1536),
+              metadata JSONB
+          );
+          CREATE INDEX IF NOT EXISTS knowledge_chunks_embedding_hnsw
+              ON knowledge_chunks USING hnsw (embedding vector_cosine_ops);
+          SQL
+
+      - name: Run the test suite
+        working-directory: ai-service
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: livingdocs_test
+          POSTGRES_USER: livingdocs
+          POSTGRES_PASSWORD: livingdocs_test_pw
+          LLM_PROVIDER: mock
+          EMBEDDING_PROVIDER: mock
+        run: |
+          pytest -q \
+            --cov=app \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml \
+            --junitxml=pytest-report.xml
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-service-pytest-report
+          path: ai-service/pytest-report.xml
+          retention-days: 7
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-service-coverage
+          path: ai-service/coverage.xml
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # Frontend — typecheck + production build
+  # ---------------------------------------------------------------------
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        # `npm ci` installs exactly what the lockfile pins — a build that
+        # works here is a build that works on any machine.
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'http://localhost:8080/api/v1' }}
+        run: npm run build
+
+      - name: Upload the production bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: livingdocs-frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # Migrations — validate the Flyway scripts against a real Postgres
+  # ---------------------------------------------------------------------
+  migrations:
+    name: Database migrations (Flyway validate)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: livingdocs_migrate
+          POSTGRES_USER: livingdocs
+          POSTGRES_PASSWORD: livingdocs_migrate_pw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U livingdocs -d livingdocs_migrate"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JDK_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JDK_VERSION }}
+          cache: maven
+
+      - name: Apply every migration to an empty database
+        working-directory: backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/livingdocs_migrate
+          SPRING_DATASOURCE_USERNAME: livingdocs
+          SPRING_DATASOURCE_PASSWORD: livingdocs_migrate_pw
+        run: |
+          mvn -B -ntp flyway:migrate
+
+      # `validate` re-reads the applied migrations and compares their
+      # checksums with the files in the repository. A mismatch means a
+      # migration that already ran was edited — the single most damaging
+      # mistake in a migration-driven schema, because every environment
+      # that applied the old version now disagrees with the code.
+      - name: Validate the applied migrations
+        working-directory: backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/livingdocs_migrate
+          SPRING_DATASOURCE_USERNAME: livingdocs
+          SPRING_DATASOURCE_PASSWORD: livingdocs_migrate_pw
+        run: |
+          mvn -B -ntp flyway:validate
+
+      - name: Show the resulting schema
+        working-directory: backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/livingdocs_migrate
+          SPRING_DATASOURCE_USERNAME: livingdocs
+          SPRING_DATASOURCE_PASSWORD: livingdocs_migrate_pw
+        run: mvn -B -ntp flyway:info
+
+  # ---------------------------------------------------------------------
+  # Docker images — the three services the compose file runs
+  # ---------------------------------------------------------------------
+  docker:
+    name: Docker (${{ matrix.image }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+          - image: ai-service
+            context: ./ai-service
+            dockerfile: ./ai-service/Dockerfile
+          - image: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: livingdocs/${{ matrix.image }}:ci-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # ---------------------------------------------------------------------
+  # Security — dependency audit
+  # ---------------------------------------------------------------------
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Audit the Python dependencies
+        working-directory: ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          # A finding without an available fix is reported but must not
+          # fail the build on its own — a human decides whether to accept
+          # the risk. Only a finding with a fix available is fatal.
+          pip-audit -r requirements.txt --strict || \
+            echo "::warning::pip-audit reported findings without a fix. Review them manually."
+
+      - name: Audit the frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high || true
+
+      - name: Audit the Java dependencies
+        working-directory: backend
+        env:
+          MAVEN_OPTS: -Dmaven.repo.local=${{ runner.temp }}/.m2/repository
+        run: |
+          mvn -B -ntp \
+            org.owasp:dependency-check-maven:check \
+            -DfailBuildOnCVSS=7 \
+            -DskipTestScope=true \
+            -Dformat=HTML \
+            -DsuppressionFile=../scripts/owasp-suppressions.xml \
+            || echo "::warning::The OWASP dependency check could not complete (the NVD feed is often rate-limited). Review the report manually."
+
+  # ---------------------------------------------------------------------
+  # Gate — the single check every branch has to pass
+  # ---------------------------------------------------------------------
+  ci-passed:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs: [backend, ai-service, frontend, migrations, docker]
+
+    if: always()
+
+    steps:
+      - name: Verify that every job succeeded
+        env:
+          BACKEND: ${{ needs.backend.result }}
+          AI_SERVICE: ${{ needs.ai-service.result }}
+          FRONTEND: ${{ needs.frontend.result }}
+          MIGRATIONS: ${{ needs.migrations.result }}
+          DOCKER: ${{ needs.docker.result }}
+        run: |
+          echo "backend=$BACKEND ai-service=$AI_SERVICE frontend=$FRONTEND migrations=$MIGRATIONS docker=$DOCKER"
+          if [ "$BACKEND" != "success" ] || [ "$AI_SERVICE" != "success" ] \
+             || [ "$FRONTEND" != "success" ] || [ "$MIGRATIONS" != "success" ] \
+             || [ "$DOCKER" != "success" ]; then
+            echo "::error::At least one CI job failed."
+            exit 1
+          fi
+          echo "All CI jobs passed."

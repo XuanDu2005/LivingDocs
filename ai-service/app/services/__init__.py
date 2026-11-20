@@ -12,6 +12,7 @@ Modules:
 """
 
 from .generator import DocumentationGenerator, GenerationResult
+from .repository_generator import RepositoryDocumentationGenerator, RepositoryGenerationResult
 from .drift import DriftDetector, DriftReport, DriftFinding
 from .semantic_drift import SemanticDriftAnalyzer, SemanticDriftResult, SemanticFinding
 from .diffing import unified_diff
@@ -20,6 +21,8 @@ from .retrieval import KnowledgeBase
 __all__ = [
     "DocumentationGenerator",
     "GenerationResult",
+    "RepositoryDocumentationGenerator",
+    "RepositoryGenerationResult",
     "DriftDetector",
     "DriftReport",
     "DriftFinding",

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -51,6 +52,14 @@ public class RestGithubClient implements GithubClient {
                 .baseUrl(properties.getApi().getBaseUrl())
                 .defaultHeader(HttpHeaders.USER_AGENT, properties.getApi().getUserAgent())
                 .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                // The default 256 KB in-memory limit is too small for a page
+                // of pull requests: the response then fails with
+                // DataBufferLimitException and the "load all" action appears
+                // to do nothing at all.
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs()
+                                .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
+                        .build())
                 .build();
     }
 
@@ -230,6 +239,52 @@ public class RestGithubClient implements GithubClient {
             log.warn("listPullRequestFiles failed for {}/{}#{}: {}",
                     owner, repo, number, ex.getMessage());
             return List.of();
+        }
+    }
+
+    @Override
+    public List<GithubPullRequestFile> compareCommits(String accessToken, String owner, String repo,
+                                                   String base, String head) {
+        try {
+            JsonNode arr = webClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/compare/{base}...{head}")
+                            .queryParam("per_page", 300)
+                            .build(owner, repo, base, head))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            return Mono.error(new com.livingdocs.modules.github.exception
+                                    .GithubTokenInvalidException());
+                        }
+                        if (ex.getStatusCode().value() == 404) return Mono.empty();
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofMillis(properties.getApi().getTimeoutMs()));
+            List<GithubPullRequestFile> out = new ArrayList<>();
+            if (arr != null && arr.isArray()) {
+                for (JsonNode f : arr) {
+                    out.add(new GithubPullRequestFile(
+                            f.path("filename").asText(),
+                            f.path("status").asText("modified"),
+                            f.path("patch").asText(null),
+                            f.path("additions").isNumber() ? f.path("additions").asLong() : null,
+                            f.path("deletions").isNumber() ? f.path("deletions").asLong() : null,
+                            f.path("changes").isNumber() ? f.path("changes").asLong() : null));
+                }
+            }
+            return out;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception ex) {
+            // An empty list would be indistinguishable from "the two
+            // revisions are identical", and the drift scan would then
+            // report that nothing has changed. It must not.
+            log.warn("compareCommits failed for {}/{} {}...{}: {}",
+                    owner, repo, base, head, ex.getMessage());
+            throw new GithubClientException(
+                    "Could not compare " + base + " with " + head + ": " + ex.getMessage(), ex);
         }
     }
 

@@ -31,6 +31,14 @@ export const PermissionCodes = {
   AI_CONFIG_WRITE: 'AI_CONFIG_WRITE',
   AI_USAGE_VIEW: 'AI_USAGE_VIEW',
   AI_USAGE_MANAGE: 'AI_USAGE_MANAGE',
+  /**
+   * Trigger an AI generation run.
+   *
+   * <p>Covers both the per-document generation and the repository-level
+   * sweeps ("generate all docs", "analyse repository") — they all cost
+   * LLM tokens, so they share one capability.
+   */
+  AI_RUN_GENERATION: 'AI_RUN_GENERATION',
 
   // ---- notifications -------------------------------------------------
   NOTIFICATION_POLICY_VIEW: 'NOTIFICATION_POLICY_VIEW',

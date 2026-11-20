@@ -164,8 +164,3 @@ export async function getEntityImpact(
   );
   return data;
 }
-
-export const dependencyGraphApi = {
-  getGraph: getDependencyGraph,
-  getImpact: getEntityImpact,
-};

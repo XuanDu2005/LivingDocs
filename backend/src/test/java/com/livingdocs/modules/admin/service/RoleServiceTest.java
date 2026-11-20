@@ -178,6 +178,71 @@ class RoleServiceTest {
     }
 
     // -----------------------------------------------------------------
+    // Role metadata
+    // -----------------------------------------------------------------
+
+    /**
+     * Editing a role's presentation changes the name, the description
+     * and the display order — and nothing else. The role's
+     * {@code code} is the identifier that JWTs, audit payloads and
+     * permission grants refer to, so it is never touched.
+     */
+    @Test
+    void editingTheMetadataChangesThePresentationOnly() {
+        Role staff = new Role(staffRoleId, "STAFF", "Staff (Reviewer)",
+                "Reviews documentation changes.", true, 20);
+        when(roleRepository.findById(staffRoleId)).thenReturn(Optional.of(staff));
+
+        service.updateRoleMetadata(UUID.randomUUID(), staffRoleId,
+                "Senior Reviewer", "Reviews and escalates.", 25);
+
+        assertEquals("Senior Reviewer", staff.getName());
+        assertEquals("Reviews and escalates.", staff.getDescription());
+        assertEquals(25, staff.getDisplayOrder());
+        assertEquals("STAFF", staff.getCode(),
+                "the role code is the immutable identifier — it must not change");
+    }
+
+    /**
+     * The edit is audited, and the entry records both the previous and
+     * the new presentation so the trail says what changed.
+     */
+    @Test
+    void editingTheMetadataIsAudited() {
+        Role staff = new Role(staffRoleId, "STAFF", "Staff (Reviewer)",
+                "Reviews documentation changes.", true, 20);
+        when(roleRepository.findById(staffRoleId)).thenReturn(Optional.of(staff));
+
+        UUID actorId = UUID.randomUUID();
+        service.updateRoleMetadata(actorId, staffRoleId, "Senior Reviewer", null, 25);
+
+        ArgumentCaptor<java.util.Map<String, ?>> payload =
+                ArgumentCaptor.forClass(java.util.Map.class);
+        verify(auditLogService).record(eq(actorId), eq("ADMIN"), eq("role.metadata.update"),
+                eq("role"), eq(staffRoleId.toString()), eq(null), payload.capture());
+        assertEquals("Staff (Reviewer)", payload.getValue().get("previousName"));
+        assertEquals("Senior Reviewer", payload.getValue().get("name"));
+        assertEquals(20, payload.getValue().get("previousDisplayOrder"));
+        assertEquals(25, payload.getValue().get("displayOrder"));
+    }
+
+    /**
+     * A blank name is ignored rather than blanking the role — an empty
+     * display name would leave the role picker with an unlabelled
+     * entry.
+     */
+    @Test
+    void aBlankNameIsIgnored() {
+        Role staff = new Role(staffRoleId, "STAFF", "Staff (Reviewer)",
+                "Reviews documentation changes.", true, 20);
+        when(roleRepository.findById(staffRoleId)).thenReturn(Optional.of(staff));
+
+        service.updateRoleMetadata(UUID.randomUUID(), staffRoleId, "   ", null, null);
+
+        assertEquals("Staff (Reviewer)", staff.getName());
+    }
+
+    // -----------------------------------------------------------------
 
     private static Role role(String code, UUID id) {
         Role role = mock(Role.class);

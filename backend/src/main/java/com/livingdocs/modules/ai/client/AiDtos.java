@@ -69,6 +69,47 @@ public final class AiDtos {
         }
     }
 
+    /**
+     * One source file of a repository snapshot.
+     *
+     * <p>Sent to the AI service as part of a repository-level request:
+     * the service cannot parse a {@code package.json}, so the snapshot
+     * carries the files that decide how the project is built and run.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RepositoryKeyFile(String path, String content, String language) {}
+
+    /**
+     * A structured picture of a whole repository.
+     *
+     * <p>This is the wire format of {@code POST /api/v1/generate/repository}.
+     * It mirrors the backend's {@code RepositorySnapshot} record, but with
+     * the field names the AI service's Pydantic model expects.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RepositorySnapshot(
+            @JsonProperty("full_name") String fullName,
+            String description,
+            @JsonProperty("default_branch") String defaultBranch,
+            List<String> tree,
+            Map<String, Integer> languages,
+            Map<String, Integer> directories,
+            Map<String, String> manifests,
+            @JsonProperty("entry_points") List<String> entryPoints,
+            @JsonProperty("key_files") List<RepositoryKeyFile> keyFiles,
+            @JsonProperty("total_files") int totalFiles,
+            boolean truncated) {}
+
+    /**
+     * Request body for {@code POST /api/v1/generate/repository}.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record GenerateRepositoryRequest(
+            RepositorySnapshot repository,
+            String template,
+            @JsonProperty("template_schema") String templateSchema,
+            String focus) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DriftFinding(
             @JsonProperty("drift_kind") String driftKind,

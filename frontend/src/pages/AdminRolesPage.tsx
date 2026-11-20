@@ -14,10 +14,11 @@ import {
 import { LoadingState, ErrorState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import { adminApi } from '../services/adminApi';
-import { roleDescription, roleName } from '../services/adminLabels';
+import { roleDescription, roleName, isRoleCustomised } from '../services/adminLabels';
 import { Role } from '../types/admin';
 import { format } from 'date-fns';
 import RolePermissionMatrix from '../components/RolePermissionMatrix';
+import EditRoleMetadataDialog from '../components/admin/EditRoleMetadataDialog';
 
 export default function AdminRolesPage() {
   const { t } = useTranslation();
@@ -82,6 +83,9 @@ export default function AdminRolesPage() {
                     <TableHead>{t('adminRoles.colType')}</TableHead>
                     <TableHead>{t('adminRoles.colOrder')}</TableHead>
                     <TableHead>{t('adminRoles.colUpdated')}</TableHead>
+                    <TableHead className="w-[120px] text-right">
+                      {t('adminRoles.colActions')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -90,7 +94,16 @@ export default function AdminRolesPage() {
                       <TableCell>
                         <Badge variant="muted" className="font-mono text-[11px]">{r.code}</Badge>
                       </TableCell>
-                      <TableCell className="font-medium">{roleName(r.code, r.name, t)}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {roleName(r.code, r.name, t)}
+                          {isRoleCustomised(r.code, r.name, t) && (
+                            <Badge variant="info" className="text-[10px]">
+                              {t('adminRoles.customised')}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground max-w-md">{roleDescription(r.code, r.description, t)}</TableCell>
                       <TableCell>
                         <Badge variant={r.system ? 'success' : 'muted'} className="text-[10px]">
@@ -100,6 +113,18 @@ export default function AdminRolesPage() {
                       <TableCell className="text-xs">{r.displayOrder}</TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {format(new Date(r.updatedAt), 'MMM d, yyyy')}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end">
+                          <EditRoleMetadataDialog
+                            role={r}
+                            onSaved={(updated) => {
+                              setRoles((prev) =>
+                                prev.map((x) => (x.id === updated.id ? updated : x)),
+                              );
+                            }}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
