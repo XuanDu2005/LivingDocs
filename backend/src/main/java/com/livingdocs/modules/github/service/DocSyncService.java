@@ -106,15 +106,6 @@ public class DocSyncService {
     ) {}
 
     /**
-     * Summary of the proposals queued by a scan.
-     *
-     * @param queued  number of NEW proposals created
-     * @param skipped number of drifted files that were not queued
-     *                (already pending, or the AI proposed no real change)
-     */
-    public record AutoQueueResult(int queued, int skipped, List<String> queuedFiles) {}
-
-    /**
      * Information about a single documentation file.
      */
     public record DocFileInfo(
@@ -223,75 +214,92 @@ public class DocSyncService {
     }
 
     /**
-     * After a scan, turn every drifted file into a review proposal.
+     * The outcome of turning one drifted file into a review proposal.
      *
-     * <p>This is the "review-before-push" entry point: scanning a
-     * repository queues a PENDING_REVIEW {@link
-     * com.livingdocs.modules.docsync.model.DocUpdateRequest} for each
-     * file whose documentation no longer matches the code. Staff
-     * approve/reject, then a Manager applies it as a real GitHub PR.
-     *
-     * <p>Each file is previewed independently, so a single failure
-     * (e.g. the AI call times out for one file) does not abort the
-     * whole batch. Files that already have a pending proposal are
-     * skipped rather than duplicated.
-     *
-     * @return how many proposals were created and which files they cover
+     * @param queued  whether a proposal was actually created
+     * @param skipped whether the file was skipped because the AI proposed
+     *                no real change, or a proposal is already pending
+     * @param message why the file was skipped, or what went wrong
      */
-    public AutoQueueResult autoQueueDriftedFiles(UUID actorId, UUID workspaceId, UUID repositoryId,
-                                                  String accessToken, String branch,
-                                                  List<DocFileInfo> driftedFiles) {
-        if (driftedFiles == null || driftedFiles.isEmpty()) {
-            return new AutoQueueResult(0, 0, List.of());
-        }
-        int queued = 0;
-        int skipped = 0;
-        List<String> queuedFiles = new ArrayList<>();
+    public record FileProposalOutcome(boolean queued, boolean skipped, String message) {
 
-        for (DocFileInfo file : driftedFiles) {
-            try {
-                SyncPreviewResult preview = previewSync(
-                        actorId, workspaceId, repositoryId, accessToken, file.path(), branch);
-                if (preview.noEntitiesFound() || preview.proposedContent() == null) {
-                    skipped++;
-                    continue;
-                }
-                String diff = preview.diff();
-                // Each proposal is queued in its own transaction so a
-                // failure for one file does not roll back the others.
-                //
-                // The document is resolved from the file path: a file in
-                // the repository maps to the document that publishes it.
-                // Before `documents.file_path` existed this was a
-                // hard-coded `null`, so a proposal could never be traced
-                // back to its document.
-                UUID documentId = documentFileResolver
-                        .resolve(repositoryId, file.path())
-                        .map(d -> d.getId())
-                        .orElse(null);
-                com.livingdocs.modules.docsync.dto.DocUpdateRequestDto created =
-                        docUpdateRequestService.createProposalIfNotPending(
-                                workspaceId, repositoryId, documentId,
-                                file.path(), preview.currentContent(), preview.proposedContent(),
-                                diff == null ? null : diff.substring(0, Math.min(500, diff.length())),
-                                null, branch, actorId);
-                if (created != null) {
-                    queued++;
-                    queuedFiles.add(file.path());
-                } else {
-                    skipped++;
-                }
-            } catch (Exception e) {
-                // One bad file must not abort the batch.
-                skipped++;
-                log.warn("Could not queue doc update for {} in {}: {}",
-                        file.path(), repositoryId, e.getMessage());
+        public static FileProposalOutcome wasQueued() {
+            return new FileProposalOutcome(true, false, null);
+        }
+
+        public static FileProposalOutcome wasSkipped(String message) {
+            return new FileProposalOutcome(false, true, message);
+        }
+
+        public static FileProposalOutcome hasFailed(String message) {
+            return new FileProposalOutcome(false, false, message);
+        }
+    }
+
+    /**
+     * Turn a single drifted file into a review proposal.
+     *
+     * <p>This is the unit of work of the documentation sync. The
+     * repository-wide sync runs it once per drifted file, so it has to
+     * survive a failure in one file without taking the rest of the run
+     * down with it — and it has to report what happened so the job can
+     * show the user a per-file outcome.
+     *
+     * <p>Split out of {@link #autoQueueDriftedFiles} so the
+     * asynchronous job can drive the same logic one file at a time and
+     * report progress between the files, instead of holding a single
+     * HTTP request open for the whole batch.
+     *
+     * @param filePath the path of the Markdown file inside the repository
+     * @return what happened to this file
+     */
+    public FileProposalOutcome queueProposalForFile(UUID actorId, UUID workspaceId, UUID repositoryId,
+                                                    String accessToken, String branch, String filePath) {
+        try {
+            SyncPreviewResult preview = previewSync(
+                    actorId, workspaceId, repositoryId, accessToken, filePath, branch);
+            if (preview.noEntitiesFound()) {
+                return FileProposalOutcome.wasSkipped(
+                        "No code entity references this file — nothing to update.");
             }
+            if (preview.proposedContent() == null) {
+                // The AI was asked for a proposal and did not produce
+                // one. That is not a "no change" verdict — it is a
+                // failure of the generation step, and the user needs to
+                // be able to tell the two apart.
+                return FileProposalOutcome.hasFailed(
+                        "The AI did not produce a proposal for this file.");
+            }
+            String diff = preview.diff();
+            // Each proposal is queued in its own transaction so a
+            // failure for one file does not roll back the others.
+            //
+            // The document is resolved from the file path: a file in
+            // the repository maps to the document that publishes it.
+            // Before `documents.file_path` existed this was a
+            // hard-coded `null`, so a proposal could never be traced
+            // back to its document.
+            UUID documentId = documentFileResolver
+                    .resolve(repositoryId, filePath)
+                    .map(d -> d.getId())
+                    .orElse(null);
+            com.livingdocs.modules.docsync.dto.DocUpdateRequestDto created =
+                    docUpdateRequestService.createProposalIfNotPending(
+                            workspaceId, repositoryId, documentId,
+                            filePath, preview.currentContent(), preview.proposedContent(),
+                            diff == null ? null : diff.substring(0, Math.min(500, diff.length())),
+                            null, branch, actorId);
+            if (created != null) {
+                return FileProposalOutcome.wasQueued();
+            }
+            return FileProposalOutcome.wasSkipped(
+                    "A review request for this file is already pending.");
+        } catch (Exception e) {
+            // One bad file must not abort the batch.
+            log.warn("Could not queue doc update for {} in {}: {}",
+                    filePath, repositoryId, e.getMessage());
+            return FileProposalOutcome.hasFailed(e.getMessage());
         }
-
-        log.info("Auto-queued {} doc update proposal(s) for repository {} ({} skipped)",
-                queued, repositoryId, skipped);
-        return new AutoQueueResult(queued, skipped, queuedFiles);
     }
 
     private void scanDirectoryRecursive(String dirPath, String branch, String owner, String repo,
@@ -864,8 +872,19 @@ public class DocSyncService {
         // review proposal, which meant reviewers could approve a "change"
         // that the AI never produced. Returning null surfaces the real
         // state: nothing was proposed.
-        log.warn("AI did not return usable content for {} entities — no proposal produced",
-                entities.size());
+        //
+        // The reason the call failed is worth logging explicitly: when
+        // the provider refused because a quota window is spent, the
+        // difference between "the documentation is fine" and "the
+        // provider would not answer" decides whether the user retries
+        // now or waits.
+        if (aiServiceClient.lastFailureWasRateLimit()) {
+            log.warn("AI provider refused the call for {} entities — rate limit or exhausted quota: {}",
+                    entities.size(), aiServiceClient.lastFailureReason());
+        } else {
+            log.warn("AI did not return usable content for {} entities — no proposal produced",
+                    entities.size());
+        }
         return null;
     }
 

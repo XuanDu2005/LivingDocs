@@ -35,15 +35,16 @@ installAuthInterceptor(apiClient);
  * The default 10s is right for a simple read, but a few operations do
  * real work on the server and are not instant:
  *
- *   - `scan-docs` walks the repository's Markdown files, compares them
- *     against the indexed code, and then asks the AI to propose an
- *     update for every drifted file. On a repository with a handful of
- *     drifted files that is well over ten seconds.
  *   - `doc-sync/preview` performs one AI call.
+ *   - applying a proposal opens a pull request on GitHub.
  *
  * Without a longer budget these calls abort client-side while the
  * server is still working, and the user sees a bare "timeout" even
- * though the scan completes moments later.
+ * though the server completes the work moments later.
+ *
+ * The repository-wide documentation scan is deliberately *not* in this
+ * list: it costs one AI call per drifted file, so it runs as a
+ * background job and the client polls it instead of waiting.
  */
 export const LONG_TIMEOUT_MS = 120_000;
 
