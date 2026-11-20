@@ -38,6 +38,7 @@ import {
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
 import { githubApi, Repository, PullRequest, Commit, RepositoryModule } from '../services/github';
 import { codeApi, CodeEntity } from '../services/knowledge';
+import { ingestRepositoryEverything } from '../services/repositoryIngest';
 import { docSyncApi, DocSyncJobStatus } from '../services/docSync';
 import { aiApi, BulkGenerationJobStatus, RepositoryAnalysisJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
@@ -407,6 +408,46 @@ export default function RepositoryPage() {
     }
   }
 
+  /**
+   * The composite "ingest everything" action.
+   *
+   * <p>Pull requests, code entities and modules are three different
+   * tables, but they are one workflow from the user's point of view:
+   * the modules are derived from the indexed code entities, so a user
+   * who only pulled the pull requests ended up with two empty tabs and
+   * no clue why. This runs the three steps in order and refreshes
+   * every affected panel.
+   */
+  async function ingestEverything(repo: Repository) {
+    if (!workspaceId) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await ingestRepositoryEverything(workspaceId, repo.id);
+      setPulls(result.pullRequests);
+      setEntities(result.entities);
+      calculateCoverage(result.entities);
+      // The persisted modules are authoritative, but a reader without
+      // the MODULE_AUTO_UPDATE_MANAGE permission could not save them —
+      // fall back to the detected list so the tab is not empty.
+      const persisted = await githubApi.listModules(workspaceId, repo.id);
+      setModules(persisted.length > 0 ? persisted : result.detectedModules);
+      setInfo(
+        t('repository.ingestAllDone', {
+          prs: result.pullRequests.length,
+          entities: result.extractedEntityCount,
+          modules: result.detectedModules.length,
+          name: repo.fullName,
+        }),
+      );
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadModules(repo: Repository) {
     if (!workspaceId) return;
     setModulesLoading(true);
@@ -438,7 +479,9 @@ export default function RepositoryPage() {
         return;
       }
       // Persist the detected modules so they become part of the
-      // auto-update hierarchy instead of a one-off preview.
+      // auto-update hierarchy instead of a one-off preview. Persisting
+      // requires the MODULE_AUTO_UPDATE_MANAGE permission, so a reader
+      // without it still sees the detected list — it is just not stored.
       const saved = await Promise.all(
         detected.map((m) =>
           githubApi
@@ -453,11 +496,11 @@ export default function RepositoryPage() {
         ),
       );
       const ok = saved.filter(Boolean) as RepositoryModule[];
-      setModules(ok);
+      setModules(ok.length > 0 ? ok : detected);
       setInfo(
         t('repository.modulesDetected', {
-          count: ok.length,
-          defaultValue: `Detected ${ok.length} module(s) in ${repo.fullName}.`,
+          count: detected.length,
+          name: repo.fullName,
         }),
       );
     } catch (err) {
@@ -550,18 +593,20 @@ export default function RepositoryPage() {
     try {
       const list = await codeApi.listEntities(workspaceId, repo.id);
       setEntities(list);
+      // Calculate coverage from the list that was just loaded. Reading
+      // the `entities` state here would use the previous render's
+      // value, because React has not re-rendered yet.
+      calculateCoverage(list);
     } catch (err) {
       setError(describeError(err));
       setEntities([]);
+      calculateCoverage([]);
     } finally {
       setEntitiesLoading(false);
     }
-    // Calculate coverage after loading entities
-    calculateCoverage();
   }
 
-  function calculateCoverage() {
-    const list = entities;
+  function calculateCoverage(list: CodeEntity[]) {
     if (list.length === 0) {
       setCoverageStats(null);
       return;
@@ -1560,26 +1605,12 @@ export default function RepositoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={async () => {
-                      try {
-                        setBusy(true);
-                        setError(null);
-                        const prs = await githubApi.ingestPullRequests(workspaceId, selected.id, 'all');
-                        setInfo(t('repository.ingestAllDone', {
-                          count: prs.length,
-                          name: selected.fullName,
-                        }));
-                        await loadDetails(selected);
-                      } catch (err) {
-                        setError(describeError(err));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    onClick={() => void ingestEverything(selected)}
                     disabled={busy}
+                    title={t('repository.ingestAllTitle', 'Fetches pull requests, indexes the code entities and detects the modules of this repository.')}
                   >
                     {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-                    {t('repository.ingestAll')}
+                    {busy ? t('repository.ingesting', 'Ingesting…') : t('repository.ingestAll')}
                   </Button>
                 )}
                 {activeTab === 'commits' && (
@@ -1637,9 +1668,20 @@ export default function RepositoryPage() {
                     onClick={async () => {
                       try {
                         setBusy(true);
+                        setError(null);
                         const result = await githubApi.ingestCode(workspaceId, selected.id);
-                        setInfo(`Indexed ${result.ingested} code entities from ${selected.fullName}`);
+                        setInfo(
+                          t('repository.ingestCodeDone', {
+                            count: result.ingested,
+                            name: selected.fullName,
+                          }),
+                        );
                         await loadEntities(selected);
+                        // The modules are derived from the indexed code
+                        // entities, so a fresh index changes what they
+                        // look like. Refresh them too, otherwise the
+                        // modules tab keeps showing the stale list.
+                        await loadModules(selected);
                       } catch (err) {
                         setError(describeError(err));
                       } finally {
@@ -1649,7 +1691,7 @@ export default function RepositoryPage() {
                     disabled={busy}
                   >
                     <Code2 className="mr-1 h-3 w-3" />
-                    {busy ? 'Indexing…' : 'Ingest Code'}
+                    {busy ? t('repository.indexingCode', 'Indexing…') : t('repository.ingestCode', 'Ingest Code')}
                   </Button>
                 )}
               </div>
