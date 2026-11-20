@@ -33,6 +33,10 @@ replay_pid*
 
 # Local Maven repository cache (used by the dockerised maven build)
 .m2/
+# Stray Maven local repo created inside the source tree (relative localRepository)
+/backend/repository/
+/backend/settings-docker.xml
+/backend/settings-local.xml
 
 # IDE — IntelliJ / JetBrains
 .idea/

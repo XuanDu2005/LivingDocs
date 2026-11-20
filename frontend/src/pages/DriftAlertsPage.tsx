@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { driftApi, DriftAlert, DriftKind, DriftResolution, DriftSeverity } from '../services/drift';
+import { aiApi, RepositoryDriftScanJobStatus } from '../services/ai';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import { describeError } from '../services/auth';
 import { usePermission } from '../hooks/usePermission';
@@ -139,12 +140,14 @@ export default function DriftAlertsPage() {
   // Trigger scan state
   const [scanOpen, setScanOpen] = useState<boolean>(false);
   const [scanRepositoryId, setScanRepositoryId] = useState<string>('');
-  const [scanDocumentId, setScanDocumentId] = useState<string>('');
   const [scanPullRequestId, setScanPullRequestId] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [scanOptions, setScanOptions] = useState<{ repositories: { id: string; fullName: string }[]; documents: { id: string; title: string }[]; pullRequests: { id: string; number: number; title: string }[] }>({ repositories: [], documents: [], pullRequests: [] });
   const [scanOptionsLoading, setScanOptionsLoading] = useState<boolean>(false);
+  // The outcome of the last repository-wide scan, shown as a summary
+  // of what the scan found.
+  const [scanJob, setScanJob] = useState<RepositoryDriftScanJobStatus | null>(null);
 
   const load = async () => {
     if (!workspaceId) return;
@@ -181,8 +184,8 @@ export default function DriftAlertsPage() {
     if (!workspaceId) return;
     setScanOpen(true);
     setScanResult(null);
+    setScanJob(null);
     setScanRepositoryId('');
-    setScanDocumentId('');
     setScanPullRequestId('');
     if (scanOptions.repositories.length === 0 && scanOptions.documents.length === 0) {
       setScanOptionsLoading(true);
@@ -230,30 +233,75 @@ export default function DriftAlertsPage() {
     }
   }
 
+  /**
+   * Scan a whole repository for drift.
+   *
+   * <p>No document is chosen: the backend walks every document of the
+   * repository and compares each one against the code. The run is
+   * asynchronous — one LLM call per document — so the button queues a
+   * job and the poll loop follows it to the end.
+   */
   async function handleTriggerScan() {
-    if (!workspaceId || !scanRepositoryId || !scanDocumentId) return;
+    if (!workspaceId || !scanRepositoryId) return;
     setScanning(true);
     setScanResult(null);
+    setScanJob(null);
     try {
-      // The backend reconstructs the before/after content from GitHub
-      // when a pull request is given; otherwise the latest code entity
-      // snapshot is used as the comparison base.
-      const result = await driftApi.detect(workspaceId, {
-        repositoryId: scanRepositoryId,
-        pullRequestId: scanPullRequestId || undefined,
-        documentId: scanDocumentId,
-        filesBefore: [],
-        filesAfter: [],
-      });
-      setScanResult(
-        t('drift.scanComplete', { count: result.ingested, defaultValue: `Scan complete. ${result.ingested} new alert(s) ingested.` }),
+      const queued = await aiApi.scanRepositoryForDrift(
+        workspaceId,
+        scanRepositoryId,
+        scanPullRequestId || undefined,
       );
+      const final = await pollDriftScan(workspaceId, queued.jobId);
+      setScanJob(final);
+      if (final.status === 'FAILED' && final.errorMessage) {
+        // A failed run has a reason — an expired GitHub credential,
+        // an unreachable repository. It must not read as "no drift".
+        setScanResult(final.errorMessage);
+      } else {
+        setScanResult(
+          t('drift.scanComplete', {
+            count: final.alertsCreated,
+            defaultValue: `Scan complete. ${final.alertsCreated} new alert(s) ingested.`,
+          }),
+        );
+      }
       await load();
     } catch (err) {
       setScanResult(describeError(err));
     } finally {
       setScanning(false);
     }
+  }
+
+  /**
+   * Follow a repository drift scan until it finishes.
+   *
+   * <p>The scan costs one LLM call per document, so it can take a
+   * while. The poll loop is generous about the timeout but always ends
+   * — a stuck run must not hang the page forever.
+   */
+  async function pollDriftScan(wsId: string, jobId: string) {
+    const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    // ~10 minutes worth of polls.
+    const maxAttempts = 300;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const job = await aiApi.repositoryDriftScanStatus(wsId, jobId);
+      if (terminal.has(job.status)) {
+        return job;
+      }
+      setScanResult(
+        t('drift.scanProgress', {
+          scanned: job.scannedDocuments,
+          total: job.totalDocuments,
+          defaultValue: `Scanning… ${job.scannedDocuments}/${job.totalDocuments} documents compared.`,
+        }),
+      );
+    }
+
+    throw new Error(t('drift.scanTimeout', 'The scan is taking longer than expected. Check back shortly.'));
   }
 
   if (!workspaceId) return <EmptyState title={t('common.back')} />;
@@ -333,16 +381,8 @@ export default function DriftAlertsPage() {
                       {t('drift.scanPullRequestHint', 'With a pull request, the before/after content is read from GitHub, so the comparison is exact.')}
                     </p>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium">{t('drift.scanDoc', 'Document')}</label>
-                    <Select value={scanDocumentId} onValueChange={setScanDocumentId}>
-                      <SelectTrigger><SelectValue placeholder={t('drift.scanDocPlaceholder', 'Select a document')} /></SelectTrigger>
-                      <SelectContent>
-                        {scanOptions.documents.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="rounded-md border bg-muted/50 p-3 text-xs text-muted-foreground">
+                    {t('drift.scanScopeHint', 'Every document of the selected repository is compared against the code. Documents that no longer match produce a drift alert.')}
                   </div>
                 </>
               )}
@@ -351,10 +391,38 @@ export default function DriftAlertsPage() {
                   {scanResult}
                 </div>
               )}
+              {scanJob && scanJob.documents && scanJob.documents.length > 0 && (
+                <div className="max-h-56 overflow-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('drift.colTitle')}</TableHead>
+                        <TableHead>{t('drift.colStatus')}</TableHead>
+                        <TableHead>{t('drift.colAlerts')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {scanJob.documents.map((d) => (
+                        <TableRow key={d.documentId}>
+                          <TableCell className="text-xs">{d.title}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {d.status === 'SCANNED'
+                              ? (d.alerts > 0 ? t('drift.scanDocDrifted') : t('drift.scanDocClean'))
+                              : d.status === 'SKIPPED'
+                                ? t('drift.scanDocSkipped')
+                                : t('drift.scanDocFailed')}
+                          </TableCell>
+                          <TableCell className="text-xs">{d.alerts}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <DialogClose asChild><Button variant="outline" disabled={scanning}>{t('common.cancel')}</Button></DialogClose>
-              <Button onClick={() => void handleTriggerScan()} disabled={scanning || !scanRepositoryId || !scanDocumentId}>
+              <Button onClick={() => void handleTriggerScan()} disabled={scanning || !scanRepositoryId}>
                 {scanning ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {t('drift.scanning', 'Scanning…')}</> : t('drift.runScan', 'Run scan')}
               </Button>
             </DialogFooter>

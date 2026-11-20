@@ -107,6 +107,43 @@ public class AiServiceClient {
         }
     }
 
+    /**
+     * Generate documentation for a whole repository.
+     *
+     * <p>Unlike {@link #generate}, this call carries a structured
+     * snapshot of the repository instead of a flat list of source
+     * files. The AI service cannot parse a {@code package.json}, so the
+     * snapshot has to spell out the layout of the project — that is
+     * what makes a README or an architecture guide possible at all.
+     *
+     * @param template the canonical doc type, e.g. {@code README}
+     */
+    public AiDtos.GenerateResponse generateRepository(UUID workspaceId,
+                                                       AiDtos.RepositorySnapshot snapshot,
+                                                       String template,
+                                                       String templateSchema,
+                                                       String focus) {
+        if (!props.isEnabled()) return null;
+        AiSettings settings = resolveSettings(workspaceId);
+        try {
+            AiDtos.GenerateRepositoryRequest req = new AiDtos.GenerateRepositoryRequest(
+                    snapshot, template, templateSchema, focus);
+            return restClient.post()
+                    .uri(props.getApiPrefix() + "/generate/repository")
+                    .headers(h -> applyAiHeaders(h, workspaceId, settings))
+                    .body(req)
+                    .retrieve()
+                    .body(AiDtos.GenerateResponse.class);
+        } catch (RestClientResponseException e) {
+            log.warn("AI service rejected repository generate call: {} {}",
+                    e.getStatusCode(), e.getResponseBodyAsString());
+            return null;
+        } catch (Exception e) {
+            log.warn("AI service repository generate call failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public AiDtos.DriftResponse detectDrift(UUID workspaceId,
                                             List<AiDtos.SourceFile> filesBefore,
                                             List<AiDtos.SourceFile> filesAfter,

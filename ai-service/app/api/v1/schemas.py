@@ -32,6 +32,61 @@ class GroundingSource(BaseModel):
     signature: str = ""
 
 
+class RepositoryKeyFile(BaseModel):
+    """A source file that is part of the repository snapshot."""
+
+    path: str = Field(description="Repository-relative path of the file")
+    content: str = Field(default="", description="Raw file contents")
+    language: str = Field(default="", description="Detected language, or empty")
+
+
+class RepositorySnapshotModel(BaseModel):
+    """A structured picture of a whole repository.
+
+    The repository-level generator works on this instead of a flat list
+    of source files: an overview document needs the *layout* of the
+    project (tree, directories, language mix), its dependency manifests
+    and its entry points — none of which the AST analysers can see.
+    """
+
+    full_name: str = Field(default="", description="owner/name of the repository")
+    description: Optional[str] = Field(default=None)
+    default_branch: str = Field(default="main")
+    tree: List[str] = Field(default_factory=list,
+                            description="Every file path found in the repository")
+    languages: dict = Field(default_factory=dict,
+                            description="File count per language")
+    directories: dict = Field(default_factory=dict,
+                              description="File count per top-level directory")
+    manifests: dict = Field(default_factory=dict,
+                             description="Content of the dependency manifests, keyed by path")
+    entry_points: List[str] = Field(default_factory=list)
+    key_files: List[RepositoryKeyFile] = Field(default_factory=list)
+    total_files: int = 0
+    truncated: bool = False
+
+
+class GenerateRepositoryDocumentationRequest(BaseModel):
+    repository: RepositorySnapshotModel
+    template: Optional[str] = Field(default=None,
+                                    description="README | ARCHITECTURE | ONBOARDING_GUIDE | API_REFERENCE")
+    template_schema: Optional[str] = Field(
+        default=None,
+        description="Canonical template JSON (sections + placeholders) as a string.",
+    )
+    focus: Optional[str] = Field(default=None, description="Optional focus area")
+
+
+class GenerateRepositoryDocumentationResponse(BaseModel):
+    markdown: str
+    confidence: float
+    model: str
+    sources: List[GroundingSource] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
 class GenerateDocumentationResponse(BaseModel):
     markdown: str
     confidence: float

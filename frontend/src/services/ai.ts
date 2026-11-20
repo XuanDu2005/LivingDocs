@@ -90,6 +90,80 @@ export interface BulkGenerationJobStatus {
   }>;
 }
 
+/**
+ * The state of a repository-level "analyse the whole repository" run.
+ *
+ * <p>Distinct from {@link BulkGenerationJobStatus}: the bulk run
+ * documents one document per code entity, this one produces a small set
+ * of overview documents (README, architecture, onboarding, API
+ * reference) for the repository as a whole.
+ */
+export interface RepositoryAnalysisJobStatus {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+  repositoryId: string;
+  docTypes: string[];
+  totalFiles: number;
+  scannedFiles: number;
+  processedDocuments: number;
+  generated: number;
+  failed: number;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errors?: string[];
+  documents?: Array<{
+    documentId: string;
+    title: string;
+    slug: string;
+    docType: string;
+    versionNumber: number;
+  }>;
+}
+
+/**
+ * The state of a repository-wide "scan the whole repository for
+ * documentation drift" run.
+ *
+ * <p>Distinct from {@link RepositoryAnalysisJobStatus}: that one
+ * *writes* documents, this one *compares* the existing documents
+ * against the code and files drift alerts for the ones that no longer
+ * match.
+ */
+export interface RepositoryDriftScanJobStatus {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+  repositoryId: string;
+  pullRequestId: string | null;
+  /** How many documents of the repository the scan covers. */
+  totalDocuments: number;
+  /** How many of those documents have been compared so far. */
+  scannedDocuments: number;
+  /** How many documents turned out to have drifted. */
+  documentsWithDrift: number;
+  /** How many drift alerts the scan filed in total. */
+  alertsCreated: number;
+  /** How many documents could not be compared. */
+  failedDocuments: number;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** The per-document outcome of the scan. */
+  documents?: Array<{
+    documentId: string;
+    title: string;
+    /** `SCANNED`, `SKIPPED` or `FAILED`. */
+    status: string;
+    alerts: number;
+    beforeRef?: string;
+    afterRef?: string;
+    reason?: string;
+    error?: string;
+  }>;
+}
+
 export const aiApi = {
   /**
    * Queue an AI generation run.
@@ -252,6 +326,113 @@ export const aiApi = {
     return apiClient
       .get<BulkGenerationJobStatus[]>(
         `/workspaces/${workspaceId}/bulk-generation-jobs`,
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * Queue a repository-level documentation analysis.
+   *
+   * <p>The backend scans the whole repository (tree, dependency
+   * manifests, entry points) and writes one overview document per
+   * requested doc type. This is asynchronous: the endpoint answers 202
+   * with a job id and the actual work happens on a background worker.
+   * Poll {@link repositoryAnalysisStatus} to follow the progress.
+   */
+  analyzeRepository(
+    workspaceId: string,
+    repositoryId: string,
+    docTypes?: string[],
+  ) {
+    const qs = new URLSearchParams();
+    (docTypes ?? []).forEach((t) => qs.append('docTypes', t));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return apiClient
+      .post<{
+        status: string;
+        jobId: string;
+        repositoryId: string;
+        docTypes: string;
+        message: string;
+      }>(
+        `/workspaces/${workspaceId}/repositories/${repositoryId}/analyze${suffix}`,
+        {},
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * Poll the progress of a repository-level analysis run.
+   */
+  repositoryAnalysisStatus(workspaceId: string, jobId: string) {
+    return apiClient
+      .get<RepositoryAnalysisJobStatus>(
+        `/workspaces/${workspaceId}/repository-analysis-jobs/${jobId}`,
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * List the recent repository-level analyses of a workspace.
+   */
+  repositoryAnalysisJobs(workspaceId: string) {
+    return apiClient
+      .get<RepositoryAnalysisJobStatus[]>(
+        `/workspaces/${workspaceId}/repository-analysis-jobs`,
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * Queue a repository-wide drift scan.
+   *
+   * <p>No document is involved: the scan walks every document of the
+   * repository and compares each one against the code. This is
+   * asynchronous — the endpoint answers 202 with a job id and the
+   * actual work happens on a background worker. Poll
+   * {@link repositoryDriftScanStatus} to follow the progress.
+   *
+   * @param pullRequestId optional — anchors the comparison to a pull
+   *                      request instead of the current head of the
+   *                      default branch
+   */
+  scanRepositoryForDrift(
+    workspaceId: string,
+    repositoryId: string,
+    pullRequestId?: string,
+  ) {
+    const suffix = pullRequestId ? `?pullRequestId=${pullRequestId}` : '';
+    return apiClient
+      .post<{
+        status: string;
+        jobId: string;
+        repositoryId: string;
+        message: string;
+      }>(
+        `/workspaces/${workspaceId}/repositories/${repositoryId}/drift-scan${suffix}`,
+        {},
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * Poll the progress of a repository-wide drift scan.
+   */
+  repositoryDriftScanStatus(workspaceId: string, jobId: string) {
+    return apiClient
+      .get<RepositoryDriftScanJobStatus>(
+        `/workspaces/${workspaceId}/repository-drift-scan-jobs/${jobId}`,
+      )
+      .then((r) => r.data);
+  },
+
+  /**
+   * List the recent repository-wide drift scans of a workspace.
+   */
+  repositoryDriftScanJobs(workspaceId: string) {
+    return apiClient
+      .get<RepositoryDriftScanJobStatus[]>(
+        `/workspaces/${workspaceId}/repository-drift-scan-jobs`,
       )
       .then((r) => r.data);
   },

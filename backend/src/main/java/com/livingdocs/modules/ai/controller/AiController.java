@@ -2,8 +2,11 @@ package com.livingdocs.modules.ai.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.NotFoundException;
 import com.livingdocs.common.security.CurrentUser;
+import com.livingdocs.modules.ai.analysis.RepositoryAnalysisJob;
+import com.livingdocs.modules.ai.analysis.RepositoryAnalysisService;
 import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.bulk.BulkGenerationJob;
 import com.livingdocs.modules.ai.bulk.BulkGenerationService;
@@ -13,6 +16,9 @@ import com.livingdocs.modules.ai.job.DocGenerationJobResponse;
 import com.livingdocs.modules.ai.job.DocGenerationJobService;
 import com.livingdocs.modules.ai.service.AiDocumentationService;
 import com.livingdocs.modules.drift.dto.DriftAlertResponse;
+import com.livingdocs.modules.drift.scan.DriftSourceResolver;
+import com.livingdocs.modules.drift.scan.RepositoryDriftScanJob;
+import com.livingdocs.modules.drift.scan.RepositoryDriftScanService;
 import com.livingdocs.modules.drift.service.DriftAlertService;
 import com.livingdocs.modules.github.service.PullRequestDiffService;
 import com.livingdocs.modules.github.service.PullRequestDiffService.DiffFiles;
@@ -54,6 +60,9 @@ public class AiController {
     private final ObjectMapper objectMapper;
     private final DocGenerationJobService jobService;
     private final BulkGenerationService bulkGenerationService;
+    private final RepositoryAnalysisService repositoryAnalysisService;
+    private final RepositoryDriftScanService repositoryDriftScanService;
+    private final DriftSourceResolver driftSourceResolver;
     private final PullRequestDiffService pullRequestDiffService;
     private final TemplateSchemaResolver schemaResolver;
 
@@ -65,6 +74,9 @@ public class AiController {
                         ObjectMapper objectMapper,
                         DocGenerationJobService jobService,
                         BulkGenerationService bulkGenerationService,
+                        RepositoryAnalysisService repositoryAnalysisService,
+                        RepositoryDriftScanService repositoryDriftScanService,
+                        DriftSourceResolver driftSourceResolver,
                         PullRequestDiffService pullRequestDiffService,
                         TemplateSchemaResolver schemaResolver) {
         this.aiService = aiService;
@@ -75,6 +87,9 @@ public class AiController {
         this.objectMapper = objectMapper;
         this.jobService = jobService;
         this.bulkGenerationService = bulkGenerationService;
+        this.repositoryAnalysisService = repositoryAnalysisService;
+        this.repositoryDriftScanService = repositoryDriftScanService;
+        this.driftSourceResolver = driftSourceResolver;
         this.pullRequestDiffService = pullRequestDiffService;
         this.schemaResolver = schemaResolver;
     }
@@ -135,6 +150,24 @@ public class AiController {
         return ResponseEntity.ok(DocGenerationJobResponse.from(job).toMap());
     }
 
+    /**
+     * Run drift detection for a single document against a code change.
+     *
+     * <p>The document is required — this endpoint answers the narrow
+     * question "does <em>this</em> document still match the code?". The
+     * repository-wide question ("which documents no longer match the
+     * code?") is answered by
+     * {@code POST /workspaces/{id}/repositories/{repositoryId}/drift-scan},
+     * which needs no document at all.
+     *
+     * <p>When the caller supplied neither the file contents nor a pull
+     * request, the two revisions are reconstructed from the repository
+     * itself: the "before" is the commit the document was last written
+     * against and the "after" is the current head. Without that the
+     * analyser had nothing to compare and the scan silently found no
+     * drift — the reason the manual scan used to report "0 alerts" no
+     * matter what the user picked.
+     */
     @PostMapping("/workspaces/{workspaceId}/drift-alerts/detect")
     @Operation(summary = "Run drift detection for a document against a code change")
     public Map<String, Object> detectDrift(@PathVariable UUID workspaceId,
@@ -160,6 +193,21 @@ public class AiController {
                     workspaceId, repositoryId, pullRequestId);
             filesBefore = diff.filesBefore();
             filesAfter = diff.filesAfter();
+        }
+
+        // Neither contents nor a pull request: reconstruct the two
+        // revisions from the repository and the document's own
+        // grounding. This is what makes a manual scan find something.
+        if (filesBefore.isEmpty() && filesAfter.isEmpty()) {
+            DriftSourceResolver.Comparison comparison = driftSourceResolver.resolveForDocument(
+                    workspaceId, repositoryId, documentId, pullRequestId);
+            if (comparison == null || comparison.isSkipped()) {
+                throw new BadRequestException(comparison == null
+                        ? "Document not found in this repository"
+                        : comparison.skipped());
+            }
+            filesBefore = comparison.filesBefore();
+            filesAfter = comparison.filesAfter();
         }
 
         int count = aiService.detectDriftForPullRequest(
@@ -280,6 +328,141 @@ public class AiController {
         workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
         return bulkGenerationService.recentForWorkspace(workspaceId).stream()
                 .map(bulkGenerationService::toResponse)
+                .toList();
+    }
+
+    // -----------------------------------------------------------------
+    // Repository-level analysis
+    // -----------------------------------------------------------------
+
+    /**
+     * Analyse a whole repository and write overview documentation for it.
+     *
+     * <p>This is the repository-level counterpart of
+     * {@code /generate-all}: instead of one document per code entity,
+     * it produces a small set of <em>overview</em> documents (README,
+     * architecture guide, onboarding guide, API reference) grounded on
+     * the repository as a whole — its layout, its dependency manifests
+     * and its entry points.
+     *
+     * <p>The work takes a while (the scan walks the repository tree and
+     * every document type costs one LLM call), so the call enqueues a
+     * job and answers <b>202 Accepted</b>; the client polls
+     * {@code /repository-analysis-jobs/{jobId}} for progress.
+     */
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/analyze")
+    @Operation(summary = "Queue a repository-level documentation analysis (returns 202)")
+    public ResponseEntity<Map<String, Object>> analyzeRepository(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestParam(required = false) List<String> docTypes) {
+        RepositoryAnalysisJob job = repositoryAnalysisService.enqueue(
+                CurrentUser.requireId(), workspaceId, repositoryId, docTypes);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", job.getStatus().name(),
+                "jobId", job.getId().toString(),
+                "repositoryId", repositoryId.toString(),
+                "docTypes", job.getDocTypes() == null ? "" : job.getDocTypes(),
+                "message", "Repository analysis queued. Poll /repository-analysis-jobs/"
+                        + job.getId() + " for progress."));
+    }
+
+    /**
+     * Poll the progress of a repository analysis run.
+     */
+    @GetMapping("/workspaces/{workspaceId}/repository-analysis-jobs/{jobId}")
+    @Operation(summary = "Poll the status of a repository-level documentation analysis")
+    public Map<String, Object> repositoryAnalysisStatus(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID jobId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        RepositoryAnalysisJob job = repositoryAnalysisService.find(jobId)
+                .orElseThrow(() -> new NotFoundException("Repository analysis job not found"));
+        if (!job.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Repository analysis job not found in this workspace");
+        }
+        return repositoryAnalysisService.toResponse(job);
+    }
+
+    /**
+     * List the most recent repository analysis runs of a workspace.
+     */
+    @GetMapping("/workspaces/{workspaceId}/repository-analysis-jobs")
+    @Operation(summary = "List recent repository-level documentation analyses")
+    public List<Map<String, Object>> repositoryAnalysisJobs(
+            @PathVariable UUID workspaceId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        return repositoryAnalysisService.recentForWorkspace(workspaceId).stream()
+                .map(repositoryAnalysisService::toResponse)
+                .toList();
+    }
+
+    // -----------------------------------------------------------------
+    // Repository-level drift scan
+    // -----------------------------------------------------------------
+
+    /**
+     * Scan a whole repository for documentation drift.
+     *
+     * <p>Unlike {@code /drift-alerts/detect} this endpoint takes
+     * <b>no document</b>: it walks every document of the repository and
+     * compares each one against the code. That is the question the
+     * feature is actually for — "which documents no longer match the
+     * code?" — and it cannot be answered by the user, because a
+     * document that has drifted is exactly the one the user did not
+     * think to check.
+     *
+     * <p>The scan costs one LLM call per document, so it cannot run
+     * inside an HTTP request. The call enqueues a job and answers
+     * <b>202 Accepted</b>; the client polls
+     * {@code /repository-drift-scan-jobs/{jobId}} for progress.
+     *
+     * @param pullRequestId optional — anchors the comparison to a pull
+     *                      request instead of the current head
+     */
+    @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/drift-scan")
+    @Operation(summary = "Queue a repository-wide drift scan (returns 202)")
+    public ResponseEntity<Map<String, Object>> scanRepositoryForDrift(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID repositoryId,
+            @RequestParam(required = false) UUID pullRequestId) {
+        RepositoryDriftScanJob job = repositoryDriftScanService.enqueue(
+                CurrentUser.requireId(), workspaceId, repositoryId, pullRequestId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", job.getStatus().name(),
+                "jobId", job.getId().toString(),
+                "repositoryId", repositoryId.toString(),
+                "message", "Repository drift scan queued. Poll /repository-drift-scan-jobs/"
+                        + job.getId() + " for progress."));
+    }
+
+    /**
+     * Poll the progress of a repository drift scan.
+     */
+    @GetMapping("/workspaces/{workspaceId}/repository-drift-scan-jobs/{jobId}")
+    @Operation(summary = "Poll the status of a repository-wide drift scan")
+    public Map<String, Object> repositoryDriftScanStatus(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID jobId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        RepositoryDriftScanJob job = repositoryDriftScanService.find(jobId)
+                .orElseThrow(() -> new NotFoundException("Repository drift scan job not found"));
+        if (!job.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Repository drift scan job not found in this workspace");
+        }
+        return repositoryDriftScanService.toResponse(job);
+    }
+
+    /**
+     * List the most recent repository drift scans of a workspace.
+     */
+    @GetMapping("/workspaces/{workspaceId}/repository-drift-scan-jobs")
+    @Operation(summary = "List recent repository-wide drift scans")
+    public List<Map<String, Object>> repositoryDriftScanJobs(
+            @PathVariable UUID workspaceId) {
+        workspaceService.requireMember(CurrentUser.requireId(), workspaceId);
+        return repositoryDriftScanService.recentForWorkspace(workspaceId).stream()
+                .map(repositoryDriftScanService::toResponse)
                 .toList();
     }
 }

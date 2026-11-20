@@ -192,7 +192,8 @@ def _system_prompt_for_template(template: str,
 
 
 def _system_prompt_from_schema(template: str,
-                               schema: dict[str, Any]) -> str:
+                               schema: dict[str, Any],
+                               base_prompt: Optional[str] = None) -> str:
     """Render a canonical template schema into a system prompt.
 
     The canonical shape produced by the backend is::
@@ -218,6 +219,11 @@ def _system_prompt_from_schema(template: str,
 
     Unknown keys are ignored so a newer backend can add fields without
     breaking this service.
+
+    ``base_prompt`` lets the repository-level generator reuse this
+    renderer with its own grounding rules — the two flows ground on
+    different things (a code entity vs. a repository snapshot), and the
+    base prompt is what says so.
     """
 
     name = str(schema.get("name") or schema.get("titleHint") or template or "DOCUMENT")
@@ -226,7 +232,7 @@ def _system_prompt_from_schema(template: str,
     variables = schema.get("variables") or []
 
     parts = [
-        _BASE_SYSTEM_PROMPT,
+        base_prompt if base_prompt else _BASE_SYSTEM_PROMPT,
         "",
         f"Follow the '{name}' documentation template exactly.",
         "Emit one Markdown section per entry below, in the given order, "

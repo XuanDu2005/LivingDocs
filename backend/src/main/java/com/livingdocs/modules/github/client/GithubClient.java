@@ -117,6 +117,26 @@ public interface GithubClient {
     String getFileContent(String accessToken, String owner, String repo, String path, String ref);
 
     /**
+     * Compares two revisions of a repository.
+     *
+     * <p>Unlike {@link #getFileContent}, this returns <em>every</em>
+     * file that differs between the two revisions in a single request.
+     * A drift comparison needs exactly that — the changed files — and
+     * asking for them one by one costs one HTTP round trip per file,
+     * which is far too slow for a repository-wide scan.
+     *
+     * @param accessToken GitHub access token
+     * @param owner       repository owner
+     * @param repo        repository name
+     * @param base        the "before" revision (branch, tag or SHA)
+     * @param head        the "after" revision (branch, tag or SHA)
+     * @return the differing files, or an empty list when the revisions
+     *         are identical or cannot be compared
+     */
+    List<GithubPullRequestFile> compareCommits(String accessToken, String owner, String repo,
+                                                String base, String head);
+
+    /**
      * Creates (or updates) a single file on a feature branch and opens a
      * pull request against the repository's default branch.
      *
