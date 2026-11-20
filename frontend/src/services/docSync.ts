@@ -2,6 +2,7 @@
  * Doc Sync API client - scan and sync documentation files with code entities.
  */
 import apiClient, { LONG_TIMEOUT_MS } from './api';
+import type { DocUpdateRequest } from './docUpdateRequests';
 
 export interface DocFileInfo {
   path: string;
@@ -139,10 +140,11 @@ export const docSyncApi = {
  * instead of opening a PR directly). Returns the freshly created request.
  */
 export interface DocSyncQueueResult {
-  id: string;
-  status: string;
-  filePath: string;
-  hasChanges: boolean;
+  success: boolean;
+  /** Whether a proposal was actually created. */
+  queued: boolean;
+  /** The created proposal; absent when nothing was queued. */
+  request?: DocUpdateRequest | null;
   message?: string;
 }
 

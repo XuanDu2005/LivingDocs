@@ -35,5 +35,26 @@ public record UpdateDocumentRequest(
          * manager only), so it must not be reachable by accident.
          */
         UUID ownerId,
-        boolean autoUpdateEnabled
-) {}
+        boolean autoUpdateEnabled,
+        /**
+         * The path of the file this document is published to, inside the
+         * repository.
+         *
+         * <p>{@code null} leaves the current path alone. This is the
+         * field that ties the document to the repository: a proposal
+         * raised for this file resolves back to this document, and the
+         * commit dialog writes to this path instead of guessing one.
+         */
+        @Size(max = 512) String filePath
+) {
+    /**
+     * The shape of the request before the file path was part of it.
+     *
+     * <p>Kept so the callers that do not care about the path do not have
+     * to spell out a {@code null} for it.
+     */
+    public UpdateDocumentRequest(String title, String summary, UUID repositoryId,
+                                  UUID templateId, UUID ownerId, boolean autoUpdateEnabled) {
+        this(title, summary, repositoryId, templateId, ownerId, autoUpdateEnabled, null);
+    }
+}

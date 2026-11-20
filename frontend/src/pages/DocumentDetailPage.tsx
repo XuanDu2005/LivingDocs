@@ -1,7 +1,7 @@
 import { tagsApi, DocumentTag } from '../services/tags';
 import { DocumentTags } from '../components/DocumentTags';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, AlertCircle, Bot, Check, CheckCircle2, Eye, ExternalLink, Github, History, Link2, Loader2, MessageSquare, Plus, Radar, RefreshCw, RotateCcw, Send, Shield, Sparkles, Upload, UserCog, X, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -192,6 +192,16 @@ export default function DocumentDetailPage() {
   const [commitRepos, setCommitRepos] = useState<import('../services/github').Repository[]>([]);
   const [commitReposLoading, setCommitReposLoading] = useState<boolean>(false);
   const [tab, setTab] = useState<string>('content');
+  /**
+   * The tab asked for by the URL (`?tab=drift`).
+   *
+   * <p>The drift badge in the document list links here with a tab
+   * parameter, so the alert the user clicked is the alert they land on.
+   * The parameter is read once and then ignored: the tab becomes local
+   * state, so a user who switches tabs is not fought by the URL.
+   */
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
   // Review state: the comment a reviewer is typing, and the version the
   // review drawer is open on.
   const [reviewComment, setReviewComment] = useState<string>('');
@@ -341,6 +351,8 @@ export default function DocumentDetailPage() {
   const [selectedRepoId, setSelectedRepoId] = useState<string>('');
   const [attachingRepo, setAttachingRepo] = useState<boolean>(false);
   const [attachRepoError, setAttachRepoError] = useState<string | null>(null);
+  // The file inside the repository that this document documents.
+  const [attachFilePath, setAttachFilePath] = useState<string>('');
 
   // Resolve drift dialog
   const [resolveAlertId, setResolveAlertId] = useState<string | null>(null);
@@ -510,6 +522,7 @@ export default function DocumentDetailPage() {
     if (!workspaceId) return;
     setShowAttachRepo(true);
     setSelectedRepoId(doc?.repositoryId ?? '');
+    setAttachFilePath(doc?.filePath ?? '');
     setAttachRepoError(null);
     // Lazy-load repositories every time the dialog opens so we always see latest.
     try {
@@ -530,6 +543,10 @@ export default function DocumentDetailPage() {
         // The summary is not part of this change, so it is left out —
         // the backend keeps the current one when the field is absent.
         repositoryId: selectedRepoId ? selectedRepoId : undefined,
+        // The file path is sent whenever it is filled in. An empty field
+        // leaves the current path alone — the backend treats a null as
+        // "no change", so the path is never silently dropped.
+        filePath: attachFilePath.trim() ? attachFilePath.trim() : undefined,
         autoUpdateEnabled: doc.autoUpdateEnabled,
       });
       setDoc(updated);
@@ -546,6 +563,18 @@ export default function DocumentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Open the tab the URL asked for.
+   *
+   * <p>Applied after the document loads so the tab content has the
+   * document's data to render. The parameter is only honoured once —
+   * afterwards the tab is whatever the user last picked.
+   */
+  useEffect(() => {
+    if (!requestedTab) return;
+    setTab(requestedTab);
+  }, [requestedTab, doc]);
 
   useEffect(() => {
     void loadTemplates();
@@ -996,7 +1025,12 @@ export default function DocumentDetailPage() {
     console.log('[CommitDialog] openCommitDialog called', { doc: doc?.id, repo: doc?.repositoryId });
     if (!doc) return;
     setCommitRepositoryId(doc.repositoryId || '');
-    setCommitFilePath(`docs/${doc.slug || doc.id}.md`);
+    // The file path comes from the document itself when it is known —
+    // it is the path the document is published to, and it is also what
+    // links a repository file back to this document. The `docs/{slug}.md`
+    // guess is only the fallback for a document that was never bound to
+    // a file.
+    setCommitFilePath(doc.filePath || `docs/${doc.slug || doc.id}.md`);
     setCommitBranch('');
     setCommitMessage(`docs: update ${doc.slug || doc.title}`);
     setPrTitle(`docs: ${doc.title}`);
@@ -1971,6 +2005,25 @@ export default function DocumentDetailPage() {
                             </SelectContent>
                           </Select>
                         )}
+                        {/* The file this document is published to. It is the
+                            link between the document and the repository: a
+                            proposal raised for this file resolves back to
+                            this document, and the commit dialog writes to
+                            this path instead of guessing one. */}
+                        <div className="space-y-1.5">
+                          <Label htmlFor="attach-repo-file-path">
+                            {t('documentDetail.attachRepoFilePathLabel', 'File path in the repository')}
+                          </Label>
+                          <Input
+                            id="attach-repo-file-path"
+                            value={attachFilePath}
+                            onChange={(e) => setAttachFilePath(e.target.value)}
+                            placeholder="docs/intro.md"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {t('documentDetail.attachRepoFilePathHint', 'The markdown file this document documents. Leave it empty to let LivingDocs propose a path.')}
+                          </p>
+                        </div>
                         {attachRepoError && (
                           <div className="rounded border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                             {attachRepoError}

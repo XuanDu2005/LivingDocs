@@ -33,6 +33,20 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
 
     List<Document> findAllByOwnerIdOrderByUpdatedAtDesc(UUID ownerId);
 
+    /**
+     * The document that is published to a given file of a repository.
+     *
+     * <p>This is the lookup that resolves a file found in a repository
+     * (by the drift scanner, by the doc-sync preview, by the pull-request
+     * webhook) to the LivingDocs document that is supposed to describe
+     * it.
+     *
+     * <p>Before {@code documents.file_path} existed there was no way to
+     * do this: the document side and the repository side of LivingDocs
+     * were two disconnected worlds.
+     */
+    Optional<Document> findFirstByRepositoryIdAndFilePath(UUID repositoryId, String filePath);
+
     long countByWorkspaceId(UUID workspaceId);
 
     long countByWorkspaceIdAndStatus(UUID workspaceId, DocumentStatus status);

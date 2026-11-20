@@ -24,7 +24,8 @@ public record DocumentResponse(
         UUID ownerId,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
-        OffsetDateTime publishedAt
+        OffsetDateTime publishedAt,
+        String filePath
 ) {
     public static DocumentResponse from(Document d) {
         return new DocumentResponse(
@@ -42,7 +43,8 @@ public record DocumentResponse(
                 d.getOwnerId(),
                 d.getCreatedAt(),
                 d.getUpdatedAt(),
-                d.getPublishedAt()
+                d.getPublishedAt(),
+                d.getFilePath()
         );
     }
 }

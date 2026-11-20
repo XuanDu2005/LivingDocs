@@ -51,6 +51,26 @@ public class DocUpdateRequest {
     @Column(name = "document_id")
     private UUID documentId;
 
+    /**
+     * The version this proposal materialised into.
+     *
+     * <p>A proposal used to be a dead end: approving it only flipped a
+     * status column, so the content never became a {@link
+     * com.livingdocs.modules.version.model.DocumentVersion} and never
+     * appeared in the shared review queue.
+     *
+     * <p>Now the proposal is <em>materialised</em>: as soon as it is
+     * created, the proposed body is written as a new version of the
+     * document, already submitted for review. This column points at that
+     * version, so the proposal and the version can be followed in both
+     * directions.
+     *
+     * <p>{@code null} for a proposal that has no matching document — a
+     * file in the repository that no LivingDocs document describes yet.
+     */
+    @Column(name = "document_version_id")
+    private UUID documentVersionId;
+
     @Column(name = "file_path", nullable = false, length = 512)
     private String filePath;
 
@@ -156,12 +176,28 @@ public class DocUpdateRequest {
         this.appliedPrUrl = prUrl;
     }
 
+    /**
+     * Record the version this proposal was materialised into.
+     *
+     * <p>Idempotent: a proposal that already points at a version keeps
+     * its first version, so a re-scan cannot re-point the history.
+     */
+    public void markMaterialized(UUID versionId, UUID documentId) {
+        if (this.documentVersionId == null) {
+            this.documentVersionId = versionId;
+        }
+        if (this.documentId == null) {
+            this.documentId = documentId;
+        }
+    }
+
     // ── Getters / setters ────────────────────────────────────────────────
 
     public UUID getId() { return id; }
     public UUID getWorkspaceId() { return workspaceId; }
     public UUID getRepositoryId() { return repositoryId; }
     public UUID getDocumentId() { return documentId; }
+    public UUID getDocumentVersionId() { return documentVersionId; }
     public String getFilePath() { return filePath; }
     public String getTriggerCommitSha() { return triggerCommitSha; }
     public String getTriggerBranch() { return triggerBranch; }

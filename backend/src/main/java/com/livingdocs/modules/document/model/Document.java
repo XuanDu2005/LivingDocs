@@ -48,6 +48,22 @@ public class Document {
     @Column(name = "repository_id")
     private UUID repositoryId;
 
+    /**
+     * The path of the file this document is published to, inside
+     * {@link #repositoryId}.
+     *
+     * <p>This is the anchor that ties the document side of LivingDocs to
+     * the repository side. Before it existed, a document had no idea
+     * which file it belonged to: the commit dialog guessed
+     * {@code docs/{slug}.md}, and a proposal raised for
+     * {@code docs/api/auth.md} could not be traced back to the document
+     * that was supposed to describe it.
+     *
+     * <p>{@code null} for a document that is not bound to a repository.
+     */
+    @Column(name = "file_path", length = 512)
+    private String filePath;
+
     @Column(name = "template_id")
     private UUID templateId;
 
@@ -120,6 +136,7 @@ public class Document {
     public UUID getId() { return id; }
     public UUID getWorkspaceId() { return workspaceId; }
     public UUID getRepositoryId() { return repositoryId; }
+    public String getFilePath() { return filePath; }
     public UUID getTemplateId() { return templateId; }
     public String getTitle() { return title; }
     public String getSlug() { return slug; }
@@ -140,6 +157,7 @@ public class Document {
     public void setHeadVersionId(UUID headVersionId) { this.headVersionId = headVersionId; }
     public void setPublishedAt(OffsetDateTime publishedAt) { this.publishedAt = publishedAt; }
     public void setRepositoryId(UUID repositoryId) { this.repositoryId = repositoryId; }
+    public void setFilePath(String filePath) { this.filePath = filePath; }
     public void setTemplateId(UUID templateId) { this.templateId = templateId; }
     public void setOwnerId(UUID ownerId) { this.ownerId = ownerId; }
 }

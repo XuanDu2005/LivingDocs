@@ -149,6 +149,17 @@ export default function DriftAlertsPage() {
   // of what the scan found.
   const [scanJob, setScanJob] = useState<RepositoryDriftScanJobStatus | null>(null);
 
+  /**
+   * The titles of the documents the alerts belong to.
+   *
+   * <p>A drift alert is about a document, but it only carries the
+   * document's id — the title the user recognises lives on the document.
+   * Without resolving the ids the table would list alerts by their
+   * generated title, which does not say *which* document is out of
+   * date. The titles are fetched once for the workspace and indexed.
+   */
+  const [documentTitles, setDocumentTitles] = useState<Map<string, string>>(new Map());
+
   const load = async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -168,6 +179,24 @@ export default function DriftAlertsPage() {
   };
 
   useEffect(() => { void load(); }, [workspaceId, severityFilter, kindFilter, statusFilter]);
+
+  // Resolve the document titles the alerts point at. A failure here is
+  // not fatal — the alert still shows its own title.
+  useEffect(() => {
+    if (!workspaceId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { documentsApi } = await import('../services/documents');
+        const docs = await documentsApi.list(workspaceId);
+        if (!alive) return;
+        setDocumentTitles(new Map(docs.map((d) => [d.id, d.title])));
+      } catch {
+        if (alive) setDocumentTitles(new Map());
+      }
+    })();
+    return () => { alive = false; };
+  }, [workspaceId]);
 
   async function handleResolve() {
     if (!workspaceId || !resolveAlertId) return;
@@ -508,6 +537,7 @@ export default function DriftAlertsPage() {
                 <TableRow>
                   <TableHead>{t('drift.colSeverity')}</TableHead>
                   <TableHead>{t('drift.colKind')}</TableHead>
+                  <TableHead>{t('drift.colDocument')}</TableHead>
                   <TableHead>{t('drift.colTitle')}</TableHead>
                   <TableHead>{t('drift.colDetected')}</TableHead>
                   <TableHead>{t('drift.colStatus')}</TableHead>
@@ -522,6 +552,18 @@ export default function DriftAlertsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={KIND_BADGE[a.driftKind]}>{t(KIND_KEY[a.driftKind])}</Badge>
+                    </TableCell>
+                    {/* The document that drifted. This is the whole point
+                        of the row: the alert title describes the drift,
+                        but the document is what the user has to open and
+                        fix. */}
+                    <TableCell className="max-w-[200px]">
+                      <Link
+                        to={`/workspaces/${workspaceId}/documents/${a.documentId}?tab=drift`}
+                        className="truncate font-medium text-sm text-primary hover:underline block"
+                      >
+                        {documentTitles.get(a.documentId) ?? t('drift.unknownDocument')}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <div className="max-w-[200px]">

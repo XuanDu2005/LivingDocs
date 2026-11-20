@@ -3,8 +3,12 @@ package com.livingdocs.modules.docsync.service;
 import com.livingdocs.common.exception.BadRequestException;
 import com.livingdocs.common.exception.ForbiddenException;
 import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.common.security.AuthorizationService;
 import com.livingdocs.common.security.PermissionCodes;
 import com.livingdocs.common.security.PermissionService;
+import com.livingdocs.modules.document.model.Document;
+import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.document.service.DocumentFileResolver;
 import com.livingdocs.modules.docsync.dto.DocUpdateRequestDto;
 import com.livingdocs.modules.docsync.model.DocUpdateRequest;
 import com.livingdocs.modules.docsync.model.DocUpdateStatus;
@@ -13,6 +17,13 @@ import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.service.GithubRepositoryService;
+import com.livingdocs.modules.review.dto.SubmitReviewRequest;
+import com.livingdocs.modules.review.model.ReviewDecision;
+import com.livingdocs.modules.review.service.DocumentReviewService;
+import com.livingdocs.modules.version.model.DocumentVersion;
+import com.livingdocs.modules.version.model.VersionStatus;
+import com.livingdocs.modules.version.repository.DocumentVersionRepository;
+import com.livingdocs.modules.version.service.DocumentVersionService;
 import com.livingdocs.modules.workspace.model.WorkspaceRole;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
@@ -27,16 +38,34 @@ import java.util.UUID;
 /**
  * Manages the lifecycle of {@link DocUpdateRequest} proposals.
  *
+ * <h2>How this relates to the document review workflow</h2>
+ *
+ * <p>A proposal used to be a completely separate workflow from the
+ * document review: approving it only flipped a status column, so the
+ * proposed content never became a {@link DocumentVersion}, never
+ * appeared in the shared review queue, and never left an audit trail.
+ *
+ * <p>Now a proposal is <em>materialised</em>. When it is created and a
+ * matching document exists, the proposed body is written as a new version
+ * of that document which is submitted for review straight away. The
+ * proposal then carries a reference to that version, and every decision
+ * on the proposal is delegated to {@link DocumentReviewService} — the
+ * same two-tier Staff → Manager workflow every other document goes
+ * through.
+ *
+ * <p>The consequence is that a proposal and a document version are two
+ * views of the same piece of work, not two competing queues.
+ *
  * <p>Three actors interact with the queue:
  *
  * <ol>
- *   <li><b>Webhook handler</b> — calls {@link #createProposal} when a
- *       push event triggers drift between a doc and the underlying
+ *   <li><b>Scanner</b> — calls {@link #createProposal} when a push
+ *       event triggers drift between a doc and the underlying
  *       code. The request is created in {@code PENDING_REVIEW}.</li>
- *   <li><b>Reviewer (dev)</b> — calls {@link #reject} to discard a
- *       proposal, or {@link #approve} to sign off on the proposed
- *       content. Approval does not yet create a PR.</li>
- *   <li><b>Approver (manager)</b> — calls {@link #apply} on an
+ *   <li><b>Reviewer (Staff)</b> — calls {@link #approve} or
+ *       {@link #reject}, which are forwarded to the Staff tier of the
+ *       document review workflow.</li>
+ *   <li><b>Approver (Manager)</b> — calls {@link #apply} on an
  *       already-approved request to open a real GitHub PR. This is the
  *       "push to Git" step the workflow is built around.</li>
  * </ol>
@@ -45,10 +74,13 @@ import java.util.UUID;
  * <ul>
  *   <li>Any workspace member with the {@code STAFF} or {@code MANAGER}
  *       role can list and view proposals.</li>
- *   <li>Approving or rejecting a proposal only requires being a member
- *       of the workspace (i.e. dev can sign off too).</li>
- *   <li>Applying (creating the PR) requires the {@code MANAGER} role.
- *       This is the trust boundary: only managers can touch Git.</li>
+ *   <li>Approving or rejecting requires the {@code DOCUMENT_VERSION_REVIEW}
+ *       permission — the same capability the Staff tier of the document
+ *       review requires. The two-tier structure, the self-review guard
+ *       and the audit trail all apply.</li>
+ *   <li>Applying (creating the PR) requires the {@code MANAGER} role
+ *       <em>and</em> the {@code SCM_COMMIT} permission. This is the
+ *       trust boundary: only managers can touch Git.</li>
  * </ul>
  */
 @Service
@@ -71,19 +103,37 @@ public class DocUpdateRequestService {
     private final WorkspaceService workspaceService;
     private final GithubRepositoryService repositoryService;
     private final PermissionService permissionService;
+    private final AuthorizationService authorizationService;
+    private final DocumentRepository documentRepository;
+    private final DocumentFileResolver documentFileResolver;
+    private final DocumentVersionService versionService;
+    private final DocumentVersionRepository versionRepository;
+    private final DocumentReviewService reviewService;
 
     public DocUpdateRequestService(DocUpdateRequestRepository repository,
                                    RepositoryRepository repositoryRepository,
                                    GithubClient githubClient,
                                    WorkspaceService workspaceService,
                                    GithubRepositoryService repositoryService,
-                                   PermissionService permissionService) {
+                                   PermissionService permissionService,
+                                   AuthorizationService authorizationService,
+                                   DocumentRepository documentRepository,
+                                   DocumentFileResolver documentFileResolver,
+                                   DocumentVersionService versionService,
+                                   DocumentVersionRepository versionRepository,
+                                   DocumentReviewService reviewService) {
         this.repository = repository;
         this.repositoryRepository = repositoryRepository;
         this.githubClient = githubClient;
         this.workspaceService = workspaceService;
         this.repositoryService = repositoryService;
         this.permissionService = permissionService;
+        this.authorizationService = authorizationService;
+        this.documentRepository = documentRepository;
+        this.documentFileResolver = documentFileResolver;
+        this.versionService = versionService;
+        this.versionRepository = versionRepository;
+        this.reviewService = reviewService;
     }
 
     // ── Listing ──────────────────────────────────────────────────────────
@@ -95,13 +145,32 @@ public class DocUpdateRequestService {
         List<DocUpdateRequest> rows = (status != null)
                 ? repository.findByRepositoryIdAndStatusOrderByRequestedAtDesc(repositoryId, status)
                 : repository.findByRepositoryIdOrderByRequestedAtDesc(repositoryId);
-        return rows.stream().map(DocUpdateRequestDto::from).toList();
+        return rows.stream().map(this::toDto).toList();
     }
 
     @Transactional(readOnly = true)
     public DocUpdateRequestDto get(UUID workspaceId, UUID requestId, UUID actorUserId) {
         DocUpdateRequest r = loadAndAuthorize(workspaceId, requestId, actorUserId);
-        return DocUpdateRequestDto.from(r);
+        return toDto(r);
+    }
+
+    /**
+     * The projection of a proposal, with the status of the version it
+     * materialised into.
+     *
+     * <p>The version status is what tells the reviewer where the
+     * proposal stands in the two-tier workflow: the proposal's own
+     * status only records the Staff decision, while the version carries
+     * the Manager decision that the push to Git depends on.
+     */
+    private DocUpdateRequestDto toDto(DocUpdateRequest r) {
+        VersionStatus versionStatus = null;
+        if (r.getDocumentVersionId() != null) {
+            versionStatus = versionRepository.findById(r.getDocumentVersionId())
+                    .map(DocumentVersion::getStatus)
+                    .orElse(null);
+        }
+        return DocUpdateRequestDto.from(r, versionStatus);
     }
 
     // ── Create (called by webhook or scan) ────────────────────────────────
@@ -158,13 +227,73 @@ public class DocUpdateRequestService {
             log.debug("Skipping DocUpdateRequest for {} — a proposal is already pending", filePath);
             return null;
         }
-        return createProposal(workspaceId, repositoryId, documentId, filePath,
+        DocUpdateRequestDto created = createProposal(workspaceId, repositoryId, documentId, filePath,
                 currentContent, proposedContent, diffSummary,
                 triggerCommitSha, triggerBranch, requestedByUserId);
+        if (created == null) {
+            return null;
+        }
+        // Materialise the proposal into a version of the document, so it
+        // joins the shared review workflow instead of living in a queue
+        // of its own.
+        materialize(workspaceId, repositoryId, filePath, proposedContent, diffSummary,
+                triggerCommitSha, requestedByUserId, created.id());
+        return repository.findById(created.id()).map(this::toDto).orElse(created);
+    }
+
+    /**
+     * Write the proposed content as a new version of the document that
+     * corresponds to the file, and submit it for review.
+     *
+     * <p>The document is resolved through {@link DocumentFileResolver}: a
+     * file in the repository maps to exactly one document, and that
+     * document is the one whose content the proposal is about.
+     *
+     * <p>When no document matches the file, the proposal stays a
+     * repository-level proposal: there is nothing to attach a version to.
+     * This is not an error — a repository may well contain markdown files
+     * that LivingDocs does not manage.
+     */
+    private void materialize(UUID workspaceId, UUID repositoryId, String filePath,
+                             String proposedContent, String diffSummary,
+                             String triggerCommitSha, UUID requestedByUserId,
+                             UUID requestId) {
+        Document document = documentFileResolver.resolve(repositoryId, filePath).orElse(null);
+        if (document == null) {
+            log.debug("No document publishes {} in repository {} — the proposal stays "
+                    + "repository-level", filePath, repositoryId);
+            return;
+        }
+        try {
+            String summary = diffSummary == null || diffSummary.isBlank()
+                    ? "Auto-generated update for " + filePath
+                    : "Auto-generated update for " + filePath;
+            DocumentVersion version = versionService.createSubmittedAiVersion(
+                    requestedByUserId, document.getId(), proposedContent, summary, requestedByUserId);
+            DocUpdateRequest req = repository.findById(requestId).orElse(null);
+            if (req != null) {
+                req.markMaterialized(version.getId(), document.getId());
+                repository.save(req);
+            }
+            log.info("DocUpdateRequest {} materialised as version {} of document {}",
+                    requestId, version.getVersionNumber(), document.getId());
+        } catch (Exception e) {
+            // A failure to materialise must not lose the proposal: the
+            // reviewer can still approve it and push it as a PR.
+            log.warn("Could not materialise DocUpdateRequest {} as a document version: {}",
+                    requestId, e.getMessage());
+        }
     }
 
     // ── Approve / Reject (reviewer actions) ─────────────────────────────
 
+    /**
+     * Approve the proposal.
+     *
+     * <p>The decision is recorded on the materialised version through the
+     * Staff tier of the document review workflow, so the two-tier
+     * structure, the self-review guard and the audit trail all apply.
+     */
     @Transactional
     public DocUpdateRequestDto approve(UUID workspaceId, UUID requestId, UUID actorUserId, String comment) {
         DocUpdateRequest r = loadAndAuthorize(workspaceId, requestId, actorUserId);
@@ -172,10 +301,21 @@ public class DocUpdateRequestService {
             throw new BadRequestException(
                     "Request is " + r.getStatus() + ", only PENDING_REVIEW can be approved");
         }
+        // The same capability the Staff tier of the document review
+        // requires — and resolved the same way, so an administrator is
+        // not locked out of their own workspace. Before this, any
+        // workspace member could approve a proposal, which is a much
+        // weaker gate than the rest of the platform.
+        authorizationService.requireDocumentReviewer(actorUserId, workspaceId);
+
+        if (r.getDocumentVersionId() != null && r.getDocumentId() != null) {
+            reviewService.submitStaffReview(actorUserId, r.getDocumentId(), r.getDocumentVersionId(),
+                    new SubmitReviewRequest(ReviewDecision.APPROVED, comment));
+        }
         r.approve(actorUserId, comment);
         DocUpdateRequest saved = repository.save(r);
         log.info("DocUpdateRequest {} APPROVED by user {}", requestId, actorUserId);
-        return DocUpdateRequestDto.from(saved);
+        return toDto(saved);
     }
 
     @Transactional
@@ -185,10 +325,16 @@ public class DocUpdateRequestService {
             throw new BadRequestException(
                     "Request is " + r.getStatus() + ", only PENDING_REVIEW can be rejected");
         }
+        authorizationService.requireDocumentReviewer(actorUserId, workspaceId);
+
+        if (r.getDocumentVersionId() != null && r.getDocumentId() != null) {
+            reviewService.submitStaffReview(actorUserId, r.getDocumentId(), r.getDocumentVersionId(),
+                    new SubmitReviewRequest(ReviewDecision.REQUEST_CHANGES, comment));
+        }
         r.reject(actorUserId, comment);
         DocUpdateRequest saved = repository.save(r);
         log.info("DocUpdateRequest {} REJECTED by user {}", requestId, actorUserId);
-        return DocUpdateRequestDto.from(saved);
+        return toDto(saved);
     }
 
     // ── Apply (manager pushes to Git) ───────────────────────────────────
@@ -208,6 +354,31 @@ public class DocUpdateRequestService {
             throw new BadRequestException(
                     "Request is " + r.getStatus() + ", only APPROVED can be applied");
         }
+
+        // The Manager tier has to have spoken too.
+        //
+        // The proposal's own APPROVED status only records that the Staff
+        // tier signed off. Pushing to Git on that basis alone would let
+        // a single review push unreviewed content to a repository — the
+        // same hole the document commit path closed with
+        // DocumentApprovalGateService. When the proposal was materialised
+        // into a version, the version carries the two-tier state, so the
+        // Manager decision is required before anything is written.
+        if (r.getDocumentVersionId() != null && r.getDocumentId() != null) {
+            DocumentVersion version = versionRepository
+                    .findById(r.getDocumentVersionId())
+                    .orElse(null);
+            if (version == null) {
+                throw new NotFoundException("The version of this proposal no longer exists");
+            }
+            if (version.getStatus() != VersionStatus.APPROVED
+                    && version.getStatus() != VersionStatus.PUBLISHED) {
+                throw new BadRequestException(
+                        "This proposal still needs a Manager approval before it can be pushed to Git "
+                                + "(the version is " + version.getStatus() + ").");
+            }
+        }
+
         Repository repo = repositoryRepository.findById(r.getRepositoryId())
                 .orElseThrow(() -> new NotFoundException("Repository not found: " + r.getRepositoryId()));
 
@@ -237,7 +408,7 @@ public class DocUpdateRequestService {
         r.markApplied(prUrl);
         DocUpdateRequest saved = repository.save(r);
         log.info("DocUpdateRequest {} applied — PR {}", requestId, prUrl);
-        return DocUpdateRequestDto.from(saved);
+        return toDto(saved);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

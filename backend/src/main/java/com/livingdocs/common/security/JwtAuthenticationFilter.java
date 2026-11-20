@@ -105,6 +105,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
+     * Run this filter on container re-dispatches too.
+     *
+     * <p>{@code OncePerRequestFilter} skips async dispatches by default.
+     * That is the right default for a session-backed app, but this one is
+     * stateless: the {@code SecurityContext} is populated from the token
+     * on every request and is gone by the time Tomcat re-dispatches the
+     * request after an {@code SseEmitter} finished.
+     *
+     * <p>Re-authenticating on the re-dispatch keeps the request's identity
+     * identical to the identity it had on the way in, so anything that
+     * inspects the principal during the re-dispatch (an interceptor, a
+     * handler) sees the same user rather than an anonymous one.
+     *
+     * <p>The token is read from the same place as on the first dispatch —
+     * the {@code Authorization} header, or the {@code ?token=} query
+     * parameter for the SSE endpoint — so no extra state has to be kept
+     * between the two dispatches.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
+    /**
      * Pull the JWT from either the standard {@code Authorization}
      * header or, for the SSE endpoint, a {@code ?token=} query string
      * parameter. The browser's {@code EventSource} cannot set custom

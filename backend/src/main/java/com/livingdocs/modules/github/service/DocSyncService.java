@@ -7,6 +7,8 @@ import com.livingdocs.modules.ai.client.AiDtos;
 import com.livingdocs.modules.ai.client.AiServiceClient;
 import com.livingdocs.modules.code.model.CodeEntity;
 import com.livingdocs.modules.code.repository.CodeEntityRepository;
+import com.livingdocs.modules.document.repository.DocumentRepository;
+import com.livingdocs.modules.document.service.DocumentFileResolver;
 import com.livingdocs.modules.docsync.service.DocUpdateRequestService;
 import com.livingdocs.modules.github.client.GithubClient;
 import com.livingdocs.modules.github.client.GithubClient.GithubRepositoryContent;
@@ -68,6 +70,8 @@ public class DocSyncService {
     private final DocUpdateRequestService docUpdateRequestService;
     private final PermissionService permissionService;
     private final TemplateSchemaResolver schemaResolver;
+    private final DocumentRepository documentRepository;
+    private final DocumentFileResolver documentFileResolver;
 
     public DocSyncService(GithubClient githubClient,
                          AiServiceClient aiServiceClient,
@@ -76,7 +80,9 @@ public class DocSyncService {
                          WorkspaceService workspaceService,
                          DocUpdateRequestService docUpdateRequestService,
                          PermissionService permissionService,
-                         TemplateSchemaResolver schemaResolver) {
+                         TemplateSchemaResolver schemaResolver,
+                         DocumentRepository documentRepository,
+                         DocumentFileResolver documentFileResolver) {
         this.githubClient = githubClient;
         this.aiServiceClient = aiServiceClient;
         this.codeEntityRepository = codeEntityRepository;
@@ -85,6 +91,8 @@ public class DocSyncService {
         this.docUpdateRequestService = docUpdateRequestService;
         this.permissionService = permissionService;
         this.schemaResolver = schemaResolver;
+        this.documentRepository = documentRepository;
+        this.documentFileResolver = documentFileResolver;
     }
 
     /**
@@ -251,9 +259,19 @@ public class DocSyncService {
                 String diff = preview.diff();
                 // Each proposal is queued in its own transaction so a
                 // failure for one file does not roll back the others.
+                //
+                // The document is resolved from the file path: a file in
+                // the repository maps to the document that publishes it.
+                // Before `documents.file_path` existed this was a
+                // hard-coded `null`, so a proposal could never be traced
+                // back to its document.
+                UUID documentId = documentFileResolver
+                        .resolve(repositoryId, file.path())
+                        .map(d -> d.getId())
+                        .orElse(null);
                 com.livingdocs.modules.docsync.dto.DocUpdateRequestDto created =
                         docUpdateRequestService.createProposalIfNotPending(
-                                workspaceId, repositoryId, null,
+                                workspaceId, repositoryId, documentId,
                                 file.path(), preview.currentContent(), preview.proposedContent(),
                                 diff == null ? null : diff.substring(0, Math.min(500, diff.length())),
                                 null, branch, actorId);
@@ -615,8 +633,15 @@ public class DocSyncService {
         SyncPreviewResult preview = previewSync(actorId, workspaceId, repositoryId, accessToken, filePath, branch);
         Repository repo = repositoryRepository.findById(repositoryId)
                 .orElseThrow(() -> new RuntimeException("Repository not found"));
+        // The document that publishes this file — resolved through the
+        // document file resolver. Without it the proposal had no link to
+        // the document side of LivingDocs.
+        UUID documentId = documentFileResolver
+                .resolve(repositoryId, filePath)
+                .map(d -> d.getId())
+                .orElse(null);
         return docUpdateRequestService.createProposalIfNotPending(
-                repo.getWorkspaceId(), repo.getId(), null,
+                repo.getWorkspaceId(), repo.getId(), documentId,
                 filePath, preview.currentContent(), preview.proposedContent(),
                 preview.diff() == null ? null
                         : preview.diff().substring(0, Math.min(500, preview.diff().length())),

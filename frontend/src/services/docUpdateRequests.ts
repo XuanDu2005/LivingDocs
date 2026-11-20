@@ -18,11 +18,41 @@ import apiClient, { LONG_TIMEOUT_MS } from './api';
 
 export type DocUpdateStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'APPLIED';
 
+/**
+ * The status of the version a proposal materialised into.
+ *
+ * <p>Mirrors the platform's `VersionStatus`, narrowed to the states a
+ * proposal can be in.
+ */
+export type DocUpdateVersionStatus =
+  | 'DRAFT'
+  | 'PENDING'
+  | 'IN_REVIEW'
+  | 'APPROVED'
+  | 'PUBLISHED'
+  | 'REJECTED'
+  | 'SUPERSEDED';
+
 export interface DocUpdateRequest {
   id: string;
   workspaceId: string;
   repositoryId: string;
+  /**
+   * The document that publishes `filePath`, when one exists.
+   *
+   * <p>This is the link back to the document side of LivingDocs: the
+   * proposal becomes a version of this document, so it is reviewed in
+   * the same queue and shows up in the document's timeline.
+   */
   documentId: string | null;
+  /**
+   * The version this proposal materialised into.
+   *
+   * <p>When set, the proposal is not a queue of its own — it is a view
+   * of this version, and its approve/reject calls the document review
+   * workflow.
+   */
+  documentVersionId: string | null;
   filePath: string;
   triggerCommitSha: string | null;
   triggerBranch: string | null;
@@ -37,6 +67,17 @@ export interface DocUpdateRequest {
   reviewComment: string | null;
   appliedAt: string | null;
   appliedPrUrl: string | null;
+  /**
+   * The status of the version this proposal materialised into.
+   *
+   * <p>`null` when the proposal has no version — a file in the
+   * repository that no LivingDocs document publishes.
+   *
+   * <p>The proposal's own `status` only records the Staff decision;
+   * the Manager decision that the push to Git depends on lives on the
+   * version, so this is what the UI gates the Apply button on.
+   */
+  versionStatus: DocUpdateVersionStatus | null;
 }
 
 export interface ReviewDecisionBody {
