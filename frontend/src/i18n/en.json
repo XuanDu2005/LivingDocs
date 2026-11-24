@@ -902,7 +902,9 @@
     "scanPullRequestPlaceholder": "No pull request — use the latest code",
     "scanPullRequestHint": "With a pull request, the before/after content is read from GitHub, so the comparison is exact.",
     "scanning": "Scanning…",
-    "runScan": "Run scan"
+    "runScan": "Run scan",
+    "reconnectGithub": "Reconnect GitHub",
+    "reconnectGithubHint": "Your GitHub access token has expired or was revoked. Reconnect to grant a new token, then run the scan again."
   },
   "knowledge": {
     "title": "Knowledge base",

@@ -902,7 +902,9 @@
     "scanPullRequestPlaceholder": "Không có PR — dùng code mới nhất",
     "scanPullRequestHint": "Khi chọn pull request, nội dung trước/sau được đọc từ GitHub nên phép so sánh chính xác.",
     "scanning": "Đang quét…",
-    "runScan": "Chạy quét"
+    "runScan": "Chạy quét",
+    "reconnectGithub": "Kết nối lại GitHub",
+    "reconnectGithubHint": "Access token GitHub của bạn đã hết hạn hoặc bị thu hồi. Hãy kết nối lại để cấp token mới, rồi chạy lại quét."
   },
   "knowledge": {
     "title": "Kho kiến thức",

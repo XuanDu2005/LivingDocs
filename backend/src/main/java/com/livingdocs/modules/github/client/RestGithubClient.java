@@ -238,6 +238,14 @@ public class RestGithubClient implements GithubClient {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            // A dead credential must not look like "this
+                            // pull request touches no files" — that would
+                            // report "no drift" for a repository the
+                            // platform cannot even read.
+                            return Mono.error(new com.livingdocs.modules.github.exception
+                                    .GithubTokenInvalidException());
+                        }
                         if (ex.getStatusCode().value() == 404) return Mono.empty();
                         return Mono.error(ex);
                     })
@@ -255,6 +263,8 @@ public class RestGithubClient implements GithubClient {
                 }
             }
             return out;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
         } catch (Exception ex) {
             log.warn("listPullRequestFiles failed for {}/{}#{}: {}",
                     owner, repo, number, ex.getMessage());

@@ -218,14 +218,16 @@ export default function AdminIntegrationsPage() {
                               )}
                             </div>
 
-                            {tr.ok ? (
-                              <div className="flex items-center gap-1 text-xs text-green-700">
-                                <CheckCircle2 className="h-3 w-3" /> {tr.message}
-                              </div>
-                            ) : tr ? (
-                              <div className="flex items-center gap-1 text-xs text-destructive">
-                                <XCircle className="h-3 w-3" /> {tr.message}
-                              </div>
+                            {tr ? (
+                              tr.ok ? (
+                                <div className="flex items-center gap-1 text-xs text-green-700">
+                                  <CheckCircle2 className="h-3 w-3" /> {tr.message}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-xs text-destructive">
+                                  <XCircle className="h-3 w-3" /> {tr.message}
+                                </div>
+                              )
                             ) : null}
 
                             <div className="flex flex-wrap gap-2">

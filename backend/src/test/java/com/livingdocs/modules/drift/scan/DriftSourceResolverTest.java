@@ -12,7 +12,7 @@ import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
-import com.livingdocs.modules.github.service.GithubOAuthService;
+import com.livingdocs.modules.github.service.GithubCredentialService;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
 import com.livingdocs.modules.version.model.DocumentVersion;
 import com.livingdocs.modules.version.repository.DocumentVersionRepository;
@@ -64,6 +64,7 @@ class DriftSourceResolverTest {
     private DocumentRepository documentRepository;
     private RepositoryRepository repositoryRepository;
     private CommitRepository commitRepository;
+    private GithubCredentialService credentialService;
     private DriftSourceResolver resolver;
 
     private UUID workspaceId;
@@ -83,6 +84,9 @@ class DriftSourceResolverTest {
         documentRepository = mock(DocumentRepository.class);
         repositoryRepository = mock(RepositoryRepository.class);
         commitRepository = mock(CommitRepository.class);
+        credentialService = mock(GithubCredentialService.class);
+        when(credentialService.resolveTokenForRepository(any(), any()))
+                .thenReturn(TOKEN);
 
         resolver = new DriftSourceResolver(
                 githubClient,
@@ -93,7 +97,7 @@ class DriftSourceResolverTest {
                 repositoryRepository,
                 mock(PullRequestRepository.class),
                 commitRepository,
-                mock(GithubOAuthService.class));
+                credentialService);
 
         workspaceId = UUID.randomUUID();
         documentId = UUID.randomUUID();

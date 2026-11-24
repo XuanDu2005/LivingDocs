@@ -13,6 +13,7 @@ import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.CommitRepository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.github.service.GithubCredentialService;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.link.model.CodeDocumentLink;
 import com.livingdocs.modules.link.repository.CodeDocumentLinkRepository;
@@ -95,7 +96,7 @@ public class DriftSourceResolver {
     private final RepositoryRepository repositoryRepository;
     private final PullRequestRepository pullRequestRepository;
     private final CommitRepository commitRepository;
-    private final GithubOAuthService githubOAuthService;
+    private final GithubCredentialService credentialService;
 
     public DriftSourceResolver(GithubClient githubClient,
                                CodeEntityRepository codeEntityRepository,
@@ -105,7 +106,7 @@ public class DriftSourceResolver {
                                RepositoryRepository repositoryRepository,
                                PullRequestRepository pullRequestRepository,
                                CommitRepository commitRepository,
-                               GithubOAuthService githubOAuthService) {
+                               GithubCredentialService credentialService) {
         this.githubClient = githubClient;
         this.codeEntityRepository = codeEntityRepository;
         this.linkRepository = linkRepository;
@@ -114,7 +115,7 @@ public class DriftSourceResolver {
         this.repositoryRepository = repositoryRepository;
         this.pullRequestRepository = pullRequestRepository;
         this.commitRepository = commitRepository;
-        this.githubOAuthService = githubOAuthService;
+        this.credentialService = credentialService;
     }
 
     /**
@@ -168,9 +169,10 @@ public class DriftSourceResolver {
                 ? null
                 : pullRequestRepository.findById(pullRequestId).orElse(null);
 
-        String token = resolveAccessToken(repo);
+        String token = resolveAccessToken(repo, null);
         if (token == null || token.isBlank()) {
-            return skipped("No GitHub connection is available for this repository.");
+            return skipped("No working GitHub connection is available for this repository — "
+                    + "the access token has expired or was revoked. Reconnect and try again.");
         }
         return resolve(repo, token, doc, pr);
     }
@@ -198,17 +200,15 @@ public class DriftSourceResolver {
      *
      * <p>The credential of the user who connected the repository is
      * preferred — that is the one whose scopes cover the repository.
-     * The requesting user is the fallback.
+     * The requesting user and the other members of the owning workspace
+     * are the fallbacks, and every candidate is validated against
+     * GitHub before it is used, so one expired token does not fail the
+     * whole scan.
+     *
+     * @param requestedBy the user who triggered the scan, or {@code null}
      */
-    public String resolveAccessToken(Repository repo) {
-        var connection = githubOAuthService.findForUser(repo.getConnectedBy());
-        if (connection.isPresent()) {
-            String token = connection.get().getAccessToken();
-            if (token != null && !token.isBlank()) {
-                return token;
-            }
-        }
-        return null;
+    public String resolveAccessToken(Repository repo, UUID requestedBy) {
+        return credentialService.resolveTokenForRepository(repo, requestedBy);
     }
 
     // -----------------------------------------------------------------
