@@ -191,4 +191,39 @@ public interface GithubClient {
      * exist.
      */
     void deleteBranch(String accessToken, String owner, String repo, String branch);
+
+    /**
+     * Writes a set of files into a branch as a single commit.
+     *
+     * <p>This uses the Git Data API rather than the Contents API: the
+     * Contents API makes one commit per file, which would spread a
+     * seeded change over many revisions — and the drift detector
+     * compares two revisions, so it needs the change to land as one.
+     *
+     * <p>Files that do not exist yet are created; files that do exist
+     * are replaced.
+     *
+     * @param accessToken   GitHub access token
+     * @param owner         repository owner
+     * @param repo          repository name
+     * @param branch        the branch to write to — it is created from
+     *                      the default branch when it does not exist
+     * @param files         the files to write, path and content
+     * @param commitMessage the commit message
+     * @param authorName    the commit author name
+     * @param authorEmail   the commit author email
+     * @return the SHA of the new commit
+     */
+    String commitFiles(String accessToken, String owner, String repo, String branch,
+                       List<GithubFileWrite> files, String commitMessage,
+                       String authorName, String authorEmail);
+
+    /**
+     * One file to write through the Git Data API.
+     *
+     * @param path    the path inside the repository
+     * @param content the UTF-8 content
+     */
+    record GithubFileWrite(String path, String content) {
+    }
 }
