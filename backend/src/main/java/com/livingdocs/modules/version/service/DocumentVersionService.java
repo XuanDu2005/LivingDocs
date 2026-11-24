@@ -175,6 +175,70 @@ public class DocumentVersionService {
     }
 
     /**
+     * Append a new AI-generated version that is <em>already submitted</em>
+     * for review.
+     *
+     * <p>This is the entry point used by the doc-sync workflow: a
+     * proposal that was produced by the repository scanner becomes a real
+     * version of the document, sitting in the Staff review queue from the
+     * moment it is created.
+     *
+     * <p>Why the version is submitted right away, instead of being left
+     * as a draft:
+     * <ul>
+     *   <li>the proposal <em>is</em> a submission — somebody asked for
+     *       it, and it was produced by a scan, not by an author who is
+     *       still going to look at it;</li>
+     *   <li>a draft does not appear in the review queue, so the
+     *       proposal would be invisible to the reviewers the whole
+     *       workflow is built for;</li>
+     *   <li>{@code submittedByUserId} is set to the actor who triggered
+     *       the scan, which is what makes the version show up under
+     *       "My submissions" and what the self-review guard looks at.</li>
+     * </ul>
+     *
+     * @param actorUserId   the user who triggered the scan
+     * @param documentId    the document the version belongs to
+     * @param bodyMarkdown  the proposed body
+     * @param changeSummary a human-readable summary of the change
+     * @param submitterId   who the submission is attributed to; may be
+     *                      {@code null} for a system-triggered scan
+     */
+    @Transactional
+    public DocumentVersion createSubmittedAiVersion(UUID actorUserId,
+                                                    UUID documentId,
+                                                    String bodyMarkdown,
+                                                    String changeSummary,
+                                                    UUID submitterId) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException("Document not found"));
+        RenderedBody rendered = renderForTemplate(document, bodyMarkdown);
+        DocumentVersion version = buildAiVersion(document, actorUserId, documentId, bodyMarkdown,
+                changeSummary, null, null, null, null, rendered.body(), rendered.format());
+        // Push it into the Staff queue right away.
+        version.setStatus(VersionStatus.PENDING);
+        version.setSubmittedByUserId(submitterId != null ? submitterId : actorUserId);
+        version.setSubmittedAt(OffsetDateTime.now());
+        DocumentVersion saved = versionRepository.save(version);
+
+        // The document status follows the newest version only — this
+        // version was just created, so it is the newest by definition.
+        document.setStatus(com.livingdocs.modules.document.model.DocumentStatus.IN_REVIEW);
+        documentRepository.save(document);
+
+        auditLogService.record(submitterId != null ? submitterId : actorUserId,
+                ActorRole.AI.name(), "document.submitted_for_review",
+                "document_version",
+                saved.getId() != null ? saved.getId().toString() : "",
+                document.getWorkspaceId(), documentId,
+                Map.of("documentId", documentId.toString(),
+                        "versionNumber", saved.getVersionNumber() != null
+                                ? saved.getVersionNumber() : 0,
+                        "changeSummary", changeSummary == null ? "" : changeSummary));
+        return saved;
+    }
+
+    /**
      * Append a new AI-generated version with grounding evidence persisted.
      */
     @Transactional

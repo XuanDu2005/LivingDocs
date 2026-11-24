@@ -27,6 +27,15 @@ export interface Document {
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
+  /**
+   * The path of the file this document is published to, inside
+   * `repositoryId`.
+   *
+   * <p>This is what ties the document to the repository: a proposal
+   * raised for this file resolves back to this document, and the commit
+   * dialog writes to this path instead of guessing one.
+   */
+  filePath: string | null;
 }
 
 export type ActorRole = 'AI' | 'STAFF' | 'DEVELOPER' | 'MANAGER' | 'SYSTEM';
@@ -180,6 +189,15 @@ export const documentsApi = {
        * and the new owner must be a member of the workspace.
        */
       ownerId?: string;
+      /**
+       * The path of the file this document is published to, inside the
+       * repository.
+       *
+       * <p>Omit it to leave the current path alone. This is the link
+       * between the document and the repository: a proposal raised for
+       * this file resolves back to this document.
+       */
+      filePath?: string;
       autoUpdateEnabled: boolean;
     },
   ) {

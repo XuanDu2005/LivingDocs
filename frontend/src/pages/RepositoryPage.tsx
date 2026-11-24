@@ -38,7 +38,8 @@ import {
 import { ErrorState, EmptyState, LoadingState } from '../components/ui/states';
 import { githubApi, Repository, PullRequest, Commit, RepositoryModule } from '../services/github';
 import { codeApi, CodeEntity } from '../services/knowledge';
-import { docSyncApi, DocScanResult } from '../services/docSync';
+import { ingestRepositoryEverything } from '../services/repositoryIngest';
+import { docSyncApi, DocSyncJobStatus } from '../services/docSync';
 import { aiApi, BulkGenerationJobStatus, RepositoryAnalysisJobStatus } from '../services/ai';
 import { DocSyncPreviewModal } from '../components/DocSyncPreviewModal';
 import ImpactPanel from '../components/DependencyImpactPanel';
@@ -147,7 +148,7 @@ export default function RepositoryPage() {
   const [showAnalysisOptions, setShowAnalysisOptions] = useState<boolean>(false);
 
   // Doc sync state
-  const [docScanResult, setDocScanResult] = useState<DocScanResult | null>(null);
+  const [docScanResult, setDocScanResult] = useState<DocSyncJobStatus | null>(null);
   const [scanningDocs, setScanningDocs] = useState<boolean>(false);
   const [docScanError, setDocScanError] = useState<string | null>(null);
   const [previewingFile, setPreviewingFile] = useState<string | null>(null);
@@ -407,6 +408,46 @@ export default function RepositoryPage() {
     }
   }
 
+  /**
+   * The composite "ingest everything" action.
+   *
+   * <p>Pull requests, code entities and modules are three different
+   * tables, but they are one workflow from the user's point of view:
+   * the modules are derived from the indexed code entities, so a user
+   * who only pulled the pull requests ended up with two empty tabs and
+   * no clue why. This runs the three steps in order and refreshes
+   * every affected panel.
+   */
+  async function ingestEverything(repo: Repository) {
+    if (!workspaceId) return;
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await ingestRepositoryEverything(workspaceId, repo.id);
+      setPulls(result.pullRequests);
+      setEntities(result.entities);
+      calculateCoverage(result.entities);
+      // The persisted modules are authoritative, but a reader without
+      // the MODULE_AUTO_UPDATE_MANAGE permission could not save them —
+      // fall back to the detected list so the tab is not empty.
+      const persisted = await githubApi.listModules(workspaceId, repo.id);
+      setModules(persisted.length > 0 ? persisted : result.detectedModules);
+      setInfo(
+        t('repository.ingestAllDone', {
+          prs: result.pullRequests.length,
+          entities: result.extractedEntityCount,
+          modules: result.detectedModules.length,
+          name: repo.fullName,
+        }),
+      );
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadModules(repo: Repository) {
     if (!workspaceId) return;
     setModulesLoading(true);
@@ -438,7 +479,9 @@ export default function RepositoryPage() {
         return;
       }
       // Persist the detected modules so they become part of the
-      // auto-update hierarchy instead of a one-off preview.
+      // auto-update hierarchy instead of a one-off preview. Persisting
+      // requires the MODULE_AUTO_UPDATE_MANAGE permission, so a reader
+      // without it still sees the detected list — it is just not stored.
       const saved = await Promise.all(
         detected.map((m) =>
           githubApi
@@ -453,11 +496,11 @@ export default function RepositoryPage() {
         ),
       );
       const ok = saved.filter(Boolean) as RepositoryModule[];
-      setModules(ok);
+      setModules(ok.length > 0 ? ok : detected);
       setInfo(
         t('repository.modulesDetected', {
-          count: ok.length,
-          defaultValue: `Detected ${ok.length} module(s) in ${repo.fullName}.`,
+          count: detected.length,
+          name: repo.fullName,
         }),
       );
     } catch (err) {
@@ -550,18 +593,20 @@ export default function RepositoryPage() {
     try {
       const list = await codeApi.listEntities(workspaceId, repo.id);
       setEntities(list);
+      // Calculate coverage from the list that was just loaded. Reading
+      // the `entities` state here would use the previous render's
+      // value, because React has not re-rendered yet.
+      calculateCoverage(list);
     } catch (err) {
       setError(describeError(err));
       setEntities([]);
+      calculateCoverage([]);
     } finally {
       setEntitiesLoading(false);
     }
-    // Calculate coverage after loading entities
-    calculateCoverage();
   }
 
-  function calculateCoverage() {
-    const list = entities;
+  function calculateCoverage(list: CodeEntity[]) {
     if (list.length === 0) {
       setCoverageStats(null);
       return;
@@ -798,29 +843,60 @@ export default function RepositoryPage() {
     throw new Error('The drift scan is taking longer than expected. Check back shortly.');
   }
 
+  /**
+   * Queue a documentation sync and follow it to the end.
+   *
+   * <p>The sync costs one LLM call per drifted file, so it runs on a
+   * background worker: the endpoint answers 202 with a job id and the
+   * poll loop below follows it. Doing it the other way round — waiting
+   * for a single HTTP response — always ended in a browser-side
+   * timeout, while the server kept working and kept spending the LLM
+   * budget.
+   */
   async function handleScanDocs() {
     if (!workspaceId || !selected) return;
     setScanningDocs(true);
     setDocScanError(null);
     setDocScanResult(null);
     try {
-      const result = await docSyncApi.scan(workspaceId, selected.id);
-      setDocScanResult(result);
-    } catch (err: any) {
-      // A scan that runs out of time still finished on the server — the
-      // proposals it created are in the queue. Say so instead of showing
-      // a bare "timeout", which reads like a failure.
-      if (err?.code === 'ECONNABORTED') {
-        setDocScanError(
-          t('repository.scanTimeout', 'The scan took too long and was stopped on this side. ' +
-            'It may still have completed on the server — check the update queue, or narrow the scan and try again.'),
-        );
-      } else {
-        setDocScanError(describeError(err));
+      const queued = await docSyncApi.scan(workspaceId, selected.id);
+      const final = await pollDocSync(workspaceId, queued.jobId);
+
+      if (final.status === 'FAILED') {
+        // A failed run has a reason — an expired GitHub credential, a
+        // spent AI quota. It must not read as "no drift".
+        setDocScanError(final.errorMessage ?? t('repository.docSyncFailed'));
+        return;
       }
+      setDocScanResult(final);
+    } catch (err) {
+      setDocScanError(describeError(err));
     } finally {
       setScanningDocs(false);
     }
+  }
+
+  /**
+   * Follow a documentation sync until it finishes.
+   */
+  async function pollDocSync(wsId: string, jobId: string) {
+    const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED']);
+    // ~15 minutes worth of polls. A sync calls the AI once per drifted
+    // file, so a repository with a dozen drifted files needs minutes.
+    const maxAttempts = 450;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const job = await docSyncApi.jobStatus(wsId, jobId);
+      if (terminal.has(job.status)) {
+        return job;
+      }
+      // Keep the result card visible while the run is in flight, so the
+      // user sees the progress instead of a spinner with no numbers.
+      setDocScanResult(job);
+    }
+
+    throw new Error(t('repository.docSyncTooLong'));
   }
 
   function startGithubOAuth() {
@@ -1325,35 +1401,50 @@ export default function RepositoryPage() {
                     <div className="text-xs text-muted-foreground">{t('repository.docSyncFiles')}</div>
                   </div>
                   <div className="bg-muted/50 rounded p-2">
-                    <div className="text-lg font-bold">{docScanResult.referencedEntities}</div>
-                    <div className="text-xs text-muted-foreground">{t('repository.docSyncReferences')}</div>
+                    <div className="text-lg font-bold">{docScanResult.driftedFiles}</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncNeedUpdate')}</div>
                   </div>
                   <div className="bg-muted/50 rounded p-2">
-                    <div className="text-lg font-bold">{docScanResult.updatedEntities}</div>
-                    <div className="text-xs text-muted-foreground">{t('repository.docSyncMatched')}</div>
+                    <div className="text-lg font-bold">{docScanResult.queuedProposals}</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncQueuedShort')}</div>
                   </div>
-                  <div className={`rounded p-2 ${docScanResult.driftCount > 0 ? 'bg-amber-500/20 text-amber-700' : 'bg-muted/50'}`}>
-                    <div className="text-lg font-bold">{docScanResult.driftCount}</div>
-                    <div className="text-xs">{t('repository.docSyncNeedUpdate')}</div>
+                  <div className="bg-muted/50 rounded p-2">
+                    <div className="text-lg font-bold">{docScanResult.skippedProposals}</div>
+                    <div className="text-xs text-muted-foreground">{t('repository.docSyncSkippedShort')}</div>
                   </div>
                 </div>
-                {docScanResult.driftCount > 0 && (
+
+                {/* While the run is in flight, show the progress rather
+                    than a spinner with no numbers. */}
+                {(docScanResult.status === 'PENDING' || docScanResult.status === 'RUNNING') && (
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded p-2 text-xs text-blue-700 flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                    <span>
+                      {t('repository.docSyncProgress', {
+                        scanned: docScanResult.scannedFiles,
+                        total: docScanResult.driftedFiles,
+                      })}
+                    </span>
+                  </div>
+                )}
+
+                {docScanResult.driftedFiles > 0 && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 text-xs text-amber-700 flex items-center gap-2">
                     <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                     <span>
-                      <b>{docScanResult.driftCount}</b>{' '}
+                      <b>{docScanResult.driftedFiles}</b>{' '}
                       {t('repository.docSyncFilesNeedUpdate')}
                     </span>
                   </div>
                 )}
-                {(docScanResult.queuedCount ?? 0) > 0 && (
+                {docScanResult.queuedProposals > 0 && (
                   <div className="bg-green-500/10 border border-green-500/30 rounded p-2 text-xs text-green-700 flex items-center gap-2">
                     <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
                     <span>
-                      <b>{docScanResult.queuedCount}</b>{' '}
+                      <b>{docScanResult.queuedProposals}</b>{' '}
                       {t('repository.docSyncQueued')}
-                      {docScanResult.skippedCount
-                        ? ` ${t('repository.docSyncSkipped', { count: docScanResult.skippedCount })}`
+                      {docScanResult.skippedProposals
+                        ? ` ${t('repository.docSyncSkipped', { count: docScanResult.skippedProposals })}`
                         : ''}
                       .{' '}
                       <Link
@@ -1365,15 +1456,26 @@ export default function RepositoryPage() {
                     </span>
                   </div>
                 )}
-                {docScanResult.files.length > 0 && (
+                {docScanResult.failedFiles > 0 && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded p-2 text-xs text-red-700 flex items-center gap-2">
+                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                    <span>
+                      <b>{docScanResult.failedFiles}</b>{' '}
+                      {t('repository.docSyncFailedFiles')}
+                    </span>
+                  </div>
+                )}
+                {docScanResult.files && docScanResult.files.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {docScanResult.files.slice(0, 10).map((file) => (
                       <div
                         key={file.path}
                         className={`text-xs p-2 rounded flex flex-col gap-1 ${
-                          file.hasDrift
-                            ? 'bg-amber-500/10 border border-amber-500/30'
-                            : 'bg-muted/30'
+                          file.status === 'FAILED'
+                            ? 'bg-red-500/10 border border-red-500/30'
+                            : file.status === 'QUEUED'
+                              ? 'bg-green-500/10 border border-green-500/30'
+                              : 'bg-muted/30'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -1382,12 +1484,9 @@ export default function RepositoryPage() {
                             <span className="truncate font-mono">{file.path}</span>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <Badge variant="outline" className="text-xs">
-                              {t('repository.refsCount', { count: file.foundEntities.length })}
-                            </Badge>
                             <Button
                               size="sm"
-                              variant={file.hasDrift ? 'default' : 'ghost'}
+                              variant={file.status === 'QUEUED' ? 'default' : 'ghost'}
                               className="h-6 px-2 text-xs"
                               onClick={() => setPreviewingFile(file.path)}
                             >
@@ -1395,9 +1494,9 @@ export default function RepositoryPage() {
                             </Button>
                           </div>
                         </div>
-                        {file.hasDrift && file.driftReason && (
-                          <div className="text-amber-700 text-[10px] pl-5">
-                            {file.driftReason}
+                        {file.message && (
+                          <div className="text-muted-foreground text-[10px] pl-5">
+                            {file.message}
                           </div>
                         )}
                       </div>
@@ -1506,26 +1605,12 @@ export default function RepositoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={async () => {
-                      try {
-                        setBusy(true);
-                        setError(null);
-                        const prs = await githubApi.ingestPullRequests(workspaceId, selected.id, 'all');
-                        setInfo(t('repository.ingestAllDone', {
-                          count: prs.length,
-                          name: selected.fullName,
-                        }));
-                        await loadDetails(selected);
-                      } catch (err) {
-                        setError(describeError(err));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    onClick={() => void ingestEverything(selected)}
                     disabled={busy}
+                    title={t('repository.ingestAllTitle', 'Fetches pull requests, indexes the code entities and detects the modules of this repository.')}
                   >
                     {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
-                    {t('repository.ingestAll')}
+                    {busy ? t('repository.ingesting', 'Ingesting…') : t('repository.ingestAll')}
                   </Button>
                 )}
                 {activeTab === 'commits' && (
@@ -1583,9 +1668,20 @@ export default function RepositoryPage() {
                     onClick={async () => {
                       try {
                         setBusy(true);
+                        setError(null);
                         const result = await githubApi.ingestCode(workspaceId, selected.id);
-                        setInfo(`Indexed ${result.ingested} code entities from ${selected.fullName}`);
+                        setInfo(
+                          t('repository.ingestCodeDone', {
+                            count: result.ingested,
+                            name: selected.fullName,
+                          }),
+                        );
                         await loadEntities(selected);
+                        // The modules are derived from the indexed code
+                        // entities, so a fresh index changes what they
+                        // look like. Refresh them too, otherwise the
+                        // modules tab keeps showing the stale list.
+                        await loadModules(selected);
                       } catch (err) {
                         setError(describeError(err));
                       } finally {
@@ -1595,7 +1691,7 @@ export default function RepositoryPage() {
                     disabled={busy}
                   >
                     <Code2 className="mr-1 h-3 w-3" />
-                    {busy ? 'Indexing…' : 'Ingest Code'}
+                    {busy ? t('repository.indexingCode', 'Indexing…') : t('repository.ingestCode', 'Ingest Code')}
                   </Button>
                 )}
               </div>

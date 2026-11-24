@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   XCircle,
   FileCode2,
+  FileText,
   Eye,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -37,7 +38,6 @@ import { githubApi, Repository } from '../services/github';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, describeError } from '../services/auth';
 import { reviewsApi, WorkspaceCapabilities } from '../services/drift';
-
 const STATUS_VARIANT: Record<DocUpdateStatus, 'warning' | 'success' | 'destructive' | 'info'> = {
   PENDING_REVIEW: 'warning',
   APPROVED: 'info',
@@ -67,7 +67,16 @@ interface ReviewDialogState {
  * Doc Update Requests page.
  *
  * Lists the "review-before-push" proposals produced by the system when
- * a code change is detected. Staff (or any member) can approve/reject;
+ * a code change is detected.
+ *
+ * <p>A proposal is not a queue of its own any more: when the file it
+ * concerns is published by a LivingDocs document, the proposal is
+ * materialised as a version of that document and submitted for review.
+ * The approve/reject buttons here therefore drive the same two-tier
+ * Staff → Manager workflow as the shared review queue, and the proposal
+ * shows up in the document's timeline.
+ *
+ * <p>Staff (or any member with the review capability) can approve/reject;
  * Managers can additionally call `apply` to push the content as a real
  * PR on GitHub.
  */
@@ -121,6 +130,15 @@ export default function DocUpdateRequestsPage() {
 
   const canApply = !!capabilities?.workspaceManager && hasPermission(user, 'SCM_COMMIT');
   const isManager = canApply;
+  /**
+   * Whether the caller may record a review verdict on a proposal.
+   *
+   * <p>The proposal is reviewed through the same Staff tier as a
+   * document version, so it needs the same capability. Rendering the
+   * button for somebody without it would offer an action the API
+   * refuses.
+   */
+  const canReview = hasPermission(user, 'DOCUMENT_VERSION_REVIEW');
 
   // Load repositories for the workspace
   useEffect(() => {
@@ -167,6 +185,24 @@ export default function DocUpdateRequestsPage() {
     REJECTED: requests.filter((r) => r.status === 'REJECTED').length,
     APPLIED: requests.filter((r) => r.status === 'APPLIED').length,
   }), [requests]);
+
+  /**
+   * Whether the proposal is waiting for the Manager tier.
+   *
+   * <p>The proposal's own `APPROVED` status only records the Staff
+   * decision. Pushing to Git needs the Manager approval as well, and
+   * that decision lives on the materialised version — so the button is
+   * gated on the version's status, not on the proposal's.
+   *
+   * <p>A proposal without a version (a file no document publishes) has
+   * no second tier, so it is ready to push.
+   */
+  const awaitingManagerApproval = useMemo(() => {
+    const req = review.request;
+    if (!req || req.status !== 'APPROVED') return false;
+    if (!req.documentVersionId || !req.versionStatus) return false;
+    return req.versionStatus !== 'APPROVED' && req.versionStatus !== 'PUBLISHED';
+  }, [review.request]);
 
   const openReview = (r: DocUpdateRequest) =>
     setReview({ open: true, request: r, comment: '', busy: false, error: null, info: null });
@@ -298,6 +334,7 @@ export default function DocUpdateRequestsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('docUpdates.colFile')}</TableHead>
+                  <TableHead>{t('docUpdates.colDocument')}</TableHead>
                   <TableHead>{t('docUpdates.colStatus')}</TableHead>
                   <TableHead>{t('docUpdates.colTrigger')}</TableHead>
                   <TableHead>{t('docUpdates.colRequestedAt')}</TableHead>
@@ -308,11 +345,30 @@ export default function DocUpdateRequestsPage() {
               <TableBody>
                 {requests.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="max-w-[280px]">
+                    <TableCell className="max-w-[240px]">
                       <div className="flex items-center gap-2">
                         <FileCode2 className="h-4 w-4 text-muted-foreground" />
                         <span className="truncate font-mono text-xs">{r.filePath}</span>
                       </div>
+                    </TableCell>
+                    {/* The document that publishes this file. The link is
+                        the whole point: the proposal is a version of that
+                        document, so a reviewer can go straight to the
+                        document — and its timeline — from here. */}
+                    <TableCell className="max-w-[220px]">
+                      {r.documentId ? (
+                        <Link
+                          to={`/workspaces/${workspaceId}/documents/${r.documentId}`}
+                          className="flex items-center gap-1 truncate text-xs font-medium text-primary hover:underline"
+                        >
+                          <FileText className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{t('docUpdates.openDocument')}</span>
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {t('docUpdates.noDocument')}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[r.status]}>
@@ -387,6 +443,34 @@ export default function DocUpdateRequestsPage() {
 
           {review.request && (
             <div className="space-y-4">
+              {/* The document this proposal belongs to. The proposal is
+                  materialised as a version of that document, so it is
+                  reviewed in the shared queue and shows up in the
+                  document's timeline. */}
+              <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-2 text-xs">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                {review.request.documentId ? (
+                  <>
+                    <span className="text-muted-foreground">
+                      {t('docUpdates.review.linkedDocument')}
+                    </span>
+                    <Link
+                      to={`/workspaces/${workspaceId}/documents/${review.request.documentId}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {t('docUpdates.openDocument')}
+                    </Link>
+                    <span className="text-muted-foreground">
+                      {t('docUpdates.review.reviewedInQueue')}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {t('docUpdates.review.noLinkedDocument')}
+                  </span>
+                )}
+              </div>
+
               {/* Trigger metadata */}
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="rounded-md border bg-muted/30 p-2">
@@ -481,7 +565,7 @@ export default function DocUpdateRequestsPage() {
           )}
 
           <DialogFooter className="flex flex-wrap items-center gap-2">
-            {review.request?.status === 'PENDING_REVIEW' && (
+            {review.request?.status === 'PENDING_REVIEW' && canReview && (
               <>
                 <Button
                   variant="destructive"
@@ -505,8 +589,12 @@ export default function DocUpdateRequestsPage() {
             {review.request?.status === 'APPROVED' && (
               <Button
                 onClick={doApply}
-                disabled={review.busy || !isManager}
-                title={!isManager ? t('docUpdates.review.applyManagerOnly') : undefined}
+                disabled={review.busy || !isManager || awaitingManagerApproval}
+                title={!isManager
+                  ? t('docUpdates.review.applyManagerOnly')
+                  : awaitingManagerApproval
+                    ? t('docUpdates.review.applyNeedsManagerApproval')
+                    : undefined}
               >
                 {review.busy
                   ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />

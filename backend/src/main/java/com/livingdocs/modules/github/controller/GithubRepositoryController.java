@@ -1,5 +1,8 @@
 package com.livingdocs.modules.github.controller;
 
+import com.livingdocs.common.exception.NotFoundException;
+import com.livingdocs.modules.docsync.job.DocSyncJob;
+import com.livingdocs.modules.docsync.job.DocSyncJobService;
 import com.livingdocs.modules.github.dto.CommitDocumentRequest;
 import com.livingdocs.modules.github.dto.CommitDocumentResponse;
 import com.livingdocs.modules.github.dto.CommitDto;
@@ -16,6 +19,7 @@ import com.livingdocs.modules.github.service.DocSyncService;
 import com.livingdocs.modules.github.service.GithubIngestionService;
 import com.livingdocs.modules.github.service.GithubRepositoryService;
 import com.livingdocs.modules.github.service.ModuleAutoUpdateService;
+import com.livingdocs.modules.workspace.service.WorkspaceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -49,17 +53,23 @@ public class GithubRepositoryController {
     private final CommitIngestionService commitIngestionService;
     private final DocSyncService docSyncService;
     private final ModuleAutoUpdateService moduleAutoUpdateService;
+    private final DocSyncJobService docSyncJobService;
+    private final WorkspaceService workspaceService;
 
     public GithubRepositoryController(GithubRepositoryService repositoryService,
                                       GithubIngestionService ingestionService,
                                       CommitIngestionService commitIngestionService,
                                       DocSyncService docSyncService,
-                                      ModuleAutoUpdateService moduleAutoUpdateService) {
+                                      ModuleAutoUpdateService moduleAutoUpdateService,
+                                      DocSyncJobService docSyncJobService,
+                                      WorkspaceService workspaceService) {
         this.repositoryService = repositoryService;
         this.ingestionService = ingestionService;
         this.commitIngestionService = commitIngestionService;
         this.docSyncService = docSyncService;
         this.moduleAutoUpdateService = moduleAutoUpdateService;
+        this.docSyncJobService = docSyncJobService;
+        this.workspaceService = workspaceService;
     }
 
     @GetMapping("/github/catalog/repositories")
@@ -224,52 +234,48 @@ public class GithubRepositoryController {
     }
 
     @PostMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/scan-docs")
-    @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/scan-docs")
-    @Operation(summary = "Scan repository for documentation files and code references, and queue proposals for drifted files")
-    public Map<String, Object> scanDocs(
+    @Operation(summary = "Queue a repository-wide documentation sync (returns 202). "
+            + "The scan asks the AI to propose an update for every drifted file, "
+            + "which costs one LLM call per file — far too slow for an HTTP "
+            + "request, so the work runs on a background worker.")
+    public ResponseEntity<Map<String, Object>> scanDocs(
             @PathVariable UUID workspaceId,
             @PathVariable UUID repositoryId,
             @RequestParam(required = false) String branch) {
-        // Get the authenticated user's access token from security context
         UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
-        String accessToken = repositoryService.getAccessTokenForWorkspace(workspaceId);
 
-        DocSyncService.ScanResult result = docSyncService.scanRepository(
-                actorId, workspaceId, repositoryId, accessToken, branch);
+        DocSyncJob job = docSyncJobService.enqueue(actorId, workspaceId, repositoryId, branch);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of(
+                "status", job.getStatus().name(),
+                "jobId", job.getId().toString(),
+                "repositoryId", repositoryId.toString(),
+                "message", "Documentation sync queued. Poll /workspaces/" + workspaceId
+                        + "/doc-sync-jobs/" + job.getId() + " for progress."));
+    }
 
-        int driftCount = (int) result.files().stream().filter(f -> f.hasDrift()).count();
+    @GetMapping("/workspaces/{workspaceId}/doc-sync-jobs/{jobId}")
+    @Operation(summary = "Poll the progress of a repository-wide documentation sync")
+    public Map<String, Object> docSyncJobStatus(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID jobId) {
+        UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
+        workspaceService.requireMember(actorId, workspaceId);
+        DocSyncJob job = docSyncJobService.find(jobId)
+                .orElseThrow(() -> new NotFoundException("Documentation sync job not found"));
+        if (!job.getWorkspaceId().equals(workspaceId)) {
+            throw new NotFoundException("Documentation sync job not found in this workspace");
+        }
+        return docSyncJobService.toResponse(job);
+    }
 
-        // Turn every drifted file into a review proposal so the
-        // "Doc update requests" queue is populated. Files that already
-        // have a pending proposal are skipped, so re-scanning is safe.
-        List<DocSyncService.DocFileInfo> driftedFiles = result.files().stream()
-                .filter(f -> f.hasDrift())
+    @GetMapping("/workspaces/{workspaceId}/doc-sync-jobs")
+    @Operation(summary = "List recent repository-wide documentation syncs")
+    public List<Map<String, Object>> docSyncJobs(@PathVariable UUID workspaceId) {
+        UUID actorId = com.livingdocs.common.security.CurrentUser.requireId();
+        workspaceService.requireMember(actorId, workspaceId);
+        return docSyncJobService.recentForWorkspace(workspaceId).stream()
+                .map(docSyncJobService::toResponse)
                 .toList();
-        DocSyncService.AutoQueueResult queued = docSyncService.autoQueueDriftedFiles(
-                actorId, workspaceId, repositoryId, accessToken, branch, driftedFiles);
-
-        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("totalFiles", result.totalFiles());
-        body.put("referencedEntities", result.referencedEntities());
-        body.put("updatedEntities", result.updatedEntities());
-        body.put("driftCount", driftCount);
-        body.put("queuedCount", queued.queued());
-        body.put("skippedCount", queued.skipped());
-        body.put("queuedFiles", queued.queuedFiles());
-        body.put("files", result.files().stream()
-                .map(f -> Map.of(
-                        "path", f.path(),
-                        "type", f.type(),
-                        "size", f.size() != null ? f.size() : 0,
-                        "referencedEntities", f.referencedEntities(),
-                        "foundEntities", f.foundEntities(),
-                        "missingEntities", f.missingEntities(),
-                        "hasDrift", f.hasDrift(),
-                        "driftReason", f.driftReason() != null ? f.driftReason() : ""
-                ))
-                .toList()
-        );
-        return body;
     }
 
     @GetMapping("/workspaces/{workspaceId}/repositories/{repositoryId}/docs/{path:.*}")

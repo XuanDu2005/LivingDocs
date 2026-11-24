@@ -15,6 +15,8 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import reactor.netty.http.client.HttpClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -22,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Production {@link GithubClient} that talks to {@code api.github.com}
@@ -44,6 +47,7 @@ public class RestGithubClient implements GithubClient {
     private final GithubProperties properties;
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private final WebClient downloadClient;
 
     public RestGithubClient(GithubProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
@@ -60,6 +64,23 @@ public class RestGithubClient implements GithubClient {
                         .codecs(configurer -> configurer.defaultCodecs()
                                 .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
                         .build())
+                .build();
+
+        // The repository archive lives behind a redirect: GitHub answers
+        // `/tarball/{ref}` with a 302 to `codeload.github.com`, and the
+        // response body of a redirect is empty. Reactor Netty does not
+        // follow redirects unless the client is told to, so without this
+        // the archive download would silently yield zero bytes.
+        this.downloadClient = WebClient.builder()
+                .baseUrl(properties.getApi().getBaseUrl())
+                .defaultHeader(HttpHeaders.USER_AGENT, properties.getApi().getUserAgent())
+                .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs()
+                                .maxInMemorySize(properties.getApi().getMaxInMemoryBytes()))
+                        .build())
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.create().followRedirect(true)))
                 .build();
     }
 
@@ -218,6 +239,14 @@ public class RestGithubClient implements GithubClient {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            // A dead credential must not look like "this
+                            // pull request touches no files" — that would
+                            // report "no drift" for a repository the
+                            // platform cannot even read.
+                            return Mono.error(new com.livingdocs.modules.github.exception
+                                    .GithubTokenInvalidException());
+                        }
                         if (ex.getStatusCode().value() == 404) return Mono.empty();
                         return Mono.error(ex);
                     })
@@ -235,6 +264,8 @@ public class RestGithubClient implements GithubClient {
                 }
             }
             return out;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
         } catch (Exception ex) {
             log.warn("listPullRequestFiles failed for {}/{}#{}: {}",
                     owner, repo, number, ex.getMessage());
@@ -285,6 +316,33 @@ public class RestGithubClient implements GithubClient {
                     owner, repo, base, head, ex.getMessage());
             throw new GithubClientException(
                     "Could not compare " + base + " with " + head + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref) {
+        try {
+            byte[] archive = downloadClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/tarball/{ref}")
+                            .build(owner, repo, ref))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(byte[].class)
+                    .onErrorResume(WebClientResponseException.class, ex -> {
+                        if (ex.getStatusCode().value() == 401) {
+                            return Mono.error(new com.livingdocs.modules.github.exception
+                                    .GithubTokenInvalidException());
+                        }
+                        return Mono.error(ex);
+                    })
+                    .block(Duration.ofSeconds(120));
+            return archive == null ? new byte[0] : archive;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (Exception ex) {
+            log.warn("downloadRepositoryArchive failed for {}/{}@{}: {}",
+                    owner, repo, ref, ex.getMessage());
+            return new byte[0];
         }
     }
 
@@ -703,6 +761,143 @@ public class RestGithubClient implements GithubClient {
             log.info("Deleted branch {}/{}:{}", owner, repo, branch);
         } catch (Exception e) {
             log.warn("deleteBranch failed for {}/{}:{} — {}", owner, repo, branch, e.getMessage());
+        }
+    }
+
+    // ── Git Data API ─────────────────────────────────────────────────────
+
+    /**
+     * Write a set of files into a branch as one commit.
+     *
+     * <p>The Git Data API is used rather than the Contents API because
+     * the Contents API commits one file per request. A seeded change
+     * has to land as a single revision: the drift detector compares
+     * two revisions, and a change spread over five commits would look
+     * like five unrelated changes.
+     *
+     * <p>The sequence is the one GitHub documents:
+     * <ol>
+     *   <li>read the branch's head commit and its tree,</li>
+     *   <li>build a new tree with the blobs of the files to write,</li>
+     *   <li>create a commit on top of the head commit,</li>
+     *   <li>move the branch ref to the new commit.</li>
+     * </ol>
+     */
+    @Override
+    public String commitFiles(String accessToken, String owner, String repo, String branch,
+                              List<GithubFileWrite> files, String commitMessage,
+                              String authorName, String authorEmail) {
+        try {
+            // 1. The head commit of the branch (or of the default branch
+            //    when the branch does not exist yet).
+            String headRef = branchExists(accessToken, owner, repo, branch)
+                    ? branch
+                    : "HEAD";
+            JsonNode headCommit = webClient.get()
+                    .uri("/repos/{owner}/{repo}/commits/{ref}", owner, repo, headRef)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(20));
+            if (headCommit == null) {
+                throw new GithubClientException(
+                        "Could not read the head commit of " + owner + "/" + repo);
+            }
+            String baseTreeSha = headCommit.path("commit").path("tree").path("sha").asText();
+            String parentSha = headCommit.path("sha").asText();
+            if (baseTreeSha.isBlank() || parentSha.isBlank()) {
+                throw new GithubClientException(
+                        "The head commit of " + owner + "/" + repo + " has no tree");
+            }
+
+            // 2. One blob per file.
+            List<Map<String, Object>> treeEntries = new ArrayList<>();
+            for (GithubFileWrite file : files) {
+                String encoded = java.util.Base64.getEncoder()
+                        .encodeToString(file.content().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                JsonNode blob = webClient.post()
+                        .uri("/repos/{owner}/{repo}/git/blobs", owner, repo)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue("{\"content\":\"" + encoded + "\",\"encoding\":\"base64\"}")
+                        .retrieve()
+                        .bodyToMono(JsonNode.class)
+                        .block(Duration.ofSeconds(20));
+                if (blob == null || blob.path("sha").asText().isBlank()) {
+                    throw new GithubClientException("Could not create the blob for " + file.path());
+                }
+                treeEntries.add(Map.of(
+                        "path", file.path(),
+                        "mode", "100644",
+                        "type", "blob",
+                        "sha", blob.path("sha").asText()));
+            }
+
+            // 3. The new tree, based on the head tree so that the files
+            //    that are not written stay exactly as they are.
+            JsonNode newTree = webClient.post()
+                    .uri("/repos/{owner}/{repo}/git/trees", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(objectMapper.writeValueAsString(Map.of(
+                            "base_tree", baseTreeSha,
+                            "tree", treeEntries)))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(20));
+            if (newTree == null || newTree.path("sha").asText().isBlank()) {
+                throw new GithubClientException("Could not create the git tree");
+            }
+
+            // 4. The commit itself.
+            String author = objectMapper.writeValueAsString(Map.of(
+                    "name", authorName == null || authorName.isBlank() ? "LivingDocs" : authorName,
+                    "email", authorEmail == null || authorEmail.isBlank()
+                            ? "livingdocs@local" : authorEmail));
+            JsonNode commit = webClient.post()
+                    .uri("/repos/{owner}/{repo}/git/commits", owner, repo)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(objectMapper.writeValueAsString(Map.of(
+                            "message", commitMessage == null || commitMessage.isBlank()
+                                    ? "Update files" : commitMessage,
+                            "tree", newTree.path("sha").asText(),
+                            "parents", List.of(parentSha),
+                            "author", objectMapper.readTree(author))))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(20));
+            if (commit == null || commit.path("sha").asText().isBlank()) {
+                throw new GithubClientException("Could not create the git commit");
+            }
+            String commitSha = commit.path("sha").asText();
+
+            // 5. Move the branch ref. When the branch did not exist, it
+            //    is created here.
+            JsonNode ref = webClient.patch()
+                    .uri("/repos/{owner}/{repo}/git/refs/heads/{branch}", owner, repo, branch)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(objectMapper.writeValueAsString(Map.of(
+                            "sha", commitSha,
+                            "force", false)))
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block(Duration.ofSeconds(20));
+
+            log.info("Committed {} file(s) to {}/{}@{} as {}", files.size(), owner, repo, branch, commitSha);
+            return commitSha;
+        } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+            throw e;
+        } catch (GithubClientException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GithubClientException(
+                    "commitFiles failed for " + owner + "/" + repo + "@" + branch + ": " + e.getMessage(), e);
         }
     }
 

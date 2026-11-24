@@ -239,6 +239,17 @@ public class SandboxGithubClient implements GithubClient {
         log.info("Sandbox: would delete branch {}/{}:{}", owner, repo, branch);
     }
 
+    @Override
+    public String commitFiles(String accessToken, String owner, String repo, String branch,
+                              List<GithubFileWrite> files, String commitMessage,
+                              String authorName, String authorEmail) {
+        // Sandbox mode just simulates the commit.
+        log.info("Sandbox: would commit {} file(s) to {}/{}@{}",
+                files.size(), owner, repo, branch);
+        return "sandbox-" + Math.abs((branch + String.join(",", files.stream()
+                .map(GithubFileWrite::path).toList())).hashCode());
+    }
+
     // ── Repository Contents ───────────────────────────────────────────────
 
     @Override
@@ -255,6 +266,12 @@ public class SandboxGithubClient implements GithubClient {
             );
         }
         return List.of();
+    }
+
+    @Override
+    public byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref) {
+        log.info("Sandbox: downloadRepositoryArchive {}/{}/{}", owner, repo, ref);
+        return new byte[0];
     }
 
     @Override

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, FileText, Plus, RotateCcw, Search } from 'lucide-react';
+import { ArrowLeft, FileText, Plus, RotateCcw, Search, AlertTriangle } from 'lucide-react';
 import { PageTitle } from '../components/PageTitle';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -27,6 +27,7 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { describeError } from '../services/auth';
 import { documentsApi, Document, DocumentStatus } from '../services/documents';
+import { driftApi, DriftAlert, DriftSeverity } from '../services/drift';
 import { format } from 'date-fns';
 
 const STATUS_VARIANT: Record<DocumentStatus, 'muted' | 'warning' | 'success' | 'info' | 'destructive' | 'secondary'> = {
@@ -47,6 +48,22 @@ const STATUS_LABEL_KEY: Record<DocumentStatus, string> = {
   ARCHIVED: 'documents.statusArchived',
 };
 
+/** How a drift severity is rendered as a badge. */
+const DRIFT_VARIANT: Record<DriftSeverity, 'destructive' | 'warning' | 'info' | 'muted'> = {
+  CRITICAL: 'destructive',
+  HIGH: 'warning',
+  MEDIUM: 'info',
+  LOW: 'muted',
+};
+
+/** The label of a drift severity, reused from the drift alerts page. */
+const DRIFT_SEVERITY_KEY: Record<DriftSeverity, string> = {
+  CRITICAL: 'drift.severityCritical',
+  HIGH: 'drift.severityHigh',
+  MEDIUM: 'drift.severityMedium',
+  LOW: 'drift.severityLow',
+};
+
 export default function DocumentsListPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { t } = useTranslation();
@@ -57,9 +74,59 @@ export default function DocumentsListPage() {
   const [search, setSearch] = useState<string>('');
   const [docType, setDocType] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  /**
+   * Whether the list is narrowed to the documents that have an open
+   * drift alert. This is the shortcut to "show me only what is out of
+   * date" — the question the drift badges answer row by row.
+   */
+  const [needsUpdateOnly, setNeedsUpdateOnly] = useState<boolean>(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const canRollback = usePermission(PermissionCodes.DOCUMENT_ROLLBACK);
+
+  /**
+   * The open drift alerts of the workspace, keyed by document id.
+   *
+   * <p>This is what makes "which documents need updating" answerable
+   * without leaving the list: a document with an open drift alert is
+   * out of date with its code, and the alert says why. The alerts are
+   * fetched once for the whole workspace rather than per document —
+   * there is one endpoint for the workspace and it is cheap.
+   */
+  const [driftByDocument, setDriftByDocument] = useState<Map<string, DriftAlert[]>>(new Map());
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let alive = true;
+    driftApi
+      .list(workspaceId, { status: 'OPEN' })
+      .then((alerts) => {
+        if (!alive) return;
+        const grouped = new Map<string, DriftAlert[]>();
+        for (const a of alerts) {
+          const list = grouped.get(a.documentId) ?? [];
+          list.push(a);
+          grouped.set(a.documentId, list);
+        }
+        setDriftByDocument(grouped);
+      })
+      // A failure to load the drift badges must not take the document
+      // list down with it — the list is still perfectly usable without
+      // them, so the error is swallowed on purpose.
+      .catch(() => { if (alive) setDriftByDocument(new Map()); });
+    return () => { alive = false; };
+  }, [workspaceId]);
+
+  /** The worst open drift alert of a document, if it has one. */
+  const worstDrift = useMemo(() => {
+    const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } as const;
+    const map = new Map<string, DriftAlert>();
+    for (const [documentId, alerts] of driftByDocument) {
+      const worst = alerts.reduce((a, b) => (rank[a.severity] <= rank[b.severity] ? a : b));
+      map.set(documentId, worst);
+    }
+    return map;
+  }, [driftByDocument]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -78,10 +145,11 @@ export default function DocumentsListPage() {
     return docs.filter((d) => {
       if (docType !== 'all' && d.docType !== docType) return false;
       if (statusFilter !== 'all' && d.status !== statusFilter) return false;
+      if (needsUpdateOnly && !driftByDocument.has(d.id)) return false;
       if (!q) return true;
       return `${d.title} ${d.slug} ${d.docType} ${d.summary ?? ''}`.toLowerCase().includes(q);
     });
-  }, [docs, search, docType, statusFilter]);
+  }, [docs, search, docType, statusFilter, needsUpdateOnly, driftByDocument]);
 
   /**
    * Toggle one document of the selection.
@@ -188,6 +256,20 @@ export default function DocumentsListPage() {
             ))}
           </SelectContent>
         </Select>
+        {/* Narrow the list to the documents that drifted. The badge
+            shows the severity; the count tells how many are affected. */}
+        <Button
+          variant={needsUpdateOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setNeedsUpdateOnly((v) => !v)}
+          title={t('documents.needsUpdateOnlyHint')}
+        >
+          <AlertTriangle className="mr-1 h-4 w-4" />
+          {t('documents.needsUpdateOnly')}
+          {driftByDocument.size > 0 && (
+            <Badge variant="muted" className="ml-2">{driftByDocument.size}</Badge>
+          )}
+        </Button>
       </div>
 
       {error && <ErrorState message={error} />}
@@ -228,6 +310,7 @@ export default function DocumentsListPage() {
                 <TableHead>{t('documents.colType')}</TableHead>
                 <TableHead>{t('documents.colStatus')}</TableHead>
                 <TableHead>{t('documents.colAutoUpdate')}</TableHead>
+                <TableHead>{t('documents.colDrift')}</TableHead>
                 <TableHead>{t('documents.colUpdated')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -288,6 +371,38 @@ export default function DocumentsListPage() {
                           {t('documents.manual')}
                         </span>
                       )}
+                  </TableCell>
+                  {/* The drift badge is the answer to "which document
+                      needs updating?". It links straight to the document's
+                      Drift tab, where the alert can be reviewed. */}
+                  <TableCell>
+                    {(() => {
+                      const worst = worstDrift.get(d.id);
+                      if (!worst) {
+                        return (
+                          <span className="text-xs text-muted-foreground">
+                            {t('documents.driftNone')}
+                          </span>
+                        );
+                      }
+                      const count = driftByDocument.get(d.id)?.length ?? 1;
+                      return (
+                        <Link
+                          to={`/workspaces/${workspaceId}/documents/${d.id}?tab=drift`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-block"
+                        >
+                          <Badge
+                            variant={DRIFT_VARIANT[worst.severity]}
+                            title={worst.description || worst.title}
+                            className="cursor-pointer"
+                          >
+                            {t(DRIFT_SEVERITY_KEY[worst.severity])}
+                            {count > 1 ? ` ×${count}` : ''}
+                          </Badge>
+                        </Link>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {format(new Date(d.updatedAt), 'MMM d, yyyy')}

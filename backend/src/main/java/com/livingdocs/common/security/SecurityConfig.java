@@ -2,6 +2,7 @@ package com.livingdocs.common.security;
 
 import com.livingdocs.modules.admin.repository.UserRoleAssignmentRepository;
 import com.livingdocs.modules.user.repository.UserRepository;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -81,6 +82,32 @@ public class SecurityConfig {
                 .cors(cors -> {})
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(reg -> reg
+                        // ---- Container re-dispatches (ASYNC / ERROR) ----
+                        //
+                        // Tomcat re-dispatches a request asynchronously once
+                        // an SseEmitter finishes (timeout, client disconnect,
+                        // or the emitter being replaced by a newer tab). That
+                        // re-dispatch is a *continuation* of a request that was
+                        // already authorised on the way in.
+                        //
+                        // Re-running the authorisation rules on it is wrong:
+                        // the SecurityContext is cleared as soon as the first
+                        // dispatch returns (this app is stateless, and
+                        // SecurityContextHolderFilter clears the context in its
+                        // finally block), and the JWT filter is skipped on an
+                        // async dispatch by OncePerRequestFilter's default.
+                        // The re-dispatch therefore arrives anonymous and
+                        // `.anyRequest().authenticated()` rejects it with an
+                        // AccessDeniedException — for a request the user was
+                        // perfectly entitled to make.
+                        //
+                        // The same applies to the ERROR dispatch that Tomcat
+                        // performs for the container's own /error page.
+                        //
+                        // Permitting both dispatcher types only relaxes the
+                        // *re-dispatch*; the original REQUEST dispatch still
+                        // has to satisfy every rule below.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         // Open endpoints
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/verify-email",

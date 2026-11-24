@@ -114,8 +114,18 @@ export function DocSyncPreviewModal({
     setError(null);
     try {
       const result = await docSyncQueueApi.queue(workspaceId, repositoryId, filePath, branch);
-      if (result?.hasChanges) {
-        setQueued({ id: result.id, message: result.message });
+      // The backend answers { success, queued, request, message }. `queued`
+      // is the authoritative flag — the proposal itself lives under
+      // `request`. An earlier version of this client expected a flat
+      // { id, hasChanges } shape that the endpoint never returned, so the
+      // proposal was created on the server while the UI reported failure.
+      if (result?.queued && result.request) {
+        setQueued({ id: result.request.id, message: result.message });
+      } else if (result && !result.queued) {
+        // The backend distinguishes "nothing to queue" (no real change)
+        // from "already pending" in its English message. Localize both
+        // into the same actionable sentence.
+        setError(t('docSync.errAlreadyPendingQueue'));
       } else {
         setError(result?.message || t('docSync.errNoChangesQueue'));
       }

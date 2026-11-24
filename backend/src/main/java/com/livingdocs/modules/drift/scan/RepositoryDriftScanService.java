@@ -12,6 +12,7 @@ import com.livingdocs.modules.github.model.PullRequest;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.PullRequestRepository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
+import com.livingdocs.modules.github.service.GithubCredentialService;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.workspace.repository.WorkspaceMemberRepository;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
@@ -68,6 +69,7 @@ public class RepositoryDriftScanService {
     private final DocumentRepository documentRepository;
     private final DriftSourceResolver sourceResolver;
     private final AiDocumentationService aiDocumentationService;
+    private final GithubCredentialService credentialService;
     private final GithubOAuthService githubOAuthService;
     private final WorkspaceService workspaceService;
     private final PermissionService permissionService;
@@ -98,6 +100,7 @@ public class RepositoryDriftScanService {
                                       DocumentRepository documentRepository,
                                       DriftSourceResolver sourceResolver,
                                       AiDocumentationService aiDocumentationService,
+                                      GithubCredentialService credentialService,
                                       GithubOAuthService githubOAuthService,
                                       WorkspaceService workspaceService,
                                       PermissionService permissionService,
@@ -111,6 +114,7 @@ public class RepositoryDriftScanService {
         this.documentRepository = documentRepository;
         this.sourceResolver = sourceResolver;
         this.aiDocumentationService = aiDocumentationService;
+        this.credentialService = credentialService;
         this.githubOAuthService = githubOAuthService;
         this.workspaceService = workspaceService;
         this.permissionService = permissionService;
@@ -300,11 +304,14 @@ public class RepositoryDriftScanService {
 
         // The scan needs a GitHub credential. Without one it cannot see
         // the repository at all, so it fails early with a message the
-        // user can act on.
+        // user can act on. Every candidate credential was already
+        // checked against GitHub, so "no credential" here really means
+        // "nobody who can see this repository has a working token".
         String token = resolveAccessToken(repo, job.getRequestedBy());
         if (token == null || token.isBlank()) {
-            markFailed(jobId, "No GitHub connection is available for this repository. "
-                    + "Re-authorize the GitHub app and try again.");
+            markFailed(jobId, "No working GitHub connection is available for this repository. "
+                    + "The GitHub access token has expired or was revoked — "
+                    + "reconnect your GitHub account and run the scan again.");
             return;
         }
 
@@ -403,26 +410,20 @@ public class RepositoryDriftScanService {
     /**
      * The GitHub credential to read the repository with.
      *
-     * <p>The credential of the user who connected the repository is
-     * preferred — that is the one whose scopes cover the repository.
-     * The requesting user is the fallback.
+     * <p>Several credentials may be able to read the repository, and any
+     * one of them may have expired — GitHub revokes a token when the
+     * user changes their password or withdraws the OAuth grant, and the
+     * connection row keeps saying {@code ACTIVE} all the same. The
+     * credential service therefore tries the candidates in turn and
+     * returns the first one GitHub still accepts, instead of failing
+     * the whole scan on the first dead token.
      *
      * <p>Neither lookup goes through {@code CurrentUser}: the scan
      * runs on a background thread, where there is no authenticated
      * request to read the current user from.
      */
     private String resolveAccessToken(Repository repo, UUID requestedBy) {
-        Optional<com.livingdocs.modules.github.model.GithubConnection> connection =
-                githubOAuthService.findForUser(repo.getConnectedBy());
-        if (connection.isPresent()) {
-            String token = connection.get().getAccessToken();
-            if (token != null && !token.isBlank()) {
-                return token;
-            }
-        }
-        return githubOAuthService.findForUser(requestedBy)
-                .map(c -> c.getAccessToken())
-                .orElse(null);
+        return credentialService.resolveTokenForRepository(repo, requestedBy);
     }
 
     // -----------------------------------------------------------------

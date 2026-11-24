@@ -3,7 +3,7 @@ package com.livingdocs.modules.code.service;
 import com.livingdocs.modules.code.model.CodeEntity;
 import com.livingdocs.modules.code.repository.CodeEntityRepository;
 import com.livingdocs.modules.github.client.GithubClient;
-import com.livingdocs.modules.github.client.GithubClient.GithubRepositoryContent;
+import com.livingdocs.modules.github.client.RepositoryArchive;
 import com.livingdocs.modules.github.model.Commit;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.CommitRepository;
@@ -20,7 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,11 +42,31 @@ public class CodeEntityExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(CodeEntityExtractionService.class);
 
-    private static final List<String> DOC_PATHS = List.of("", "src", "src/main/java", "lib", "app");
+    /**
+     * Directory names that never hold first-party source code.
+     *
+     * <p>They are skipped during the tree walk so a vendored dependency
+     * tree cannot flood the ingest.
+     */
     private static final List<String> SKIP_DIRS = List.of(
-            "node_modules", "target", "build", "dist", ".git", ".idea", "out", "bin", "obj"
+            "node_modules", "target", "build", "dist", ".git", ".idea", "out", "bin", "obj",
+            "vendor", ".next", ".venv", "venv", "__pycache__", ".mvn", ".gradle", "coverage"
     );
-    private static final int MAX_FILES = 200;
+
+    /**
+     * Upper bound on how many files are parsed per ingest.
+     *
+     * <p>Before the archive download, every file cost one GitHub request,
+     * so this bound kept the ingest from taking hours. The archive makes
+     * the download a single request, so the bound now only guards the
+     * parsing work. It is still worth having: a repository with tens of
+     * thousands of source files would otherwise produce an entity set
+     * that is expensive to query and to feed to the AI.
+     *
+     * <p>When the bound bites, it is reported — a silently half-indexed
+     * repository looks exactly like a fully indexed one.
+     */
+    private static final int MAX_FILES = 2000;
 
     private static final Pattern JAVA_CLASS =
             Pattern.compile("(?m)^\\s*(?:public|private|protected)?\\s*(?:static\\s+)?(?:final\\s+)?(?:abstract\\s+)?class\\s+([A-Z][A-Za-z0-9_]+)");
@@ -56,18 +78,59 @@ public class CodeEntityExtractionService {
             Pattern.compile("(?m)^\\s*(?:public|private|protected)\\s+(?:static\\s+)?(?:[A-Za-z0-9_<>\\[\\],\\s]+?)\\s+([a-z][A-Za-z0-9_]+)\\s*\\(");
     private static final Pattern JS_CLASS =
             Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:default\\s+)?class\\s+([A-Z][A-Za-z0-9_]+)");
+    // A TypeScript generic parameter list may sit between the name and the
+    // argument list: `function useDebounce<T>(value: T)`. Without this the
+    // whole declaration is invisible to the extractor, so a file written
+    // with generics contributes no entities at all — the document it
+    // belongs to then reports "no code entities found" and no proposal
+    // is ever produced for it.
+    //
+    // The generic list is matched separately from the argument list so
+    // that a parameter default value containing a comparison
+    // (`(a: number = a < b ? 1 : 2)`) cannot be mistaken for one.
     private static final Pattern JS_FUNCTION =
-            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:async\\s+)?function\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*\\(");
+            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:async\\s+)?function\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*(?:<[^<>()]*>)?\\s*\\(");
     private static final Pattern JS_ARROW =
-            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:const|let|var)\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*=\\s*(?:async\\s+)?\\(");
+            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:const|let|var)\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*(?::[^=]+)?=\\s*(?:async\\s+)?(?:<[^<>()]*>\\s*)?\\(");
     private static final Pattern PY_CLASS =
-            Pattern.compile("(?m)^class\\s+([A-Z][A-Za-z0-9_]+)");
+            Pattern.compile("(?m)^\\s*class\\s+([A-Z][A-Za-z0-9_]+)");
+    // A method is indented inside its class body, so the pattern has to
+    // allow leading whitespace. Anchored on the name group it records
+    // the right line — see {@link #findAll}.
     private static final Pattern PY_FUNCTION =
-            Pattern.compile("(?m)^def\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*\\(");
+            Pattern.compile("(?m)^\\s*def\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*\\(");
     private static final Pattern TS_CLASS =
             Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?class\\s+([A-Z][A-Za-z0-9_]+)");
     private static final Pattern TS_INTERFACE =
             Pattern.compile("(?m)^\\s*(?:export\\s+)?interface\\s+([A-Z][A-Za-z0-9_]+)");
+    // The TypeScript counterparts of the JS patterns above. They are kept
+    // separate from the JavaScript ones because TypeScript allows a
+    // return-type annotation and an `async` modifier in front of the
+    // parameter list, which the plain JavaScript pattern does not
+    // tolerate.
+    private static final Pattern TS_FUNCTION =
+            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*(?:<[^<>()]*>)?\\s*\\(");
+    // A generic arrow puts its parameter list *after* the `=`
+    // (`const identity = <T,>(value: T) => value`), so the generic is
+    // matched there and not before the `=`.
+    private static final Pattern TS_ARROW =
+            Pattern.compile("(?m)^\\s*(?:export\\s+)?(?:const|let|var)\\s+([a-zA-Z_][A-Za-z0-9_]*)\\s*(?::[^=]+)?=\\s*(?:async\\s+)?(?:<[^<>()]*>\\s*)?\\(");
+    // A method of a class body. The AI service recognises these (see its
+    // `method_re`), so the backend must too — otherwise the two sides
+    // disagree about what an entity is, and a method that the backend
+    // indexed yields no source for the model.
+    //
+    // The pattern mirrors the AI service's `method_re` exactly: the name
+    // is captured on its own, the generic list is matched separately, and
+    // a return-type annotation is required. That last requirement is what
+    // keeps the control-flow statements out — `if (x) {` and
+    // `for (const x of y) {` also look like an indented name followed by
+    // an opening parenthesis — and what keeps constructors out, which the
+    // AI service does not treat as entities either.
+    private static final Pattern TS_METHOD =
+            Pattern.compile("(?m)^\\s+(?:public|private|protected|static|readonly|async)?\\s*"
+                    + "([a-zA-Z_][A-Za-z0-9_]*)\\s*(?:<[^<>()]*>)?\\s*\\([^)]*\\)"
+                    + "\\s*:\\s*[^;{]+\\s*\\{");
 
     private final CodeEntityRepository repository;
     private final CodeEntityService codeEntityService;
@@ -109,9 +172,21 @@ public class CodeEntityExtractionService {
             throw new NotFoundException("Repository not found in this workspace");
         }
 
-        com.livingdocs.modules.github.model.GithubConnection conn =
-                oauthService.requireForCurrentUser();
-        String accessToken = conn.getAccessToken();
+        // The credential to read the repository with is the one of the
+        // user who connected it — that is the account whose scopes cover
+        // the repository. The calling user is only the fallback: a
+        // colleague re-indexing a repository they did not connect must
+        // not fail because their own GitHub account cannot see it.
+        //
+        // Previously the *current* user's token was used unconditionally,
+        // which meant the ingest of a repository failed whenever the
+        // caller was not the one who connected it.
+        String accessToken = resolveAccessToken(repo, userId);
+        if (accessToken == null || accessToken.isBlank()) {
+            throw new com.livingdocs.common.exception.ForbiddenException(
+                    "No GitHub connection is available for this repository. "
+                            + "Re-authorize the GitHub app and try again.");
+        }
         String branch = repo.getDefaultBranch();
         if (branch == null || branch.isBlank()) branch = "main";
 
@@ -125,39 +200,59 @@ public class CodeEntityExtractionService {
         log.info("Starting code entity extraction for {} @ {} (head {})",
                 repo.getFullName(), branch, commitSha);
 
-        List<GithubRepositoryContent> targets = new ArrayList<>();
-        for (String base : DOC_PATHS) {
-            try {
-                githubClient.listRepositoryContents(accessToken, repo.getOwner(), repo.getName(),
-                        base, branch).forEach(c -> targets.add(c));
-            } catch (Exception e) {
-                log.debug("Could not list path {}: {}", base, e.getMessage());
-            }
-            if (targets.size() > MAX_FILES) break;
+        // The whole repository is fetched in a single request. Reading it
+        // through the contents API instead would cost one request per
+        // directory — hundreds of them for a monorepo — and any
+        // traversal with a depth limit silently drops the files it never
+        // reached. That is exactly what happened before this change: the
+        // crawl stopped after four levels, so `backend/src/main/java/com/…`
+        // (depth nine and deeper) was invisible and the repository
+        // indexed no Java source at all.
+        byte[] archive = githubClient.downloadRepositoryArchive(
+                accessToken, repo.getOwner(), repo.getName(), branch);
+
+        if (archive == null || archive.length == 0) {
+            log.warn("Could not download the repository archive for {} @ {}",
+                    repo.getFullName(), branch);
+            return 0;
         }
 
-        List<String> codeFiles = new ArrayList<>();
-        collectCodeFiles(targets, accessToken, repo.getOwner(), repo.getName(), branch,
-                codeFiles, 0);
+        Map<String, byte[]> sources;
+        try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(archive)) {
+            sources = RepositoryArchive.read(in, this::isIndexableSource);
+        } catch (Exception e) {
+            log.warn("Could not read the repository archive of {} @ {}: {}",
+                    repo.getFullName(), branch, e.getMessage());
+            return 0;
+        }
 
-        if (codeFiles.isEmpty()) {
+        if (sources.isEmpty()) {
             log.warn("No code files found in {} @ {}", repo.getFullName(), branch);
             return 0;
         }
-        log.info("Found {} code file(s) to scan in {}", codeFiles.size(), repo.getFullName());
+        if (sources.size() > MAX_FILES) {
+            log.warn("{} has {} indexable source file(s); only the first {} are indexed",
+                    repo.getFullName(), sources.size(), MAX_FILES);
+            Map<String, byte[]> capped = new LinkedHashMap<>();
+            int kept = 0;
+            for (Map.Entry<String, byte[]> source : sources.entrySet()) {
+                if (kept++ >= MAX_FILES) break;
+                capped.put(source.getKey(), source.getValue());
+            }
+            sources = capped;
+        }
+        log.info("Found {} code file(s) to scan in {}", sources.size(), repo.getFullName());
 
         // Clear old entities for this repo (best-effort refresh)
         repository.findAllByRepositoryIdOrderByIngestedAtDesc(repositoryId)
                 .forEach(e -> repository.deleteById(e.getId()));
 
         int stored = 0;
-        int limit = Math.min(codeFiles.size(), MAX_FILES);
-        for (int i = 0; i < limit; i++) {
-            String path = codeFiles.get(i);
+        for (Map.Entry<String, byte[]> entry : sources.entrySet()) {
+            String path = entry.getKey();
             try {
-                String content = githubClient.getFileContent(accessToken, repo.getOwner(),
-                        repo.getName(), path, branch);
-                if (content == null || content.isBlank()) continue;
+                String content = new String(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8);
+                if (content.isBlank()) continue;
                 String language = detectLanguage(path);
                 if (language == null) continue;
 
@@ -198,28 +293,29 @@ public class CodeEntityExtractionService {
         return stored;
     }
 
-    private void collectCodeFiles(List<GithubRepositoryContent> entries, String token,
-                                  String owner, String repo, String branch,
-                                  List<String> out, int depth) {
-        if (depth > 4 || out.size() > MAX_FILES) return;
-        for (GithubRepositoryContent entry : entries) {
-            if (out.size() > MAX_FILES) return;
-            String name = entry.name();
-            if (SKIP_DIRS.contains(name)) continue;
-            if ("file".equals(entry.type())) {
-                if (isCodeFile(name)) {
-                    out.add(entry.path());
-                }
-            } else if ("dir".equals(entry.type())) {
-                try {
-                    List<GithubRepositoryContent> children = githubClient.listRepositoryContents(
-                            token, owner, repo, entry.path(), branch);
-                    collectCodeFiles(children, token, owner, repo, branch, out, depth + 1);
-                } catch (Exception e) {
-                    log.debug("Could not descend into {}: {}", entry.path(), e.getMessage());
-                }
-            }
+    /**
+     * Whether a file of the repository archive should be indexed.
+     *
+     * <p>The archive contains everything the repository holds —
+     * documentation, lock files, assets, vendored dependencies. Only
+     * first-party source code is indexed, and only outside the
+     * directories that hold generated or third-party code.
+     */
+    private boolean isIndexableSource(String path) {
+        if (path == null || path.isBlank()) return false;
+        if (isSkippedPath(path)) return false;
+        return isCodeFile(path);
+    }
+
+    /**
+     * Whether the path lies inside a directory that never holds
+     * first-party source code.
+     */
+    private boolean isSkippedPath(String path) {
+        for (String segment : path.split("/")) {
+            if (SKIP_DIRS.contains(segment)) return true;
         }
+        return false;
     }
 
     private boolean isCodeFile(String name) {
@@ -236,7 +332,17 @@ public class CodeEntityExtractionService {
         return null;
     }
 
-    private List<ParsedEntity> parse(String content, String language, String path) {
+    /**
+     * Extract the entities of a single file.
+     *
+     * <p>Package-private rather than private so the extraction rules can
+     * be tested directly — the patterns encode real-world TypeScript
+     * shapes (generics, arrow functions, JSX) that are easy to break
+     * silently, and a broken pattern shows up in the product only as
+     * "this document has no code entities", which is a very indirect
+     * signal.
+     */
+    List<ParsedEntity> parse(String content, String language, String path) {
         List<ParsedEntity> out = new ArrayList<>();
         switch (language) {
             case "java" -> {
@@ -253,8 +359,9 @@ public class CodeEntityExtractionService {
             case "typescript" -> {
                 findAll(TS_CLASS, content, "class", path, out);
                 findAll(TS_INTERFACE, content, "interface", path, out);
-                findAll(JS_FUNCTION, content, "function", path, out);
-                findAll(JS_ARROW, content, "function", path, out);
+                findAll(TS_FUNCTION, content, "function", path, out);
+                findAll(TS_ARROW, content, "function", path, out);
+                findAll(TS_METHOD, content, "method", path, out);
             }
             case "python" -> {
                 findAll(PY_CLASS, content, "class", path, out);
@@ -270,12 +377,20 @@ public class CodeEntityExtractionService {
         while (m.find()) {
             String name = m.group(1);
             if (name == null || name.isBlank()) continue;
-            int line = lineNumberAt(content, m.start());
+            // Anchor the line number on the captured name rather than on
+            // the start of the whole match. The patterns begin with
+            // `^\s*`, and in MULTILINE mode `\s` also matches the newline
+            // that ended the previous line — so the match starts one line
+            // *before* the declaration and every entity was recorded with
+            // a line number that was off by one. The name group is the
+            // first character that is guaranteed to sit on the
+            // declaration's own line.
+            int line = lineNumberAt(content, m.start(1));
             // The declaration may span multiple lines, and for classes /
             // methods the body extends until the matching closing brace.
             // Recording a single-line range would hand the AI a one-line
             // stub instead of the real source it is supposed to document.
-            int endLine = line + countDeclarationLines(content, m.start());
+            int endLine = line + countDeclarationLines(content, m.start(1));
             out.add(new ParsedEntity(
                     type,
                     name,
@@ -344,6 +459,27 @@ public class CodeEntityExtractionService {
     }
 
     /**
+     * The GitHub credential to read the repository with.
+     *
+     * <p>The credential of the user who connected the repository is
+     * preferred — that is the account whose scopes cover the repository.
+     * The requesting user is the fallback.
+     */
+    private String resolveAccessToken(Repository repo, UUID requestedBy) {
+        java.util.Optional<com.livingdocs.modules.github.model.GithubConnection> connection =
+                oauthService.findForUser(repo.getConnectedBy());
+        if (connection.isPresent()) {
+            String token = connection.get().getAccessToken();
+            if (token != null && !token.isBlank()) {
+                return token;
+            }
+        }
+        return oauthService.findForUser(requestedBy)
+                .map(c -> c.getAccessToken())
+                .orElse(null);
+    }
+
+    /**
      * Resolve the SHA of the most recent commit ingested for the given
      * branch. Falls back to the branch name when the repository has no
      * ingested commits yet (e.g. a fresh connection).
@@ -369,6 +505,12 @@ public class CodeEntityExtractionService {
         return line;
     }
 
-    private record ParsedEntity(String type, String simpleName, String qualifiedName,
-                                int startLine, int endLine, String signature) {}
+    /**
+     * One extracted entity.
+     *
+     * <p>Package-private so a test can assert on the extracted shape
+     * without going through the database.
+     */
+    record ParsedEntity(String type, String simpleName, String qualifiedName,
+                        int startLine, int endLine, String signature) {}
 }

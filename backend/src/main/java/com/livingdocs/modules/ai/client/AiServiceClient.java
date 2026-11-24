@@ -42,6 +42,13 @@ public class AiServiceClient {
     private final AiServiceProperties props;
     private final AiSettingsService settingsService;
 
+    /**
+     * Why the last {@code generate} call failed.
+     *
+     * <p>See {@link #lastFailureReason()}.
+     */
+    private final ThreadLocal<String> lastFailure = new ThreadLocal<>();
+
     public AiServiceClient(RestClient restClient,
                            AiServiceProperties props,
                            AiSettingsService settingsService) {
@@ -84,6 +91,7 @@ public class AiServiceClient {
                                             String focus,
                                             String languageHint) {
         if (!props.isEnabled()) return null;
+        lastFailure.remove();
         AiSettings settings = resolveSettings(workspaceId);
         try {
             AiDtos.GenerateRequest req = new AiDtos.GenerateRequest(
@@ -100,11 +108,59 @@ public class AiServiceClient {
             // Surface that text — it is actionable for the user, whereas
             // a generic "AI unavailable" is not.
             log.warn("AI service rejected generate call: {} {}", e.getStatusCode(), e.getResponseBodyAsString());
+            lastFailure.set(e.getResponseBodyAsString());
             return null;
         } catch (Exception e) {
             log.warn("AI service generate call failed: {}", e.getMessage());
+            lastFailure.set(e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Why the last {@code generate} call failed, or {@code null} when
+     * it succeeded.
+     *
+     * <p>The AI service reports upstream problems in its response body
+     * — a rate limit, an exhausted quota, a rejected key. That text is
+     * the difference between "the AI did not answer" and "your daily
+     * token quota is spent, try again in 17 minutes", and only the
+     * former is something the user can act on.
+     *
+     * <p>It is kept on the client rather than returned by
+     * {@code generate} because that method returns {@code null} on
+     * failure for a long-standing reason — callers treat a null
+     * response as "no proposal" and carry on. Changing the signature
+     * would touch every call site; a separate accessor keeps the
+     * failure detail available to the few places that want to report
+     * it.
+     *
+     * <p>Note that this is <em>not</em> thread-safe: the client is a
+     * singleton and a concurrent request may overwrite the detail. It
+     * is a diagnostic aid, not a source of truth.
+     */
+    public String lastFailureReason() {
+        return lastFailure.get();
+    }
+
+    /**
+     * Whether the last failure was a rate limit or an exhausted quota.
+     *
+     * <p>These are worth telling the user about explicitly: the work
+     * did not fail because the documentation is fine, it failed because
+     * the provider refused to answer, and it will succeed once the
+     * quota window resets.
+     */
+    public boolean lastFailureWasRateLimit() {
+        String reason = lastFailure.get();
+        if (reason == null) {
+            return false;
+        }
+        String lower = reason.toLowerCase();
+        return lower.contains("rate limit")
+                || lower.contains("429")
+                || lower.contains("tokens per day")
+                || lower.contains("quota");
     }
 
     /**

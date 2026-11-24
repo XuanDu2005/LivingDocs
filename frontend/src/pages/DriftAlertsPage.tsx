@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Play, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Play, Loader2, Github } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -13,6 +13,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { LoadingState, ErrorState, EmptyState } from '../components/ui/states';
 import { driftApi, DriftAlert, DriftKind, DriftResolution, DriftSeverity } from '../services/drift';
 import { aiApi, RepositoryDriftScanJobStatus } from '../services/ai';
+import { githubApi } from '../services/github';
 import UnifiedDiffViewer from '../components/UnifiedDiffViewer';
 import { describeError } from '../services/auth';
 import { usePermission } from '../hooks/usePermission';
@@ -143,11 +144,29 @@ export default function DriftAlertsPage() {
   const [scanPullRequestId, setScanPullRequestId] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  /**
+   * Whether the last scan failed because the GitHub credential was
+   * rejected. In that case the only way forward is to reconnect the
+   * GitHub account, so the dialog offers that as a button rather than
+   * leaving the user with a dead end.
+   */
+  const [scanNeedsReconnect, setScanNeedsReconnect] = useState<boolean>(false);
   const [scanOptions, setScanOptions] = useState<{ repositories: { id: string; fullName: string }[]; documents: { id: string; title: string }[]; pullRequests: { id: string; number: number; title: string }[] }>({ repositories: [], documents: [], pullRequests: [] });
   const [scanOptionsLoading, setScanOptionsLoading] = useState<boolean>(false);
   // The outcome of the last repository-wide scan, shown as a summary
   // of what the scan found.
   const [scanJob, setScanJob] = useState<RepositoryDriftScanJobStatus | null>(null);
+
+  /**
+   * The titles of the documents the alerts belong to.
+   *
+   * <p>A drift alert is about a document, but it only carries the
+   * document's id — the title the user recognises lives on the document.
+   * Without resolving the ids the table would list alerts by their
+   * generated title, which does not say *which* document is out of
+   * date. The titles are fetched once for the workspace and indexed.
+   */
+  const [documentTitles, setDocumentTitles] = useState<Map<string, string>>(new Map());
 
   const load = async () => {
     if (!workspaceId) return;
@@ -168,6 +187,24 @@ export default function DriftAlertsPage() {
   };
 
   useEffect(() => { void load(); }, [workspaceId, severityFilter, kindFilter, statusFilter]);
+
+  // Resolve the document titles the alerts point at. A failure here is
+  // not fatal — the alert still shows its own title.
+  useEffect(() => {
+    if (!workspaceId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { documentsApi } = await import('../services/documents');
+        const docs = await documentsApi.list(workspaceId);
+        if (!alive) return;
+        setDocumentTitles(new Map(docs.map((d) => [d.id, d.title])));
+      } catch {
+        if (alive) setDocumentTitles(new Map());
+      }
+    })();
+    return () => { alive = false; };
+  }, [workspaceId]);
 
   async function handleResolve() {
     if (!workspaceId || !resolveAlertId) return;
@@ -246,6 +283,7 @@ export default function DriftAlertsPage() {
     setScanning(true);
     setScanResult(null);
     setScanJob(null);
+    setScanNeedsReconnect(false);
     try {
       const queued = await aiApi.scanRepositoryForDrift(
         workspaceId,
@@ -258,6 +296,7 @@ export default function DriftAlertsPage() {
         // A failed run has a reason — an expired GitHub credential,
         // an unreachable repository. It must not read as "no drift".
         setScanResult(final.errorMessage);
+        setScanNeedsReconnect(isCredentialFailure(final.errorMessage));
       } else {
         setScanResult(
           t('drift.scanComplete', {
@@ -268,8 +307,45 @@ export default function DriftAlertsPage() {
       }
       await load();
     } catch (err) {
-      setScanResult(describeError(err));
+      const message = describeError(err);
+      setScanResult(message);
+      setScanNeedsReconnect(isCredentialFailure(message));
     } finally {
+      setScanning(false);
+    }
+  }
+
+  /**
+   * Whether a failure was caused by the GitHub credential.
+   *
+   * <p>The backend words this differently depending on where it
+   * happened (the job's error message versus an HTTP error body), so
+   * the check has to be on the wording rather than on a code.
+   */
+  function isCredentialFailure(message: string | null | undefined): boolean {
+    if (!message) return false;
+    const m = message.toLowerCase();
+    return (
+      m.includes('access token is no longer valid') ||
+      m.includes('no working github connection') ||
+      m.includes('no github connection is available') ||
+      m.includes('reconnect your github') ||
+      m.includes('token has expired') ||
+      m.includes('token is expired')
+    );
+  }
+
+  /**
+   * Start the GitHub OAuth flow so the user can grant a fresh token.
+   */
+  async function handleReconnectGithub() {
+    setScanning(true);
+    try {
+      const { url, state } = await githubApi.getAuthorizeUrl();
+      sessionStorage.setItem('github-oauth-state', state);
+      window.location.href = url;
+    } catch (err) {
+      setScanResult(describeError(err));
       setScanning(false);
     }
   }
@@ -387,8 +463,33 @@ export default function DriftAlertsPage() {
                 </>
               )}
               {scanResult && (
-                <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm text-primary">
+                <div
+                  className={`rounded-md border p-3 text-sm ${
+                    scanNeedsReconnect
+                      ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                      : 'border-primary/40 bg-primary/5 text-primary'
+                  }`}
+                >
                   {scanResult}
+                  {scanNeedsReconnect && (
+                    <div className="mt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleReconnectGithub()}
+                        disabled={scanning}
+                      >
+                        {scanning ? (
+                          <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {t('common.loading')}</>
+                        ) : (
+                          <><Github className="mr-1 h-4 w-4" /> {t('drift.reconnectGithub', 'Reconnect GitHub')}</>
+                        )}
+                      </Button>
+                      <p className="mt-2 text-xs opacity-80">
+                        {t('drift.reconnectGithubHint', 'Your GitHub access token has expired or was revoked. Reconnect to grant a new token, then run the scan again.')}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               {scanJob && scanJob.documents && scanJob.documents.length > 0 && (
@@ -508,6 +609,7 @@ export default function DriftAlertsPage() {
                 <TableRow>
                   <TableHead>{t('drift.colSeverity')}</TableHead>
                   <TableHead>{t('drift.colKind')}</TableHead>
+                  <TableHead>{t('drift.colDocument')}</TableHead>
                   <TableHead>{t('drift.colTitle')}</TableHead>
                   <TableHead>{t('drift.colDetected')}</TableHead>
                   <TableHead>{t('drift.colStatus')}</TableHead>
@@ -522,6 +624,18 @@ export default function DriftAlertsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={KIND_BADGE[a.driftKind]}>{t(KIND_KEY[a.driftKind])}</Badge>
+                    </TableCell>
+                    {/* The document that drifted. This is the whole point
+                        of the row: the alert title describes the drift,
+                        but the document is what the user has to open and
+                        fix. */}
+                    <TableCell className="max-w-[200px]">
+                      <Link
+                        to={`/workspaces/${workspaceId}/documents/${a.documentId}?tab=drift`}
+                        className="truncate font-medium text-sm text-primary hover:underline block"
+                      >
+                        {documentTitles.get(a.documentId) ?? t('drift.unknownDocument')}
+                      </Link>
                     </TableCell>
                     <TableCell>
                       <div className="max-w-[200px]">

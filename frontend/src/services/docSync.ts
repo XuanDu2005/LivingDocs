@@ -2,6 +2,7 @@
  * Doc Sync API client - scan and sync documentation files with code entities.
  */
 import apiClient, { LONG_TIMEOUT_MS } from './api';
+import type { DocUpdateRequest } from './docUpdateRequests';
 
 export interface DocFileInfo {
   path: string;
@@ -12,20 +13,6 @@ export interface DocFileInfo {
   missingEntities: string[];
   hasDrift: boolean;
   driftReason: string;
-}
-
-export interface DocScanResult {
-  totalFiles: number;
-  referencedEntities: number;
-  updatedEntities: number;
-  driftCount: number;
-  /** Number of new review proposals created by this scan. */
-  queuedCount?: number;
-  /** Drifted files that were not queued (already pending, or no real change). */
-  skippedCount?: number;
-  /** Paths of the files that were queued for review. */
-  queuedFiles?: string[];
-  files: DocFileInfo[];
 }
 
 export interface DriftFinding {
@@ -56,23 +43,81 @@ export interface DocContent {
   content: string;
 }
 
+/**
+ * The progress of a repository-wide documentation sync.
+ *
+ * <p>The sync asks the AI to propose an update for every drifted
+ * file, which costs one LLM call per file — far too slow to run
+ * inside an HTTP request. The endpoint therefore answers 202 with a
+ * job id, and the client polls {@link docSyncApi.jobStatus} until the
+ * job reaches a terminal state.
+ */
+export interface DocSyncJobStatus {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+  repositoryId: string;
+  branch?: string | null;
+  /** How many Markdown files the scan found. */
+  totalFiles: number;
+  /** How many drifted files have been processed. */
+  scannedFiles: number;
+  /** How many files turned out to have drifted. */
+  driftedFiles: number;
+  /** How many review proposals were created. */
+  queuedProposals: number;
+  /** How many drifted files were not queued. */
+  skippedProposals: number;
+  /** How many files could not be processed. */
+  failedFiles: number;
+  errorMessage?: string | null;
+  /** The per-file outcome of the run. */
+  files?: Array<{
+    path: string;
+    status: 'QUEUED' | 'SKIPPED' | 'FAILED';
+    message?: string;
+  }>;
+}
+
 export const docSyncApi = {
   /**
-   * Scan repository for documentation files and code references.
+   * Queue a repository-wide documentation sync.
    *
-   * This is a long call: the server walks the repository's Markdown
-   * files, compares each against the indexed code, and then asks the AI
-   * to propose an update for every file that drifted.
+   * <p>The server walks the repository's Markdown files, compares each
+   * against the indexed code, and asks the AI to propose an update for
+   * every file that drifted. That is one LLM call per drifted file, so
+   * the work runs on a background worker and the endpoint answers 202.
    */
   scan(workspaceId: string, repositoryId: string, branch?: string) {
     const qs = branch ? `?branch=${encodeURIComponent(branch)}` : '';
     return apiClient
-      .post<DocScanResult>(
+      .post<{
+        status: string;
+        jobId: string;
+        repositoryId: string;
+        message: string;
+      }>(
         `/workspaces/${workspaceId}/repositories/${repositoryId}/scan-docs${qs}`,
         {},
-        { timeout: LONG_TIMEOUT_MS },
       )
     .then((r) => r.data);
+  },
+
+  /**
+   * Poll the progress of a documentation sync.
+   */
+  jobStatus(workspaceId: string, jobId: string) {
+    return apiClient
+      .get<DocSyncJobStatus>(`/workspaces/${workspaceId}/doc-sync-jobs/${jobId}`)
+      .then((r) => r.data);
+  },
+
+  /**
+   * List the recent documentation syncs of a workspace.
+   */
+  jobs(workspaceId: string) {
+    return apiClient
+      .get<DocSyncJobStatus[]>(`/workspaces/${workspaceId}/doc-sync-jobs`)
+      .then((r) => r.data);
   },
 
   /**
@@ -139,10 +184,11 @@ export const docSyncApi = {
  * instead of opening a PR directly). Returns the freshly created request.
  */
 export interface DocSyncQueueResult {
-  id: string;
-  status: string;
-  filePath: string;
-  hasChanges: boolean;
+  success: boolean;
+  /** Whether a proposal was actually created. */
+  queued: boolean;
+  /** The created proposal; absent when nothing was queued. */
+  request?: DocUpdateRequest | null;
   message?: string;
 }
 

@@ -64,6 +64,23 @@ public interface GithubClient {
                                                      long number);
 
     /**
+     * Downloads the whole repository at the given ref as a gzipped tar
+     * archive.
+     *
+     * <p>This is the cheapest way to read a repository: one request
+     * returns every file, whereas the contents API needs one request per
+     * directory. The bytes are the raw archive — the caller decodes it
+     * with {@link RepositoryArchive}.
+     *
+     * @param accessToken GitHub access token
+     * @param owner       repository owner
+     * @param repo        repository name
+     * @param ref         branch, tag or commit SHA
+     * @return the archive bytes, or an empty array when the download failed
+     */
+    byte[] downloadRepositoryArchive(String accessToken, String owner, String repo, String ref);
+
+    /**
      * Fetches full metadata for a single repository (refreshes description,
      * default branch, visibility, etc.). Used by the real re-sync.
      */
@@ -174,4 +191,39 @@ public interface GithubClient {
      * exist.
      */
     void deleteBranch(String accessToken, String owner, String repo, String branch);
+
+    /**
+     * Writes a set of files into a branch as a single commit.
+     *
+     * <p>This uses the Git Data API rather than the Contents API: the
+     * Contents API makes one commit per file, which would spread a
+     * seeded change over many revisions — and the drift detector
+     * compares two revisions, so it needs the change to land as one.
+     *
+     * <p>Files that do not exist yet are created; files that do exist
+     * are replaced.
+     *
+     * @param accessToken   GitHub access token
+     * @param owner         repository owner
+     * @param repo          repository name
+     * @param branch        the branch to write to — it is created from
+     *                      the default branch when it does not exist
+     * @param files         the files to write, path and content
+     * @param commitMessage the commit message
+     * @param authorName    the commit author name
+     * @param authorEmail   the commit author email
+     * @return the SHA of the new commit
+     */
+    String commitFiles(String accessToken, String owner, String repo, String branch,
+                       List<GithubFileWrite> files, String commitMessage,
+                       String authorName, String authorEmail);
+
+    /**
+     * One file to write through the Git Data API.
+     *
+     * @param path    the path inside the repository
+     * @param content the UTF-8 content
+     */
+    record GithubFileWrite(String path, String content) {
+    }
 }

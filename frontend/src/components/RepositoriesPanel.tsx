@@ -23,6 +23,7 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { LoadingState, ErrorState, EmptyState } from './ui/states';
 import { describeError } from '../services/auth';
+import { ingestRepositoryEverything } from '../services/repositoryIngest';
 import {
   githubApi,
   GithubRepositoryCatalogItem,
@@ -207,8 +208,14 @@ export function RepositoriesPanel({ workspaceId, canManage, canConnect = true }:
   async function ingest() {
     if (!selectedRepo) return;
     setBusy(true);
+    setError(null);
     try {
-      const list = await githubApi.ingestPullRequests(workspaceId, selectedRepo.id, 'all');
+      // The composite ingest: pull requests, then the code entities,
+      // then the module directories derived from them. Only the pull
+      // requests are shown in this panel, but the other two are indexed
+      // so the coverage-gap list below has something to work with.
+      await ingestRepositoryEverything(workspaceId, selectedRepo.id);
+      const list = await githubApi.listPullRequests(workspaceId, selectedRepo.id);
       setPulls(list);
     } catch (err) {
       setError(describeError(err));
@@ -387,7 +394,7 @@ export function RepositoriesPanel({ workspaceId, canManage, canConnect = true }:
               <div className="flex gap-1">
                 {canManage && (
                   <Button size="sm" variant="outline" onClick={() => void ingest()} disabled={busy}>
-                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ingest from GitHub'}
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : t('repository.ingestAll', 'Ingest all')}
                   </Button>
                 )}
                 <Button

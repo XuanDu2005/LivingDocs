@@ -205,6 +205,7 @@ public class DocumentService {
         String previousTitle = d.getTitle();
         String previousSummary = d.getSummary();
         UUID previousRepositoryId = d.getRepositoryId();
+        String previousFilePath = d.getFilePath();
         UUID previousTemplateId = d.getTemplateId();
         UUID previousOwnerId = d.getOwnerId();
         boolean previousAutoUpdate = d.isAutoUpdateEnabled();
@@ -234,6 +235,18 @@ public class DocumentService {
         }
         if (req.templateId() != null) {
             d.setTemplateId(req.templateId());
+        }
+        // The file path follows the same rule as the repository and the
+        // template: a null means "leave it alone". The path is what
+        // links the document to the file it is published to, so a
+        // change to it belongs in the trail just like the repository.
+        boolean filePathChanged = false;
+        if (req.filePath() != null) {
+            String newPath = req.filePath().isBlank() ? null : req.filePath().trim();
+            if (!Objects.equals(previousFilePath, newPath)) {
+                d.setFilePath(newPath);
+                filePathChanged = true;
+            }
         }
         d.setAutoUpdateEnabled(req.autoUpdateEnabled());
 
@@ -270,6 +283,10 @@ public class DocumentService {
         }
         if (req.repositoryId() != null && !req.repositoryId().equals(previousRepositoryId)) {
             changes.put("repositoryId", req.repositoryId().toString());
+        }
+        if (filePathChanged) {
+            changes.put("filePath", d.getFilePath() == null ? "" : d.getFilePath());
+            changes.put("previousFilePath", previousFilePath == null ? "" : previousFilePath);
         }
         if (req.templateId() != null && !req.templateId().equals(previousTemplateId)) {
             changes.put("templateId", req.templateId().toString());
