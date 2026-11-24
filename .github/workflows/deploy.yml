@@ -222,7 +222,12 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
-          install -m 600 /dev/null ~/.ssh/id_ed25519
+          # `install` does not create the parent directory, and a fresh
+          # runner has no ~/.ssh at all — without this the very first
+          # command fails with "No such file or directory" and the step
+          # aborts before it writes anything to $GITHUB_ENV.
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
