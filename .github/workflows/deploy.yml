@@ -50,11 +50,15 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ${{ github.repository_owner }}
-  # The full image prefix the compose file resolves. It must match the
-  # tag the build-and-push job publishes, so the deployment host can
-  # `docker compose pull` the images it is about to run.
-  IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}
+  # NOTE: the image namespace is *not* set here. A container image
+  # repository name must be lowercase, and `github.repository_owner`
+  # keeps the owner's exact spelling ("XuanDu2005"), which produces the
+  # invalid tag "ghcr.io/XuanDu2005/backend" and fails the build before
+  # it starts. GitHub Actions has no `lower()` expression function, so
+  # the `resolve` job lowercases the owner with the shell and publishes
+  # it as a job output; the push tags and the `docker compose pull` on
+  # the deployment host both read that output, so they always agree.
+  # GHCR stores the package under the lowercased name.
 
 jobs:
   # ---------------------------------------------------------------------
@@ -67,6 +71,14 @@ jobs:
       environment: ${{ steps.resolve.outputs.environment }}
       tag: ${{ steps.resolve.outputs.tag }}
       is_production: ${{ steps.resolve.outputs.is_production }}
+      # The lowercased owner, used as the image namespace. A container
+      # image repository name must be lowercase, so the owner's exact
+      # spelling cannot be used verbatim.
+      image_namespace: ${{ steps.resolve.outputs.image_namespace }}
+      # The full image prefix the compose file resolves. It must match the
+      # tag the build-and-push job publishes, so the deployment host can
+      # `docker compose pull` the images it is about to run.
+      image_repository: ${{ steps.resolve.outputs.image_repository }}
 
     steps:
       - name: Work out the environment and the image tag
@@ -76,8 +88,16 @@ jobs:
           DISPATCH_PRODUCTION: ${{ inputs.production }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+
+          # A container image repository name must be lowercase. The
+          # owner keeps its exact spelling on GitHub, so it has to be
+          # lowercased before it becomes an image path.
+          IMAGE_NAMESPACE="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_REPOSITORY="${REGISTRY}/${IMAGE_NAMESPACE}"
+          echo "Using the image namespace '$IMAGE_NAMESPACE'"
 
           if [ "$REF" = "refs/heads/main" ]; then
             ENVIRONMENT="staging"
@@ -106,6 +126,8 @@ jobs:
           echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "is_production=$IS_PRODUCTION" >> "$GITHUB_OUTPUT"
+          echo "image_namespace=$IMAGE_NAMESPACE" >> "$GITHUB_OUTPUT"
+          echo "image_repository=$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
           echo "Deploying to $ENVIRONMENT with tag $TAG"
 
   # ---------------------------------------------------------------------
@@ -152,8 +174,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.resolve.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ needs.resolve.outputs.image_namespace }}/${{ matrix.image }}:${{ needs.resolve.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ needs.resolve.outputs.image_namespace }}/${{ matrix.image }}:latest
           labels: |
             org.opencontainers.image.title=LivingDocs ${{ matrix.image }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -221,6 +243,7 @@ jobs:
       - name: Deploy the stack
         env:
           IMAGE_TAG: ${{ needs.resolve.outputs.tag }}
+          IMAGE_REPOSITORY: ${{ needs.resolve.outputs.image_repository }}
         run: |
           set -euo pipefail
           ssh "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<REMOTE
