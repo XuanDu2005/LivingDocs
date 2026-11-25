@@ -3,10 +3,10 @@ package com.livingdocs.modules.docsync.job;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.livingdocs.common.security.PermissionService;
 import com.livingdocs.modules.docsync.job.DocSyncJobRepository;
-import com.livingdocs.modules.github.model.GithubConnection;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.service.DocSyncService;
+import com.livingdocs.modules.github.service.GithubCredentialService;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +49,7 @@ class DocSyncJobServiceTest {
     private RepositoryRepository repositoryRepository;
     private DocSyncService docSyncService;
     private GithubOAuthService githubOAuthService;
+    private GithubCredentialService credentialService;
     private WorkspaceService workspaceService;
     private PermissionService permissionService;
     private DocSyncJobService service;
@@ -63,6 +64,7 @@ class DocSyncJobServiceTest {
         repositoryRepository = mock(RepositoryRepository.class);
         docSyncService = mock(DocSyncService.class);
         githubOAuthService = mock(GithubOAuthService.class);
+        credentialService = mock(GithubCredentialService.class);
         workspaceService = mock(WorkspaceService.class);
         permissionService = mock(PermissionService.class);
 
@@ -76,6 +78,7 @@ class DocSyncJobServiceTest {
                 repositoryRepository,
                 docSyncService,
                 githubOAuthService,
+                credentialService,
                 workspaceService,
                 permissionService,
                 new ObjectMapper(),
@@ -87,10 +90,11 @@ class DocSyncJobServiceTest {
         actorId = UUID.randomUUID();
 
         // The sync needs a GitHub credential; without one it fails
-        // before it ever reaches the AI.
-        GithubConnection connection = GithubConnection.create(
-                actorId, 1L, "octocat", "gh-token", "bearer", "repo");
-        when(githubOAuthService.findForUser(any())).thenReturn(Optional.of(connection));
+        // before it ever reaches the AI. The credential service picks
+        // the first candidate that GitHub still accepts, so the stub
+        // returns the token directly.
+        when(credentialService.resolveTokenForRepository(any(), any()))
+                .thenReturn("gh-token");
     }
 
     @Test

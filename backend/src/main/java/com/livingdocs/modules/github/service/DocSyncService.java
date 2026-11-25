@@ -181,6 +181,15 @@ public class DocSyncService {
                                 repo.getName(), accessToken, entityMap, allFiles, seenPaths);
                     }
                 }
+            } catch (com.livingdocs.modules.github.exception.GithubTokenInvalidException e) {
+                // An expired credential is not a per-directory problem:
+                // every path of the repository would fail the same way,
+                // and the scan would report "0 files, no drift" for a
+                // repository it never actually read. The failure has to
+                // travel up to the job so the user is told to reconnect.
+                log.warn("GitHub credential is no longer valid while scanning {} in repository {}",
+                        docPath, repo.getFullName());
+                throw e;
             } catch (Exception e) {
                 log.warn("Could not scan path {} in repository {}: {}",
                         docPath, repo.getFullName(), e.getMessage());

@@ -294,7 +294,34 @@ public class RestGithubClient implements GithubClient {
                     })
                     .block(Duration.ofMillis(properties.getApi().getTimeoutMs()));
             List<GithubPullRequestFile> out = new ArrayList<>();
-            if (arr != null && arr.isArray()) {
+            // The compare endpoint answers with an *object*, not with an
+            // array: `{status, ahead_by, behind_by, total_commits,
+            // commits: [...], files: [...]}`. Reading the body as if it
+            // were an array yielded an empty list for every comparison,
+            // which the drift resolver could not distinguish from "the
+            // two revisions are identical" — so every repository-wide
+            // scan reported "the code has not changed since the document
+            // was written" no matter how much the code had moved on.
+            if (arr != null && arr.isObject()) {
+                JsonNode files = arr.path("files");
+                if (files.isArray()) {
+                    for (JsonNode f : files) {
+                        out.add(new GithubPullRequestFile(
+                                f.path("filename").asText(),
+                                f.path("status").asText("modified"),
+                                f.path("patch").asText(null),
+                                f.path("additions").isNumber() ? f.path("additions").asLong() : null,
+                                f.path("deletions").isNumber() ? f.path("deletions").asLong() : null,
+                                f.path("changes").isNumber() ? f.path("changes").asLong() : null));
+                    }
+                }
+                if ("identical".equals(arr.path("status").asText(""))) {
+                    log.info("compareCommits {}/{} {}...{}: the revisions are identical",
+                            owner, repo, base, head);
+                }
+            } else if (arr != null && arr.isArray()) {
+                // Older GitHub Enterprise versions answer with a bare
+                // array of files.
                 for (JsonNode f : arr) {
                     out.add(new GithubPullRequestFile(
                             f.path("filename").asText(),

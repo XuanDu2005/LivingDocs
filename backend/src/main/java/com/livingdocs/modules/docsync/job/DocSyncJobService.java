@@ -8,6 +8,7 @@ import com.livingdocs.modules.docsync.job.DocSyncJobStatus;
 import com.livingdocs.modules.github.model.Repository;
 import com.livingdocs.modules.github.repository.RepositoryRepository;
 import com.livingdocs.modules.github.service.DocSyncService;
+import com.livingdocs.modules.github.service.GithubCredentialService;
 import com.livingdocs.modules.github.service.GithubOAuthService;
 import com.livingdocs.modules.workspace.service.WorkspaceService;
 import org.slf4j.Logger;
@@ -64,6 +65,7 @@ public class DocSyncJobService {
     private final RepositoryRepository repositoryRepository;
     private final DocSyncService docSyncService;
     private final GithubOAuthService githubOAuthService;
+    private final GithubCredentialService credentialService;
     private final WorkspaceService workspaceService;
     private final PermissionService permissionService;
     private final ObjectMapper objectMapper;
@@ -90,6 +92,7 @@ public class DocSyncJobService {
                              RepositoryRepository repositoryRepository,
                              DocSyncService docSyncService,
                              GithubOAuthService githubOAuthService,
+                             GithubCredentialService credentialService,
                              WorkspaceService workspaceService,
                              PermissionService permissionService,
                              ObjectMapper objectMapper,
@@ -99,6 +102,7 @@ public class DocSyncJobService {
         this.repositoryRepository = repositoryRepository;
         this.docSyncService = docSyncService;
         this.githubOAuthService = githubOAuthService;
+        this.credentialService = credentialService;
         this.workspaceService = workspaceService;
         this.permissionService = permissionService;
         this.objectMapper = objectMapper;
@@ -326,18 +330,18 @@ public class DocSyncJobService {
      * runs on a background thread, where there is no authenticated
      * request to read the current user from.
      */
+    /**
+     * The GitHub credential to read the repository with.
+     *
+     * <p>The credential of the user who connected the repository is
+     * preferred, the requesting user comes next, and every other member
+     * of the owning workspace is the last resort. Each candidate is
+     * validated against GitHub before it is used, so one expired token
+     * does not fail the whole sync — and a connection that GitHub has
+     * rejected is marked as expired instead of being retried forever.
+     */
     private String resolveAccessToken(Repository repo, UUID requestedBy) {
-        Optional<com.livingdocs.modules.github.model.GithubConnection> connection =
-                githubOAuthService.findForUser(repo.getConnectedBy());
-        if (connection.isPresent()) {
-            String token = connection.get().getAccessToken();
-            if (token != null && !token.isBlank()) {
-                return token;
-            }
-        }
-        return githubOAuthService.findForUser(requestedBy)
-                .map(c -> c.getAccessToken())
-                .orElse(null);
+        return credentialService.resolveTokenForRepository(repo, requestedBy);
     }
 
     // -----------------------------------------------------------------
