@@ -48,6 +48,7 @@ public class GithubRepositoryService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final GithubOAuthService oauthService;
+    private final GithubCredentialService credentialService;
     private final GithubClient githubClient;
     private final GithubProperties githubProperties;
     private final PermissionService permissionService;
@@ -58,6 +59,7 @@ public class GithubRepositoryService {
                                    WorkspaceRepository workspaceRepository,
                                    WorkspaceMemberRepository workspaceMemberRepository,
                                    GithubOAuthService oauthService,
+                                   GithubCredentialService credentialService,
                                    GithubClient githubClient,
                                    GithubProperties githubProperties,
                                    PermissionService permissionService,
@@ -67,6 +69,7 @@ public class GithubRepositoryService {
         this.workspaceRepository = workspaceRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.oauthService = oauthService;
+        this.credentialService = credentialService;
         this.githubClient = githubClient;
         this.githubProperties = githubProperties;
         this.permissionService = permissionService;
@@ -409,14 +412,41 @@ public class GithubRepositoryService {
 
     /**
      * Gets the GitHub access token for the given workspace.
-     * The token belongs to the first admin/member of the workspace.
+     *
+     * <p>The token of the current user is preferred — it is the one whose
+     * scopes certainly cover the repositories the user is working on.
+     * But that token may have expired or been revoked, and the
+     * workspace's other members may still hold a working one. Without
+     * that fallback a single expired connection silently disabled every
+     * documentation-sync action of the whole workspace, which is how a
+     * scan came to report "0 files, no drift" for a repository the
+     * platform could not even read.
      *
      * @throws ForbiddenException if the current user is not a member of the workspace
      * @throws RuntimeException if no GitHub connection exists for the workspace
      */
     public String getAccessTokenForWorkspace(UUID workspaceId) {
         requireMembership(workspaceId);
-        GithubConnection conn = oauthService.requireForCurrentUser();
-        return conn.getAccessToken();
+
+        // A connection that GitHub still accepts — the current user's
+        // if theirs works, otherwise one of the workspace's other
+        // members. The credential service validates every candidate
+        // before it is handed out, so an expired token is never
+        // returned to a caller that would fail with a 401.
+        String working = credentialService.resolveTokenForWorkspace(workspaceId);
+        if (working != null && !working.isBlank()) {
+            return working;
+        }
+
+        // Nothing was validated — fall back to the current user's stored
+        // token so the error the user sees comes from GitHub itself
+        // rather than from a generic "no connection" message.
+        GithubConnection conn = oauthService.findForCurrentUser().orElse(null);
+        if (conn != null && conn.getAccessToken() != null && !conn.getAccessToken().isBlank()) {
+            return conn.getAccessToken();
+        }
+        throw new RuntimeException(
+                "No working GitHub connection is available for this workspace. "
+                        + "Reconnect your GitHub account and try again.");
     }
 }
